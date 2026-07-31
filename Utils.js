@@ -173,6 +173,60 @@ function getSheetDataRows_(sheet) {
   }, []);
 }
 
+function getAuditDerivedRows_() {
+  try {
+    const ss = getSpreadsheet_();
+    if (!ss) return [];
+
+    // find audit sheet
+    let audit = ss.getSheetByName('Audit Log');
+    if (!audit) {
+      const sheets = ss.getSheets();
+      for (let i = 0; i < sheets.length; i++) {
+        if ((sheets[i].getName() || '').toLowerCase().indexOf('audit') !== -1) {
+          audit = sheets[i];
+          break;
+        }
+      }
+    }
+
+    if (!audit) return [];
+
+    const lastRow = audit.getLastRow();
+    if (lastRow < 2) return [];
+
+    const values = audit.getRange(2, 1, lastRow - 1, Math.max(5, audit.getLastColumn())).getValues();
+    const rows = [];
+
+    values.forEach(function (r, idx) {
+      const action = String(r[2] || '').toLowerCase();
+      const details = r[4] || '';
+
+      if (action === 'add' || action === 'added' || (details && String(details).trim().charAt(0) === '{')) {
+        try {
+          const obj = typeof details === 'string' ? JSON.parse(details) : details;
+          rows.push({
+            rowNumber: 0,
+            id: obj.id || obj.ID || idx + 1,
+            sector: obj.sector || obj.Sector || '',
+            description: obj.description || obj.Description || '',
+            entryDate: obj.entryDate || obj.EntryDate || '',
+            action: obj.action || obj.Action || '',
+            responsibility: obj.responsibility || obj.Responsibility || '',
+            reviewDate: obj.reviewDate || obj.ReviewDate || ''
+          });
+        } catch (err) {
+          // ignore parse errors
+        }
+      }
+    });
+
+    return rows;
+  } catch (err) {
+    return [];
+  }
+}
+
 function bindSpreadsheet_(spreadsheetId) {
   const id = String(spreadsheetId || "").trim();
 

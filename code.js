@@ -138,7 +138,13 @@ function isFlagged_(background) {
 function getData() {
 
   const sheet = getSheet_();
-  const rows = getSheetDataRows_(sheet);
+  const sheet = getSheet_();
+  let rows = getSheetDataRows_(sheet);
+
+  // Fallback: if no rows in dashboard sheet, try deriving items from Audit Log
+  if (!rows || !rows.length) {
+    rows = getAuditDerivedRows_();
+  }
 
   if (!rows.length) {
 
