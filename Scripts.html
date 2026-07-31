@@ -1,0 +1,112 @@
+<script>
+// Complete Scripts.html (compatible with modular index.html)
+
+let allItems=[],editingId=null,pendingDelete=null;
+const $=id=>document.getElementById(id);
+
+function esc(v){return v==null?"":String(v).replace(/&/g,"&amp;").replace(/</g,"&lt;").replace(/>/g,"&gt;").replace(/"/g,"&quot;");}
+function fmt(v){return v||"-";}
+function showOverlay(m){$("overlay").classList.remove("hidden");if(m){const t=document.querySelector(".overlay-text");if(t)t.textContent=m;}}
+function hideOverlay(){$("overlay").classList.add("hidden");}
+function hideLoader(){var l=$("loading");if(l)l.style.display="none";}
+function toast(m){const t=$("toast");t.textContent=m;t.classList.add("show");setTimeout(()=>t.classList.remove("show"),3000);}
+
+function field(label,inner){return '<div class="f"><label>'+label+'</label>'+inner+'</div>';}
+
+function loadData(){
+ showOverlay("Loading...");
+ google.script.run.withSuccessHandler(function(res){
+   hideOverlay();
+   $("hTitle").textContent=res.heading||"Circle Office Haryana Dashboard";
+   $("hAsOf").textContent=res.asOf?("As of "+res.asOf):"";
+   allItems=res.items||[];
+   buildFilter();
+   render(current());
+ }).withFailureHandler(function(e){
+   hideOverlay();
+   hideLoader();
+   $("box").innerHTML='<div class="loading">'+esc(e.message||e)+'</div>';
+ }).getData();
+}
+
+function buildFilter(){
+ const s=$("sectorFilter"),cur=s.value; s.innerHTML='<option value="">All Sectors</option>';
+ const seen={};
+ allItems.forEach(i=>{if(i.sector&&!seen[i.sector]){seen[i.sector]=1;let o=document.createElement("option");o.value=i.sector;o.textContent=i.sector;s.appendChild(o);}});
+ s.value=cur;
+}
+function current(){
+ const q=$("searchInput").value.toLowerCase(),sec=$("sectorFilter").value;
+ return allItems.filter(i=>{
+   const h=((i.sector||"")+" "+(i.description||"")+" "+(i.action||"")+" "+(i.responsibility||"")).toLowerCase();
+   return (!q||h.includes(q))&&(!sec||i.sector===sec);
+ });
+}
+function render(items){
+ pendingDelete=null;
+ hideLoader();
+ const b=$("box");
+ if(!items.length){b.innerHTML='<div class="loading">No records.</div>';return;}
+ b.innerHTML=items.map(card).join("");
+}
+function card(it){
+ let h='<div class="card'+(it.flagged?' flag':'')+'"><div class="chead"><span class="badge'+(it.flagged?' flag':'')+'">#'+esc(it.id)+'</span>'+(it.flagged?'<span class="due">Review Due</span>':'')+'</div>';
+ if(editingId===it.id){
+  h+=field("Sector",'<input id="e-sector-'+it.id+'" value="'+esc(it.sector)+'">');
+  h+=field("Description",'<textarea id="e-desc-'+it.id+'">'+esc(it.description)+'</textarea>');
+  h+=field("Entry Date",'<input id="e-entry-'+it.id+'" value="'+esc(it.entryDate)+'">');
+  h+=field("Action",'<textarea id="e-action-'+it.id+'">'+esc(it.action)+'</textarea>');
+  h+=field("Responsibility",'<input id="e-resp-'+it.id+'" value="'+esc(it.responsibility)+'">');
+  h+=field("Review Date",'<input id="e-review-'+it.id+'" value="'+esc(it.reviewDate)+'">');
+  h+='<div class="acts"><button class="btn btn-save" onclick="saveItem('+it.id+')">Save</button><button class="btn btn-cancel" onclick="cancelEdit()">Cancel</button></div>';
+ }else{
+  h+=field("Sector",'<div class="v">'+esc(it.sector)+'</div>');
+  h+=field("Description",'<div class="v">'+esc(it.description)+'</div>');
+  h+=field("Entry Date",'<div class="v">'+fmt(it.entryDate)+'</div>');
+  h+=field("Action",'<div class="v act">'+(it.actionHtml||esc(it.action))+'</div>');
+  h+=field("Responsibility",'<div class="v">'+esc(it.responsibility)+'</div>');
+  h+=field("Review Date",'<div class="v rev">'+fmt(it.reviewDate)+'</div>');
+  h+='<div class="acts"><button class="btn btn-edit" onclick="editItem('+it.id+')">Edit</button><button id="del-'+it.id+'" class="btn btn-del" onclick="delItem('+it.id+','+it.row+',this)">Delete</button></div>';
+ }
+ return h+'</div>';
+}
+function editItem(id){editingId=id;render(current());}
+function cancelEdit(){editingId=null;render(current());}
+function val(id){const e=$(id);return e?e.value:"";}
+function saveItem(id){
+ const it=allItems.find(x=>x.id===id); if(!it)return;
+ it.sector=val("e-sector-"+id);it.description=val("e-desc-"+id);it.entryDate=val("e-entry-"+id);
+ it.action=val("e-action-"+id);it.responsibility=val("e-resp-"+id);it.reviewDate=val("e-review-"+id);
+ showOverlay("Saving...");
+ google.script.run.withSuccessHandler(r=>{hideOverlay();allItems=r.items||[];editingId=null;buildFilter();render(current());toast("Saved");})
+ .withFailureHandler(e=>{hideOverlay();toast("Error: "+(e.message||e));}).updateItem(it);
+}
+function clearPendingDelete(){
+ if(pendingDelete!==null){var b=$("del-"+pendingDelete);if(b){b.textContent="Delete";b.className="btn btn-del";}}
+ pendingDelete=null;
+}
+function delItem(id,row,btn){
+ if(pendingDelete!==id){
+  clearPendingDelete();
+  pendingDelete=id;
+  if(btn){btn.textContent="Click again to confirm";btn.className="btn btn-del confirming";}
+  toast("Click again to confirm deletion of item #"+id);
+  return;
+ }
+ clearPendingDelete();
+ showOverlay("Deleting...");
+ google.script.run.withSuccessHandler(r=>{hideOverlay();allItems=r.items||[];buildFilter();render(current());toast("Deleted");})
+ .withFailureHandler(e=>{hideOverlay();toast("Error: "+(e.message||e));}).deleteItem(row);
+}
+function addNewItem(){
+ showOverlay("Adding...");
+ google.script.run.withSuccessHandler(r=>{hideOverlay();allItems=r.items||[];buildFilter();editingId=allItems.length?allItems[allItems.length-1].id:null;render(current());})
+ .withFailureHandler(e=>{hideOverlay();toast("Error: "+(e.message||e));})
+ .addItem({sector:"",description:"",entryDate:"",action:"",responsibility:"",reviewDate:"",flagged:false});
+}
+window.onload=function(){
+ $("searchInput").oninput=()=>render(current());
+ $("sectorFilter").onchange=()=>render(current());
+ loadData();
+};
+</script>

@@ -1,0 +1,152 @@
+<!DOCTYPE html>
+<html>
+
+<head>
+  <base target="_top">
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+
+  <title>Circle Office Haryana Dashboard</title>
+
+  <?!= include('Styles'); ?>
+</head>
+
+<body>
+
+  <!-- ================= HEADER ================= -->
+
+  <header class="header">
+
+    <div class="header-left">
+
+      <h1 id="hTitle">
+        Circle Office Haryana Dashboard
+      </h1>
+
+      <div id="hAsOf" class="subtitle">
+        Loading...
+      </div>
+
+    </div>
+
+    <div class="header-right">
+
+      <button
+        class="btn btn-primary"
+        onclick="addNewItem()">
+
+        + Add Item
+
+      </button>
+
+    </div>
+
+  </header>
+
+
+
+  <!-- ================= FILTERS ================= -->
+
+  <section class="toolbar">
+
+    <input
+
+      id="searchInput"
+
+      type="text"
+
+      placeholder="Search Sector, Description, Action, Responsibility...">
+
+    <select id="sectorFilter">
+
+      <option value="">
+        All Sectors
+      </option>
+
+    </select>
+
+  </section>
+
+
+
+  <!-- ================= LOADER ================= -->
+
+  <div id="loading" class="loading">
+
+    Loading dashboard...
+
+  </div>
+
+
+
+  <!-- ================= CARDS ================= -->
+
+  <main id="box" class="cards">
+
+  </main>
+
+
+
+  <!-- ================= TOAST ================= -->
+
+  <div
+
+    id="toast"
+
+    class="toast">
+
+  </div>
+
+
+
+  <!-- ================= LOADING OVERLAY ================= -->
+
+  <div
+
+    id="overlay"
+
+    class="overlay hidden">
+
+    <div class="spinner"></div>
+
+    <div class="overlay-text">
+
+      Please wait...
+
+    </div>
+
+  </div>
+
+
+
+  <!-- ================= FOOTER ================= -->
+
+  <footer class="footer">
+
+    <span>
+
+      Circle Office Haryana Dashboard
+
+    </span>
+
+    <span>
+
+      Version
+
+      <span id="appVersion">
+
+        3.0
+
+      </span>
+
+    </span>
+
+  </footer>
+
+
+
+  <?!= include('Scripts'); ?>
+
+</body>
+
+</html>
