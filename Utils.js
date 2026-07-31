@@ -30,33 +30,38 @@ function normalizeHeaderValue_(value) {
     .replace(/[^a-z0-9]+/g, "");
 }
 
+function isLikelyHeaderRow_(row) {
+  const normalized = (row || []).map(function (value) {
+    return normalizeHeaderValue_(value);
+  });
+
+  const hits = normalized.filter(function (value) {
+    return value === "id" ||
+      value === "sector" ||
+      value === "description" ||
+      value === "entrydate" ||
+      value === "entry" ||
+      value === "action" ||
+      value === "responsibility" ||
+      value === "responsible" ||
+      value === "reviewdate" ||
+      value === "review" ||
+      value === "due" ||
+      value === "date";
+  }).length;
+
+  return hits >= 2;
+}
+
 function findHeaderRow_(sheet) {
   if (!sheet) {
     return 0;
   }
 
-  const maxRows = Math.min(sheet.getMaxRows(), 20);
-  const maxColumns = Math.max(sheet.getMaxColumns(), CONFIG.SHEET.NUM_COLS);
-  const values = sheet.getRange(1, 1, maxRows, maxColumns).getValues();
+  const values = sheet.getDataRange().getValues();
 
   for (let index = 0; index < values.length; index++) {
-    const row = values[index] || [];
-    const normalized = row.map(function (value) {
-      return normalizeHeaderValue_(value);
-    });
-    const hits = normalized.filter(function (value) {
-      return value === "id" ||
-        value === "sector" ||
-        value === "description" ||
-        value === "entrydate" ||
-        value === "action" ||
-        value === "responsibility" ||
-        value === "reviewdate" ||
-        value === "review" ||
-        value === "due";
-    }).length;
-
-    if (hits >= 3) {
+    if (isLikelyHeaderRow_(values[index])) {
       return index + 1;
     }
   }
@@ -100,6 +105,24 @@ function getDataStartRow_(sheet) {
   return headerRow > 0 ? headerRow + 1 : 1;
 }
 
+function getFieldValue_(fieldMap, row, fieldName, fallbackIndex) {
+  if (!row) {
+    return "";
+  }
+
+  const index = fieldMap[fieldName];
+
+  if (index !== undefined && index < row.length) {
+    return row[index];
+  }
+
+  if (fallbackIndex !== undefined && fallbackIndex < row.length) {
+    return row[fallbackIndex];
+  }
+
+  return "";
+}
+
 function ensureSheetStructure_(sheet) {
   if (!sheet) {
     return null;
@@ -113,22 +136,19 @@ function getSheetDataRows_(sheet) {
     return [];
   }
 
-  const lastRow = sheet.getLastRow();
-  const maxColumns = Math.max(CONFIG.SHEET.NUM_COLS, sheet.getLastColumn());
-  const startRow = getDataStartRow_(sheet);
+  const values = sheet.getDataRange().getValues();
 
-  if (lastRow < startRow) {
+  if (!values.length) {
     return [];
   }
 
-  const values = sheet.getRange(startRow, 1, lastRow - startRow + 1, maxColumns).getValues();
-  const headerValues = startRow > 1
-    ? sheet.getRange(startRow - 1, 1, 1, maxColumns).getValues()[0]
-    : [];
+  const headerRow = findHeaderRow_(sheet);
+  const startRow = headerRow > 0 ? headerRow + 1 : 1;
+  const headerValues = headerRow > 0 ? values[headerRow - 1] || [] : [];
   const fieldMap = headerValues.length ? buildFieldMap_(headerValues) : {};
 
-  return values.reduce(function (rows, row, index) {
-    const normalizedRow = row.slice(0, maxColumns);
+  return values.slice(startRow - 1).reduce(function (rows, row, index) {
+    const normalizedRow = (row || []).slice(0, CONFIG.SHEET.NUM_COLS);
     const hasContent = normalizedRow.some(function (value) {
       return String(value || "").trim() !== "";
     });
@@ -141,13 +161,13 @@ function getSheetDataRows_(sheet) {
 
     rows.push({
       rowNumber: rowNumber,
-      id: fieldMap.id !== undefined ? normalizedRow[fieldMap.id] : normalizedRow[0],
-      sector: fieldMap.sector !== undefined ? normalizedRow[fieldMap.sector] : normalizedRow[1],
-      description: fieldMap.description !== undefined ? normalizedRow[fieldMap.description] : normalizedRow[2],
-      entryDate: fieldMap.entryDate !== undefined ? normalizedRow[fieldMap.entryDate] : normalizedRow[3],
-      action: fieldMap.action !== undefined ? normalizedRow[fieldMap.action] : normalizedRow[4],
-      responsibility: fieldMap.responsibility !== undefined ? normalizedRow[fieldMap.responsibility] : normalizedRow[5],
-      reviewDate: fieldMap.reviewDate !== undefined ? normalizedRow[fieldMap.reviewDate] : normalizedRow[6]
+      id: getFieldValue_(fieldMap, normalizedRow, "id", 0),
+      sector: getFieldValue_(fieldMap, normalizedRow, "sector", 1),
+      description: getFieldValue_(fieldMap, normalizedRow, "description", 2),
+      entryDate: getFieldValue_(fieldMap, normalizedRow, "entryDate", 3),
+      action: getFieldValue_(fieldMap, normalizedRow, "action", 4),
+      responsibility: getFieldValue_(fieldMap, normalizedRow, "responsibility", 5),
+      reviewDate: getFieldValue_(fieldMap, normalizedRow, "reviewDate", 6)
     });
 
     return rows;
@@ -187,13 +207,13 @@ function getPreferredSpreadsheetId_() {
     return configuredId;
   }
 
-  const defaultId = "1xQaysoLjDIqNa5X_QnvA5FWp7J6lMr5r6lzLGalm-y8";
+  const fallbackId = "1xQaysoLjDIqNa5X_QnvA5FWp7J6lMr5r6lzLGalm-y8";
 
   PropertiesService
     .getScriptProperties()
-    .setProperty("SPREADSHEET_ID", defaultId);
+    .setProperty("SPREADSHEET_ID", fallbackId);
 
-  return defaultId;
+  return fallbackId;
 }
 
 function getSpreadsheetBindingInfo() {
@@ -269,21 +289,7 @@ function getSpreadsheet_() {
     } catch (err) {}
   }
 
-  try {
-    const newSpreadsheet = SpreadsheetApp.create(
-      CONFIG.TITLE.DEFAULT || "Circle Office Haryana Dashboard"
-    );
-
-    PropertiesService
-      .getScriptProperties()
-      .setProperty("SPREADSHEET_ID", newSpreadsheet.getId());
-
-    return newSpreadsheet;
-  } catch (createErr) {
-    throw new Error(
-      "Unable to access or create the dashboard spreadsheet."
-    );
-  }
+  return null;
 }
 
 function inspectBoundSheet_() {
@@ -312,6 +318,11 @@ function inspectBoundSheet_() {
 
 function getSheet_() {
   const ss = getSpreadsheet_();
+
+  if (!ss) {
+    return null;
+  }
+
   const sheets = ss.getSheets();
   let sheet = null;
 
@@ -357,7 +368,7 @@ function getSheet_() {
   }
 
   if (!sheet) {
-    sheet = ss.insertSheet(CONFIG.SHEET.NAME);
+    sheet = ss.getActiveSheet();
   }
 
   return ensureSheetStructure_(sheet);
