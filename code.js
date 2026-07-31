@@ -138,7 +138,6 @@ function isFlagged_(background) {
 function getData() {
 
   const sheet = getSheet_();
-  const sheet = getSheet_();
   let rows = getSheetDataRows_(sheet);
 
   // Fallback: if no rows in dashboard sheet, try deriving items from Audit Log
@@ -169,15 +168,27 @@ function getData() {
     let actionHtml = escHtml_(rowSpec.action);
 
     try {
-      const richValue = sheet.getRange(rowSpec.rowNumber, COL.ACTION).getRichTextValue();
-      actionHtml = richToHtml_(richValue, rowSpec.action);
-    } catch (err) {}
+      if (rowSpec.rowNumber && sheet) {
+        const richValue = sheet.getRange(rowSpec.rowNumber, COL.ACTION).getRichTextValue();
+        actionHtml = richToHtml_(richValue, rowSpec.action);
+      } else {
+        actionHtml = escHtml_(rowSpec.action);
+      }
+    } catch (err) {
+      actionHtml = escHtml_(rowSpec.action);
+    }
 
     let flagged = false;
 
     try {
-      flagged = isFlagged_(sheet.getRange(rowSpec.rowNumber, COL.REVIEW_DATE).getBackground());
-    } catch (err) {}
+      if (rowSpec.rowNumber && sheet) {
+        flagged = isFlagged_(sheet.getRange(rowSpec.rowNumber, COL.REVIEW_DATE).getBackground());
+      } else {
+        flagged = false;
+      }
+    } catch (err) {
+      flagged = false;
+    }
 
     return {
 
