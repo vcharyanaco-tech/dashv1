@@ -292,6 +292,27 @@ function getSpreadsheet_() {
   return null;
 }
 
+
+/**
+ * Run this function once in the Apps Script editor as the deploying user
+ * to force the OAuth consent flow and pre-authorize the script's scopes.
+ */
+function preauthorize() {
+  try {
+    const ss = getSpreadsheet_();
+    return {
+      success: !!ss,
+      spreadsheetId: ss ? ss.getId() : "",
+      url: ss ? ss.getUrl() : ""
+    };
+  } catch (err) {
+    return {
+      success: false,
+      message: err && err.message ? err.message : String(err)
+    };
+  }
+}
+
 function inspectBoundSheet_() {
   const spreadsheet = getSpreadsheet_();
   const sheets = spreadsheet.getSheets();
