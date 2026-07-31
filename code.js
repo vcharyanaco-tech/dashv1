@@ -268,22 +268,23 @@ function updateItem(item) {
   return runWithLock_(function () {
 
     const sheet = getSheet_();
+    const normalized = normalizeItemForSheet_(item);
 
     // Columns A-D
     sheet
       .getRange(item.row, COL.ID, 1, 4)
       .setValues([[
-        item.id,
-        item.sector,
-        item.description,
-        item.entryDate
+        normalized.id,
+        normalized.sector,
+        normalized.description,
+        normalized.entryDate
       ]]);
 
     // Column E (Action) - only rewrite when the text actually changed,
     // so the rich-text colours in the sheet are preserved otherwise.
     const actionCell = sheet.getRange(item.row, COL.ACTION);
     const oldAction = String(actionCell.getValue() == null ? "" : actionCell.getValue());
-    const newAction = String(item.action == null ? "" : item.action);
+    const newAction = String(normalized.action == null ? "" : normalized.action);
 
     if (oldAction.replace(/\r\n/g, "\n") !== newAction.replace(/\r\n/g, "\n")) {
       actionCell.setValue(newAction);
@@ -293,8 +294,8 @@ function updateItem(item) {
     sheet
       .getRange(item.row, COL.RESPONSIBILITY, 1, 2)
       .setValues([[
-        item.responsibility,
-        item.reviewDate
+        normalized.responsibility,
+        normalized.reviewDate
       ]]);
 
     sheet
@@ -321,6 +322,7 @@ function addItem(item) {
   return runWithLock_(function () {
 
     const sheet = getSheet_();
+    const normalized = normalizeItemForSheet_(item);
 
     const lastRow = Math.max(
       sheet.getLastRow(),
@@ -343,12 +345,12 @@ function addItem(item) {
       )
       .setValues([[
         id,
-        item.sector,
-        item.description,
-        item.entryDate,
-        item.action,
-        item.responsibility,
-        item.reviewDate
+        normalized.sector,
+        normalized.description,
+        normalized.entryDate,
+        normalized.action,
+        normalized.responsibility,
+        normalized.reviewDate
       ]]);
 
     sheet
@@ -389,22 +391,16 @@ function addItem(item) {
 function deleteItem(row) {
   return withLock_(function(){
     try {
-  const sheet = getSheet_();
-  sheet.deleteRow(row);
-  renumber_();
-  return getData();
+      const sheet = getSheet_();
+      sheet.deleteRow(row);
+      dataRenumber_();
+      return getData();
     } catch(err){throw new Error(err.message);} 
   });
 }
 
 function renumber_() {
-  const sheet = getSheet_();
-  const lastRow = sheet.getLastRow();
-  const numRows = lastRow - CONFIG.SHEET.START_ROW + 1;
-  if (numRows <= 0) return;
-  const ids = [];
-  for (var i = 0; i < numRows; i++) ids.push([i + 1]);
-  sheet.getRange(CONFIG.SHEET.START_ROW, 1, numRows, 1).setValues(ids);
+  dataRenumber_();
 }
 
 

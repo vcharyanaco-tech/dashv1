@@ -11,12 +11,75 @@
  * Spreadsheet Helpers
  * ============================================================ */
 
+function normalizeItemForSheet_(item) {
+  return {
+    id: item && item.id !== undefined && item.id !== null ? item.id : "",
+    sector: item && item.sector !== undefined && item.sector !== null ? item.sector : "",
+    description: item && item.description !== undefined && item.description !== null ? item.description : "",
+    entryDate: item && item.entryDate !== undefined && item.entryDate !== null ? item.entryDate : "",
+    action: item && item.action !== undefined && item.action !== null ? item.action : "",
+    responsibility: item && item.responsibility !== undefined && item.responsibility !== null ? item.responsibility : "",
+    reviewDate: item && item.reviewDate !== undefined && item.reviewDate !== null ? item.reviewDate : ""
+  };
+}
+
+function ensureSheetStructure_(sheet) {
+  if (!sheet) {
+    return null;
+  }
+
+  const header = [
+    "ID",
+    "Sector",
+    "Description",
+    "Entry Date",
+    "Action",
+    "Responsibility",
+    "Review Date"
+  ];
+
+  const existingHeader = sheet.getRange(3, 1, 1, CONFIG.SHEET.NUM_COLS).getValues()[0];
+
+  if (!existingHeader.some(function (value) {
+    return String(value || "").trim() !== "";
+  })) {
+    sheet.getRange(3, 1, 1, CONFIG.SHEET.NUM_COLS).setValues([header]);
+    sheet.getRange(3, 1, 1, CONFIG.SHEET.NUM_COLS).setFontWeight("bold");
+    sheet.setFrozenRows(3);
+  }
+
+  return sheet;
+}
+
 function getSpreadsheet_() {
-  return SpreadsheetApp.getActiveSpreadsheet();
+  try {
+    return SpreadsheetApp.getActiveSpreadsheet();
+  } catch (err) {
+    try {
+      const spreadsheetId = PropertiesService
+        .getScriptProperties()
+        .getProperty("SPREADSHEET_ID");
+
+      if (spreadsheetId) {
+        return SpreadsheetApp.openById(spreadsheetId);
+      }
+    } catch (openErr) {}
+
+    throw new Error(
+      "Unable to access the dashboard spreadsheet. Open the bound spreadsheet or set the SPREADSHEET_ID script property."
+    );
+  }
 }
 
 function getSheet_() {
-  return getSpreadsheet_().getSheetByName(CONFIG.SHEET.NAME);
+  const ss = getSpreadsheet_();
+  let sheet = ss.getSheetByName(CONFIG.SHEET.NAME);
+
+  if (!sheet) {
+    sheet = ss.insertSheet(CONFIG.SHEET.NAME);
+  }
+
+  return ensureSheetStructure_(sheet);
 }
 
 function getDataRange_() {

@@ -15,7 +15,7 @@ const AUDIT_SHEET = "Audit Log";
 
 function getAuditSheet_() {
 
-  const ss = SpreadsheetApp.getActive();
+  const ss = getSpreadsheet_();
 
   let sheet = ss.getSheetByName(AUDIT_SHEET);
 

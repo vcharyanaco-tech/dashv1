@@ -123,6 +123,7 @@ function dataRichText_() {
 function dataInsert_(row) {
 
   const sheet = dataSheet_();
+  const normalized = normalizeItemForSheet_(row);
 
   const last = Math.max(
     sheet.getLastRow(),
@@ -136,7 +137,15 @@ function dataInsert_(row) {
       1,
       CONFIG.SHEET.NUM_COLS
     )
-    .setValues([row]);
+    .setValues([[
+      normalized.id,
+      normalized.sector,
+      normalized.description,
+      normalized.entryDate,
+      normalized.action,
+      normalized.responsibility,
+      normalized.reviewDate
+    ]]);
 
   return last;
 
@@ -149,6 +158,8 @@ function dataInsert_(row) {
 
 function dataUpdate_(rowNumber, values) {
 
+  const normalized = normalizeItemForSheet_(values);
+
   dataSheet_()
     .getRange(
       rowNumber,
@@ -156,7 +167,15 @@ function dataUpdate_(rowNumber, values) {
       1,
       CONFIG.SHEET.NUM_COLS
     )
-    .setValues([values]);
+    .setValues([[
+      normalized.id,
+      normalized.sector,
+      normalized.description,
+      normalized.entryDate,
+      normalized.action,
+      normalized.responsibility,
+      normalized.reviewDate
+    ]]);
 
 }
 
