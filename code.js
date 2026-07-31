@@ -128,15 +128,9 @@ function isFlagged_(background) {
 function getData() {
 
   const sheet = getSheet_();
+  const rows = getSheetDataRows_(sheet);
 
-  const lastRow = sheet.getLastRow();
-
-  const rowCount = Math.max(
-    lastRow - CONFIG.SHEET.START_ROW + 1,
-    0
-  );
-
-  if (rowCount === 0) {
+  if (!rows.length) {
 
     const title = stampTitle_();
 
@@ -154,89 +148,42 @@ function getData() {
 
   }
 
-  const values = sheet
-    .getRange(
-      CONFIG.SHEET.START_ROW,
-      1,
-      rowCount,
-      CONFIG.SHEET.NUM_COLS
-    )
-    .getValues();
+  const items = rows.map(function (rowSpec) {
 
-  const backgrounds = sheet
-    .getRange(
-      CONFIG.SHEET.START_ROW,
-      COL.REVIEW_DATE,
-      rowCount,
-      1
-    )
-    .getBackgrounds();
+    let actionHtml = escHtml_(rowSpec.action);
 
-  let rich = null;
+    try {
+      const richValue = sheet.getRange(rowSpec.rowNumber, COL.ACTION).getRichTextValue();
+      actionHtml = richToHtml_(richValue, rowSpec.action);
+    } catch (err) {}
 
-  try {
+    let flagged = false;
 
-    rich = sheet
-      .getRange(
-        CONFIG.SHEET.START_ROW,
-        COL.ACTION,
-        rowCount,
-        1
-      )
-      .getRichTextValues();
-
-  } catch (err) {
-
-    rich = null;
-
-  }
-
-  const items = values.map(function (row, index) {
+    try {
+      flagged = isFlagged_(sheet.getRange(rowSpec.rowNumber, COL.REVIEW_DATE).getBackground());
+    } catch (err) {}
 
     return {
 
-      row:
-        CONFIG.SHEET.START_ROW + index,
+      row: rowSpec.rowNumber,
 
-      id:
-        row[COL.ID - 1],
+      id: rowSpec.id,
 
-      sector:
-        row[COL.SECTOR - 1],
+      sector: rowSpec.sector,
 
-      description:
-        row[COL.DESCRIPTION - 1],
+      description: rowSpec.description,
 
-      entryDate:
-        formatDate_(row[COL.ENTRY_DATE - 1]),
+      entryDate: formatDate_(rowSpec.entryDate),
 
-      action:
-        row[COL.ACTION - 1],
+      action: rowSpec.action,
 
-      actionHtml:
-        rich
-          ? richToHtml_(
-              rich[index][0],
-              row[COL.ACTION - 1]
-            )
-          : escHtml_(
-              row[COL.ACTION - 1]
-            ),
+      actionHtml: actionHtml,
 
-      responsibility:
-        row[
-          COL.RESPONSIBILITY - 1
-        ],
+      responsibility: rowSpec.responsibility,
 
-      reviewDate:
-        formatDate_(
-          row[COL.REVIEW_DATE - 1]
-        ),
+      reviewDate: formatDate_(rowSpec.reviewDate),
 
-      flagged:
-        isFlagged_(
-          backgrounds[index][0]
-        )
+      flagged: flagged
 
     };
 

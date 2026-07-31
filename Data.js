@@ -30,12 +30,13 @@ function dataLastRow_() {
  * ============================================================ */
 
 function dataCount_() {
+  const sheet = dataSheet_();
+  const startRow = getDataStartRow_(sheet);
 
   return Math.max(
     0,
-    dataLastRow_() - CONFIG.SHEET.START_ROW + 1
+    dataLastRow_() - startRow + 1
   );
-
 }
 
 
@@ -44,21 +45,21 @@ function dataCount_() {
  * ============================================================ */
 
 function dataRead_() {
-
+  const sheet = dataSheet_();
+  const startRow = getDataStartRow_(sheet);
   const count = dataCount_();
 
   if (!count)
     return [];
 
-  return dataSheet_()
+  return sheet
     .getRange(
-      CONFIG.SHEET.START_ROW,
+      startRow,
       1,
       count,
       CONFIG.SHEET.NUM_COLS
     )
     .getValues();
-
 }
 
 
@@ -67,21 +68,21 @@ function dataRead_() {
  * ============================================================ */
 
 function dataBackgrounds_() {
-
+  const sheet = dataSheet_();
+  const startRow = getDataStartRow_(sheet);
   const count = dataCount_();
 
   if (!count)
     return [];
 
-  return dataSheet_()
+  return sheet
     .getRange(
-      CONFIG.SHEET.START_ROW,
+      startRow,
       COL.REVIEW_DATE,
       count,
       1
     )
     .getBackgrounds();
-
 }
 
 
@@ -90,29 +91,25 @@ function dataBackgrounds_() {
  * ============================================================ */
 
 function dataRichText_() {
-
+  const sheet = dataSheet_();
+  const startRow = getDataStartRow_(sheet);
   const count = dataCount_();
 
   if (!count)
     return [];
 
   try {
-
-    return dataSheet_()
+    return sheet
       .getRange(
-        CONFIG.SHEET.START_ROW,
+        startRow,
         COL.ACTION,
         count,
         1
       )
       .getRichTextValues();
-
   } catch (err) {
-
     return [];
-
   }
-
 }
 
 
