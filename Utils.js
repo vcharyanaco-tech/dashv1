@@ -100,9 +100,8 @@ function buildFieldMap_(headers) {
 }
 
 function getDataStartRow_(sheet) {
-  const headerRow = findHeaderRow_(sheet);
-
-  return headerRow > 0 ? headerRow + 1 : 1;
+  // Assume header row is row 3 in the bound sheet (data starts at row 4)
+  return 4;
 }
 
 function getFieldValue_(fieldMap, row, fieldName, fallbackIndex) {
