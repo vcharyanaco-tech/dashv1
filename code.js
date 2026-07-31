@@ -17,6 +17,16 @@ function withLock_(fn) {
 
 function doGet(e) {
 
+  // JSON inspection endpoint for debugging bound spreadsheet
+  try {
+    if (e && e.parameter && (e.parameter.inspect === '1' || e.parameter.inspect === 'true')) {
+      const info = inspectBoundSheet_();
+      return ContentService
+        .createTextOutput(JSON.stringify(info))
+        .setMimeType(ContentService.MimeType.JSON);
+    }
+  } catch (err) {}
+
   return HtmlService
     .createTemplateFromFile('index')
     .evaluate()
