@@ -1,4 +1,3 @@
-
 /**
  * ============================================================
  * Circle Office Haryana Dashboard V3
@@ -6,7 +5,6 @@
  * ============================================================
  */
 
-/* Summary counts */
 function getDashboardSummary() {
   const data = getData();
   const items = data.items || [];
@@ -16,59 +14,52 @@ function getDashboardSummary() {
     normal: items.filter(i => !i.flagged).length,
     sectors: {}
   };
-
   items.forEach(i => {
-    const s = i.sector || "Unspecified";
-    summary.sectors[s] = (summary.sectors[s] || 0) + 1;
+    const sector = i.sector || 'Unspecified';
+    summary.sectors[sector] = (summary.sectors[sector] || 0) + 1;
   });
-
   return summary;
 }
 
-/* Sector report */
 function getSectorReport() {
-  const s = getDashboardSummary().sectors;
-  return Object.keys(s).sort().map(k => ({
-    sector: k,
-    total: s[k]
-  }));
+  const sectors = getDashboardSummary().sectors;
+  return Object.keys(sectors).sort().map(key => ({ sector: key, total: sectors[key] }));
 }
 
-/* Review due report */
 function getFlaggedItemsReport() {
-  return (getData().items || []).filter(r => r.flagged);
+  return (getData().items || []).filter(item => item.flagged);
 }
 
-/* Printable report payload */
 function getPrintableReport() {
+  const data = getData();
   return {
-    generatedOn: new Date(),
     title: getTitle_(),
+    generatedOn: new Date(),
     summary: getDashboardSummary(),
-    items: getData().items || []
+    items: data.items || []
   };
 }
 
-/* Export data to a new spreadsheet */
 function exportToSpreadsheet() {
+  requireViewer();
   const report = getPrintableReport();
-  const ss = SpreadsheetApp.create("Dashboard Report " + Utilities.formatDate(new Date(), Session.getScriptTimeZone(), "yyyy-MM-dd HH:mm"));
-  const sh = ss.getSheets()[0];
-  sh.setName("Report");
-  sh.appendRow(["ID","Sector","Description","Entry Date","Action","Responsibility","Review Date","Flagged"]);
-  report.items.forEach(r=>{
-    sh.appendRow([r.id,r.sector,r.description,r.entryDate,r.action,r.responsibility,r.reviewDate,r.flagged?"YES":"NO"]);
+  const ss = SpreadsheetApp.create('India Post Dashboard Report ' + Utilities.formatDate(new Date(), Session.getScriptTimeZone(), 'yyyy-MM-dd HH:mm'));
+  const sheet = ss.getSheets()[0];
+  sheet.setName('Report');
+  sheet.appendRow(['ID', 'Sector', 'Description', 'Entry Date', 'Action', 'Responsibility', 'Review Date', 'Flagged']);
+  report.items.forEach(row => {
+    sheet.appendRow([row.id, row.sector, row.description, row.entryDate, row.action, row.responsibility, row.reviewDate, row.flagged ? 'YES' : 'NO']);
   });
-  return {url:ss.getUrl(),id:ss.getId()};
+  return { url: ss.getUrl(), id: ss.getId() };
 }
 
-/* Monthly counts by entry month */
-function getMonthlyTrend() {
-  const trend = {};
-  (getData().items||[]).forEach(r=>{
-    if(!r.entryDate) return;
-    const key = String(r.entryDate).substring(0,7);
-    trend[key]=(trend[key]||0)+1;
-  });
-  return trend;
+function createPdfReport() {
+  requireViewer();
+  const template = HtmlService.createTemplateFromFile('ReportPdf');
+  template.data = getPrintableReport();
+  const html = template.evaluate().getContent();
+  const blob = Utilities.newBlob(html, 'text/html', 'report.html');
+  const pdf = blob.getAs('application/pdf').setName('IndiaPostDashboard_Report_' + Utilities.formatDate(new Date(), Session.getScriptTimeZone(), 'yyyyMMdd_HHmm') + '.pdf');
+  const file = DriveApp.createFile(pdf);
+  return { url: file.getUrl(), id: file.getId() };
 }

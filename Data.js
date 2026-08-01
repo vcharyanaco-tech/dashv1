@@ -2,263 +2,71 @@
  * ============================================================
  * Circle Office Haryana Dashboard V3
  * Data.gs
- * Data Access Layer
+ * Data access layer
  * ============================================================
  */
-
-
-/* ============================================================
- * Sheet
- * ============================================================ */
 
 function dataSheet_() {
   return getSheet_();
 }
 
-
-/* ============================================================
- * Last Row
- * ============================================================ */
-
 function dataLastRow_() {
   return dataSheet_().getLastRow();
 }
 
-
-/* ============================================================
- * Total Records
- * ============================================================ */
-
 function dataCount_() {
   const sheet = dataSheet_();
   const startRow = getDataStartRow_(sheet);
-
-  return Math.max(
-    0,
-    dataLastRow_() - startRow + 1
-  );
+  return Math.max(0, dataLastRow_() - startRow + 1);
 }
-
-
-/* ============================================================
- * Read All Records
- * ============================================================ */
 
 function dataRead_() {
   const sheet = dataSheet_();
   const startRow = getDataStartRow_(sheet);
   const count = dataCount_();
-
-  if (!count)
-    return [];
-
-  return sheet
-    .getRange(
-      startRow,
-      1,
-      count,
-      CONFIG.SHEET.NUM_COLS
-    )
-    .getValues();
+  if (!count) return [];
+  return sheet.getRange(startRow, 1, count, CONFIG.SHEET.NUM_COLS).getValues();
 }
 
-
-/* ============================================================
- * Read Backgrounds
- * ============================================================ */
-
-function dataBackgrounds_() {
-  const sheet = dataSheet_();
-  const startRow = getDataStartRow_(sheet);
-  const count = dataCount_();
-
-  if (!count)
-    return [];
-
-  return sheet
-    .getRange(
-      startRow,
-      COL.REVIEW_DATE,
-      count,
-      1
-    )
-    .getBackgrounds();
+function dataUpdate_(row, item) {
+  const normalized = normalizeItemForSheet_(item);
+  dataSheet_().getRange(row, 1, 1, CONFIG.SHEET.NUM_COLS).setValues([[
+    normalized.id,
+    normalized.sector,
+    normalized.description,
+    normalized.entryDate,
+    normalized.action,
+    normalized.responsibility,
+    normalized.reviewDate
+  ]]);
 }
 
-
-/* ============================================================
- * Rich Text
- * ============================================================ */
-
-function dataRichText_() {
+function dataInsert_(item) {
   const sheet = dataSheet_();
-  const startRow = getDataStartRow_(sheet);
-  const count = dataCount_();
-
-  if (!count)
-    return [];
-
-  try {
-    return sheet
-      .getRange(
-        startRow,
-        COL.ACTION,
-        count,
-        1
-      )
-      .getRichTextValues();
-  } catch (err) {
-    return [];
-  }
-}
-
-
-/* ============================================================
- * Insert Record
- * ============================================================ */
-
-function dataInsert_(row) {
-
-  const sheet = dataSheet_();
-  const normalized = normalizeItemForSheet_(row);
-
-  const last = Math.max(
-    sheet.getLastRow(),
-    CONFIG.SHEET.START_ROW - 1
-  ) + 1;
-
-  sheet
-    .getRange(
-      last,
-      1,
-      1,
-      CONFIG.SHEET.NUM_COLS
-    )
-    .setValues([[
-      normalized.id,
-      normalized.sector,
-      normalized.description,
-      normalized.entryDate,
-      normalized.action,
-      normalized.responsibility,
-      normalized.reviewDate
-    ]]);
-
+  const normalized = normalizeItemForSheet_(item);
+  const last = Math.max(sheet.getLastRow(), CONFIG.SHEET.START_ROW - 1) + 1;
+  sheet.getRange(last, 1, 1, CONFIG.SHEET.NUM_COLS).setValues([[
+    normalized.id,
+    normalized.sector,
+    normalized.description,
+    normalized.entryDate,
+    normalized.action,
+    normalized.responsibility,
+    normalized.reviewDate
+  ]]);
   return last;
-
 }
 
-
-/* ============================================================
- * Update Record
- * ============================================================ */
-
-function dataUpdate_(rowNumber, values) {
-
-  const normalized = normalizeItemForSheet_(values);
-
-  dataSheet_()
-    .getRange(
-      rowNumber,
-      1,
-      1,
-      CONFIG.SHEET.NUM_COLS
-    )
-    .setValues([[
-      normalized.id,
-      normalized.sector,
-      normalized.description,
-      normalized.entryDate,
-      normalized.action,
-      normalized.responsibility,
-      normalized.reviewDate
-    ]]);
-
+function dataDelete_(row) {
+  dataSheet_().deleteRow(row);
 }
-
-
-/* ============================================================
- * Delete Record
- * ============================================================ */
-
-function dataDelete_(rowNumber) {
-
-  dataSheet_().deleteRow(rowNumber);
-
-}
-
-
-/* ============================================================
- * Set Flag
- * ============================================================ */
-
-function dataSetFlag_(rowNumber, flagged) {
-
-  dataSheet_()
-    .getRange(
-      rowNumber,
-      COL.REVIEW_DATE
-    )
-    .setBackground(
-      flagged
-        ? CONFIG.COLORS.FLAG
-        : CONFIG.COLORS.NORMAL
-    );
-
-}
-
-
-/* ============================================================
- * Border
- * ============================================================ */
-
-function dataApplyBorder_(rowNumber) {
-
-  dataSheet_()
-    .getRange(
-      rowNumber,
-      1,
-      1,
-      CONFIG.SHEET.NUM_COLS
-    )
-    .setBorder(
-      true,
-      true,
-      true,
-      true,
-      true,
-      true,
-      CONFIG.COLORS.BORDER,
-      SpreadsheetApp.BorderStyle.SOLID
-    );
-
-}
-
-
-/* ============================================================
- * Renumber IDs
- * ============================================================ */
 
 function dataRenumber_() {
-
-  const rows = dataCount_();
-
-  if (!rows)
-    return;
-
-  const ids = [];
-
-  for (let i = 0; i < rows; i++) {
-    ids.push([i + 1]);
-  }
-
-  dataSheet_()
-    .getRange(
-      CONFIG.SHEET.START_ROW,
-      COL.ID,
-      rows,
-      1
-    )
-    .setValues(ids);
-
+  const startRow = getDataStartRow_(dataSheet_());
+  const lastRow = dataSheet_().getLastRow();
+  if (lastRow < startRow) return;
+  const rows = dataSheet_().getRange(startRow, 1, lastRow - startRow + 1, CONFIG.SHEET.NUM_COLS).getValues();
+  rows.forEach(function (r, index) {
+    dataSheet_().getRange(startRow + index, 1).setValue(index + 1);
+  });
 }

@@ -454,6 +454,28 @@ function absUrl_(u) {
   return 'https://' + s;
 }
 
+
+function getAppData() {
+  const user = getCurrentUserInfo();
+  const data = getData();
+  const audit = getAuditEntries(80);
+  const settings = getAppSettings();
+  const summary = getDashboardSummary();
+  const analytics = {
+    sectors: getSectorReport(),
+    flaggedItems: getFlaggedItemsReport(),
+    trend: getMonthlyTrend()
+  };
+  return {
+    user: user,
+    items: data.items || [],
+    summary: summary,
+    analytics: analytics,
+    audit: audit,
+    settings: settings
+  };
+}
+
 function dailyDateUpdate() {
   stampTitle_();
 }

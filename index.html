@@ -5,159 +5,121 @@
   <base target="_top">
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
-
-  <title>Circle Office Haryana Dashboard</title>
-
-  <?!= include('Styles'); ?>
+  <title>India Post Dashboard</title>
+  <?!= include('styles'); ?>
 </head>
 
 <body>
-
-  <!-- ================= HEADER ================= -->
-
-  <header class="header">
-
-    <div class="header-left">
-
-      <h1 id="hTitle">
-        Circle Office Haryana Dashboard
-      </h1>
-
-      <div id="hAsOf" class="subtitle">
-        Loading...
+  <div class="app-shell">
+    <header class="app-header">
+      <div class="brand-block">
+        <div class="brand-mark">📮</div>
+        <div>
+          <div class="brand-name">India Post Dashboard</div>
+          <div class="brand-subtitle">Modern field operations tracker for Circle Office Haryana</div>
+        </div>
       </div>
 
-      <div id="hSync" class="subtitle sync-text">
+      <div class="header-actions">
+        <button id="themeToggle" class="btn btn-secondary" onclick="toggleDarkMode()">Dark mode</button>
+        <div class="user-chip" id="userChip">Signing in...</div>
       </div>
+    </header>
 
-    </div>
+    <nav class="app-nav" id="appNav">
+      <button class="nav-item active" data-tab="dashboard" onclick="openTab('dashboard')">Dashboard</button>
+      <button class="nav-item" data-tab="analytics" onclick="openTab('analytics')">Analytics</button>
+      <button class="nav-item" data-tab="audit" onclick="openTab('audit')">Audit Log</button>
+      <button class="nav-item" data-tab="reports" onclick="openTab('reports')">Reports</button>
+      <button class="nav-item" data-tab="settings" onclick="openTab('settings')">Settings</button>
+    </nav>
 
-    <div class="header-right">
+    <main class="main-content">
+      <section id="messagePanel" class="message-panel hidden"></section>
 
-      <button
-        class="btn btn-secondary"
-        onclick="refreshData()">
+      <section id="dashboard" class="tab-panel active">
+        <div class="section-header">
+          <div>
+            <h2>Live Dashboard</h2>
+            <p class="section-copy">View live items, search across sectors, and update records if you have access.</p>
+          </div>
+          <div class="section-actions">
+            <button id="addButton" class="btn btn-primary" onclick="addNewItem()">+ Add item</button>
+            <button class="btn btn-secondary" onclick="refreshData()">Refresh</button>
+          </div>
+        </div>
 
-        Refresh
+        <div class="filters-row">
+          <input id="searchInput" type="search" placeholder="Search sector, description, action, responsibility..." oninput="renderDashboard()">
+          <select id="sectorFilter" onchange="renderDashboard()">
+            <option value="">All sectors</option>
+          </select>
+        </div>
 
-      </button>
+        <div class="dashboard-summary" id="summaryCards"></div>
+        <div id="dashboardCards" class="cards-grid"></div>
+      </section>
 
-      <button
-        class="btn btn-primary"
-        onclick="addNewItem()">
+      <section id="analytics" class="tab-panel hidden">
+        <div class="section-header">
+          <div>
+            <h2>Analytics</h2>
+            <p class="section-copy">Key metrics and trends for the operations team.</p>
+          </div>
+        </div>
+        <div class="analytics-grid" id="analyticsCards"></div>
+        <div class="analytics-report" id="analyticsReport"></div>
+      </section>
 
-        + Add Item
+      <section id="audit" class="tab-panel hidden">
+        <div class="section-header">
+          <div>
+            <h2>Audit Log</h2>
+            <p class="section-copy">User actions and changes are tracked here.</p>
+          </div>
+        </div>
+        <div class="table-wrapper"><table class="audit-table" id="auditTable"><thead><tr><th>Time</th><th>User</th><th>Action</th><th>Record</th><th>Details</th></tr></thead><tbody></tbody></table></div>
+      </section>
 
-      </button>
+      <section id="reports" class="tab-panel hidden">
+        <div class="section-header">
+          <div>
+            <h2>Reports</h2>
+            <p class="section-copy">Export summaries, print reports, or create a Google Sheets report.</p>
+          </div>
+        </div>
+        <div class="report-actions">
+          <button class="btn btn-primary" onclick="printReport()">Print report</button>
+          <button class="btn btn-secondary" onclick="exportSpreadsheet()">Export to spreadsheet</button>
+          <button class="btn btn-secondary" onclick="downloadPdf()">Create PDF</button>
+        </div>
+        <div class="report-preview" id="reportPreview"></div>
+      </section>
 
-    </div>
+      <section id="settings" class="tab-panel hidden">
+        <div class="section-header">
+          <div>
+            <h2>Settings</h2>
+            <p class="section-copy">App-level settings and admin controls.</p>
+          </div>
+        </div>
+        <form id="settingsForm" class="settings-form" onsubmit="saveSettings(event)">
+          <label>Application title<input id="settingAppName" type="text" /></label>
+          <label>Default sheet name<input id="settingSheetName" type="text" /></label>
+          <label>Start row for data<input id="settingStartRow" type="number" min="1" /></label>
+          <div class="settings-row">
+            <button class="btn btn-primary" type="submit">Save settings</button>
+            <span id="settingsStatus" class="settings-status"></span>
+          </div>
+        </form>
+      </section>
+    </main>
 
-  </header>
-
-
-
-  <!-- ================= FILTERS ================= -->
-
-  <section class="toolbar">
-
-    <input
-
-      id="searchInput"
-
-      type="text"
-
-      placeholder="Search Sector, Description, Action, Responsibility...">
-
-    <select id="sectorFilter">
-
-      <option value="">
-        All Sectors
-      </option>
-
-    </select>
-
-  </section>
-
-
-
-  <!-- ================= LOADER ================= -->
-
-  <div id="loading" class="loading">
-
-    Loading dashboard...
-
+    <div id="overlay" class="overlay hidden"><div class="spinner"></div><div class="overlay-text">Working...</div></div>
+    <div id="toast" class="toast"></div>
   </div>
 
-
-
-  <!-- ================= CARDS ================= -->
-
-  <main id="box" class="cards">
-
-  </main>
-
-
-
-  <!-- ================= TOAST ================= -->
-
-  <div
-
-    id="toast"
-
-    class="toast">
-
-  </div>
-
-
-
-  <!-- ================= LOADING OVERLAY ================= -->
-
-  <div
-
-    id="overlay"
-
-    class="overlay hidden">
-
-    <div class="spinner"></div>
-
-    <div class="overlay-text">
-
-      Please wait...
-
-    </div>
-
-  </div>
-
-
-
-  <!-- ================= FOOTER ================= -->
-
-  <footer class="footer">
-
-    <span>
-
-      Circle Office Haryana Dashboard
-
-    </span>
-
-    <span>
-
-      Version
-
-      <span id="appVersion">
-
-        3.0
-
-      </span>
-
-    </span>
-
-  </footer>
-
-
-
-  <?!= include('Scripts'); ?>
-
+  <?!= include('script'); ?>
 </body>
 
 </html>
