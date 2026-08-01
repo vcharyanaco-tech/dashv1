@@ -115,12 +115,12 @@ function renderDashboard() {
   applyFilters();
   const cards = appState.filtered.slice(0, 100).map(item => `
     <article class="card ${item.flagged ? 'flagged' : ''}">
-      <div class="card-title"><strong>#${item.id}</strong> ${escapeHtml(item.sector)}</div>
-      <div class="card-meta">${escapeHtml(item.description)}</div>
+      <div class="card-title preserve-whitespace"><strong>#${item.id}</strong> ${escapeHtml(item.sector)}</div>
+      <div class="card-meta preserve-whitespace">${escapeHtml(item.description)}</div>
       <div class="card-details"><span>${escapeHtml(item.entryDate)}</span><span>${escapeHtml(item.reviewDate)}</span></div>
-      <div class="card-body">${item.actionHtml || escapeHtml(item.action)}</div>
+      <div class="card-body preserve-whitespace">${item.actionHtml || escapeHtml(item.action)}</div>
       <div class="card-footer">
-        <span>${escapeHtml(item.responsibility)}</span>
+        <span class="preserve-whitespace">${escapeHtml(item.responsibility)}</span>
         <div class="actions">
           ${appState.isEditor ? `<button class="btn btn-secondary" onclick="editItem('${item.row}')">Edit</button>` : ''}
           ${appState.isAdmin ? `<button class="btn btn-danger" onclick="deleteItem('${item.row}')">Delete</button>` : ''}
@@ -151,18 +151,18 @@ function renderAudit() {
   const tbody = document.querySelector('#auditTable tbody');
   tbody.innerHTML = appState.audit.slice(0, 80).map(row => `
     <tr>
-      <td>${escapeHtml(row.timestamp)}</td>
-      <td>${escapeHtml(row.user)}</td>
-      <td>${escapeHtml(row.action)}</td>
-      <td>${escapeHtml(row.recordId)}</td>
-      <td class="details-cell">${escapeHtml(row.details)}</td>
+      <td class="preserve-whitespace">${escapeHtml(row.timestamp)}</td>
+      <td class="preserve-whitespace">${escapeHtml(row.user)}</td>
+      <td class="preserve-whitespace">${escapeHtml(row.action)}</td>
+      <td class="preserve-whitespace">${escapeHtml(row.recordId)}</td>
+      <td class="details-cell preserve-whitespace">${escapeHtml(row.details)}</td>
     </tr>
   `).join('');
 }
 
 function renderReportPreview() {
   const itemsHtml = (appState.items || []).slice(0, 10).map(item => `
-    <tr><td>${escapeHtml(item.id)}</td><td>${escapeHtml(item.sector)}</td><td>${escapeHtml(item.description)}</td><td>${escapeHtml(item.action)}</td><td>${escapeHtml(item.responsibility)}</td><td>${escapeHtml(item.reviewDate)}</td></tr>`).join('');
+    <tr><td class="preserve-whitespace">${escapeHtml(item.id)}</td><td class="preserve-whitespace">${escapeHtml(item.sector)}</td><td class="preserve-whitespace">${escapeHtml(item.description)}</td><td class="preserve-whitespace">${escapeHtml(item.action)}</td><td class="preserve-whitespace">${escapeHtml(item.responsibility)}</td><td class="preserve-whitespace">${escapeHtml(item.reviewDate)}</td></tr>`).join('');
   document.getElementById('reportPreview').innerHTML = `
     <div class="report-preview">
       <h3>Report preview</h3>
