@@ -113,21 +113,30 @@ function applyFilters() {
 
 function renderDashboard() {
   applyFilters();
-  const cards = appState.filtered.slice(0, 100).map(item => `
-    <article class="card ${item.flagged ? 'flagged' : ''}">
-      <div class="card-title preserve-whitespace"><strong>#${item.id}</strong> ${escapeHtml(item.sector)}</div>
-      <div class="card-meta preserve-whitespace">${escapeHtml(item.description)}</div>
-      <div class="card-details"><span>${escapeHtml(item.entryDate)}</span><span>${escapeHtml(item.reviewDate)}</span></div>
-      <div class="card-body preserve-whitespace">${item.actionHtml || escapeHtml(item.action)}</div>
-      <div class="card-footer">
-        <span class="preserve-whitespace">${escapeHtml(item.responsibility)}</span>
-        <div class="actions">
-          ${appState.isEditor ? `<button class="btn btn-secondary" onclick="editItem('${item.row}')">Edit</button>` : ''}
-          ${appState.isAdmin ? `<button class="btn btn-danger" onclick="deleteItem('${item.row}')">Delete</button>` : ''}
+  const cards = appState.filtered.slice(0, 100).map(item => {
+    const fieldsHtml = (item.displayFields || []).map(field => {
+      const valueHtml = field.html ? field.html : `<div class="field-value preserve-whitespace">${escapeHtml(field.value)}</div>`;
+      return `
+        <div class="card-field">
+          <span class="field-label">${escapeHtml(field.label || 'Value')}</span>
+          ${valueHtml}
         </div>
-      </div>
-    </article>
-  `).join('');
+      `;
+    }).join('');
+
+    return `
+      <article class="card ${item.flagged ? 'flagged' : ''}">
+        <div class="card-title preserve-whitespace"><strong>#${escapeHtml(item.id)}</strong></div>
+        <div class="card-fields">${fieldsHtml || '<div class="card-field"><span class="field-label">Details</span><div class="field-value preserve-whitespace">No details available</div></div>'}</div>
+        <div class="card-footer">
+          <div class="actions">
+            ${appState.isEditor ? `<button class="btn btn-secondary" onclick="editItem('${item.row}')">Edit</button>` : ''}
+            ${appState.isAdmin ? `<button class="btn btn-danger" onclick="deleteItem('${item.row}')">Delete</button>` : ''}
+          </div>
+        </div>
+      </article>
+    `;
+  }).join('');
   document.getElementById('dashboardCards').innerHTML = cards || '<div class="message-panel">No records found.</div>';
   document.getElementById('summaryCards').innerHTML = `
     <div class="analytics-card"><h3>Total records</h3><p>${appState.summary.total || 0}</p></div>
@@ -161,12 +170,14 @@ function renderAudit() {
 }
 
 function renderReportPreview() {
-  const itemsHtml = (appState.items || []).slice(0, 10).map(item => `
+  const itemsHtml = (appState.items || []).map(item => `
     <tr><td class="preserve-whitespace">${escapeHtml(item.id)}</td><td class="preserve-whitespace">${escapeHtml(item.sector)}</td><td class="preserve-whitespace">${escapeHtml(item.description)}</td><td class="preserve-whitespace">${escapeHtml(item.action)}</td><td class="preserve-whitespace">${escapeHtml(item.responsibility)}</td><td class="preserve-whitespace">${escapeHtml(item.reviewDate)}</td></tr>`).join('');
   document.getElementById('reportPreview').innerHTML = `
     <div class="report-preview">
       <h3>Report preview</h3>
-      <table class="audit-table"><thead><tr><th>#</th><th>Sector</th><th>Description</th><th>Action</th><th>Responsibility</th><th>Review</th></tr></thead><tbody>${itemsHtml}</tbody></table>
+      <div class="report-preview-scroll">
+        <table class="audit-table"><thead><tr><th>#</th><th>Sector</th><th>Description</th><th>Action</th><th>Responsibility</th><th>Review</th></tr></thead><tbody>${itemsHtml}</tbody></table>
+      </div>
     </div>
   `;
 }

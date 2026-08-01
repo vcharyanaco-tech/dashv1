@@ -182,6 +182,20 @@ function getSheetDataRows_(sheet) {
     }
 
     const rowNumber = startRow + index;
+    const displayFields = (headerValues || []).reduce(function (fields, header, headerIndex) {
+      const label = String(header || "").trim();
+      if (!label) {
+        return fields;
+      }
+
+      const value = normalizedRow[headerIndex] !== undefined ? normalizedRow[headerIndex] : "";
+      fields.push({
+        label: label,
+        value: value
+      });
+
+      return fields;
+    }, []);
 
     rows.push({
       rowNumber: rowNumber,
@@ -191,7 +205,8 @@ function getSheetDataRows_(sheet) {
       entryDate: getFieldValue_(fieldMap, normalizedRow, "entryDate", 3),
       action: getFieldValue_(fieldMap, normalizedRow, "action", 4),
       responsibility: getFieldValue_(fieldMap, normalizedRow, "responsibility", 5),
-      reviewDate: getFieldValue_(fieldMap, normalizedRow, "reviewDate", 6)
+      reviewDate: getFieldValue_(fieldMap, normalizedRow, "reviewDate", 6),
+      displayFields: displayFields
     });
 
     return rows;

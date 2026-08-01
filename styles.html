@@ -200,6 +200,32 @@ button, input, select, textarea {
   gap: 12px;
 }
 
+.card-fields {
+  display: grid;
+  gap: 10px;
+}
+
+.card-field {
+  display: grid;
+  gap: 4px;
+  padding: 10px 12px;
+  border-radius: 12px;
+  background: rgba(0,0,0,.03);
+}
+
+.field-label {
+  font-size: 11px;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: .4px;
+  color: var(--muted);
+}
+
+.field-value {
+  color: var(--text);
+  line-height: 1.5;
+}
+
 .card h3 {
   margin: 0;
   font-size: 18px;
@@ -290,6 +316,18 @@ button, input, select, textarea {
   flex-wrap: wrap;
   gap: 12px;
   margin-bottom: 18px;
+}
+
+.report-preview-scroll {
+  max-height: min(70vh, 640px);
+  overflow-y: auto;
+  overflow-x: auto;
+  border-radius: 14px;
+  border: 1px solid var(--border);
+}
+
+.report-preview-scroll .audit-table {
+  min-width: 720px;
 }
 
 .settings-form {

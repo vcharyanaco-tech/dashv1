@@ -190,6 +190,31 @@ function getData() {
       flagged = false;
     }
 
+    const displayFields = (rowSpec.displayFields || []).map(function (field) {
+      const label = String(field && field.label ? field.label : "").trim();
+      const value = field && field.value !== undefined ? field.value : "";
+      const normalizedLabel = label.toLowerCase();
+      let formattedValue = value;
+
+      if (normalizedLabel.indexOf("date") !== -1 && value !== "") {
+        formattedValue = formatDate_(value);
+      }
+
+      if (normalizedLabel === "action") {
+        return {
+          label: label,
+          value: formattedValue,
+          html: actionHtml
+        };
+      }
+
+      return {
+        label: label,
+        value: formattedValue,
+        html: ""
+      };
+    });
+
     return {
 
       row: rowSpec.rowNumber,
@@ -210,7 +235,9 @@ function getData() {
 
       reviewDate: formatDate_(rowSpec.reviewDate),
 
-      flagged: flagged
+      flagged: flagged,
+
+      displayFields: displayFields
 
     };
 
