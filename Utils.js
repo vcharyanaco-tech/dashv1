@@ -227,6 +227,67 @@ function getAuditDerivedRows_() {
   }
 }
 
+const SOURCE_SPREADSHEET_ID = "1xQaysoLjDIqNa5X_QnvA5FWp7J6lMr5r6lzLGalm-y8";
+const WORKING_SPREADSHEET_ID_PROP = "WORKING_SPREADSHEET_ID";
+
+function getSourceSpreadsheetId_() {
+  return SOURCE_SPREADSHEET_ID;
+}
+
+function getWorkingSpreadsheetId_() {
+  return String(
+    PropertiesService
+      .getScriptProperties()
+      .getProperty(WORKING_SPREADSHEET_ID_PROP) || ""
+  ).trim();
+}
+
+function setWorkingSpreadsheetId_(id) {
+  if (!id) return;
+  PropertiesService
+    .getScriptProperties()
+    .setProperty(WORKING_SPREADSHEET_ID_PROP, String(id).trim());
+}
+
+function createWorkingSpreadsheetCopy_(sourceId) {
+  try {
+    const source = SpreadsheetApp.openById(sourceId);
+    const copy = source.copy("Dashboard Copy - " + new Date().toISOString().slice(0, 10));
+    const id = copy.getId();
+    setWorkingSpreadsheetId_(id);
+    return id;
+  } catch (err) {
+    return null;
+  }
+}
+
+function ensureWorkingSpreadsheet_() {
+  const boundId = getBoundSpreadsheetId_();
+
+  if (boundId) {
+    return boundId;
+  }
+
+  const workingId = getWorkingSpreadsheetId_();
+
+  if (workingId) {
+    try {
+      SpreadsheetApp.openById(workingId);
+      return workingId;
+    } catch (err) {
+      PropertiesService.getScriptProperties().deleteProperty(WORKING_SPREADSHEET_ID_PROP);
+    }
+  }
+
+  const sourceId = getSourceSpreadsheetId_();
+
+  if (!sourceId) {
+    return "";
+  }
+
+  return createWorkingSpreadsheetCopy_(sourceId) || sourceId;
+}
+
 function bindSpreadsheet_(spreadsheetId) {
   const id = String(spreadsheetId || "").trim();
 
@@ -260,13 +321,7 @@ function getPreferredSpreadsheetId_() {
     return configuredId;
   }
 
-  const fallbackId = "1xQaysoLjDIqNa5X_QnvA5FWp7J6lMr5r6lzLGalm-y8";
-
-  PropertiesService
-    .getScriptProperties()
-    .setProperty("SPREADSHEET_ID", fallbackId);
-
-  return fallbackId;
+  return ensureWorkingSpreadsheet_();
 }
 
 function getSpreadsheetBindingInfo() {
