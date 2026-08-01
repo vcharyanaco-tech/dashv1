@@ -19,6 +19,7 @@ function loadData(){
    hideOverlay();
    $("hTitle").textContent=res.heading||"Circle Office Haryana Dashboard";
    $("hAsOf").textContent=res.asOf?("As of "+res.asOf):"";
+   setSyncTime(new Date());
    allItems=res.items||[];
    buildFilter();
    render(current());
@@ -27,6 +28,17 @@ function loadData(){
    hideLoader();
    $("box").innerHTML='<div class="loading">'+esc(e.message||e)+'</div>';
  }).getData();
+}
+
+function setSyncTime(date){
+ var el=$("hSync");
+ if(!el) return;
+ if(!date){
+   el.textContent="";
+   return;
+ }
+ var formatted = date.toLocaleString();
+ el.textContent = "Last synced: " + formatted;
 }
 
 function buildFilter(){
