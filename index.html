@@ -13,10 +13,13 @@
   <div class="app-shell">
     <header class="app-header">
       <div class="brand-block">
-        <div class="brand-mark">📮</div>
+        <div class="brand-mark" aria-label="India Post logo">
+          <img src="https://upload.wikimedia.org/wikipedia/commons/7/7e/India_Post_Logo.svg" alt="India Post logo" onerror="this.style.display='none'; this.nextElementSibling.style.display='inline-flex';">
+          <span class="brand-mark-fallback">📮</span>
+        </div>
         <div>
           <div class="brand-name">India Post Dashboard</div>
-          <div class="brand-subtitle">Modern field operations tracker for Circle Office Haryana</div>
+          <div class="brand-subtitle">Operations and compliance tracker for Circle Office Haryana</div>
         </div>
       </div>
 
@@ -114,6 +117,11 @@
         </form>
       </section>
     </main>
+
+    <footer class="app-footer">
+      <span>India Post Dashboard</span>
+      <span>Secure operations monitoring</span>
+    </footer>
 
     <div id="overlay" class="overlay hidden"><div class="spinner"></div><div class="overlay-text">Working...</div></div>
     <div id="toast" class="toast"></div>

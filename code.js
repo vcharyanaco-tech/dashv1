@@ -470,7 +470,8 @@ function ssBaseUrl_() {
 
 function absUrl_(u) {
   if (!u) return '';
-  var s = String(u);
+  var s = String(u).trim();
+  if (!s) return '';
   if (s.charAt(0) === '#') {
     var base = ssBaseUrl_();
     if (!base) return '';
@@ -478,6 +479,7 @@ function absUrl_(u) {
   }
   if (/^(https?:|mailto:|tel:)/i.test(s)) return s;
   if (s.charAt(0) === '/') return '';
+  if (s.indexOf('www.') === 0) return 'https://' + s;
   return 'https://' + s;
 }
 
