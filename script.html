@@ -88,8 +88,20 @@ function initApp() {
     }
   }).withFailureHandler(err => {
     hideOverlay();
+    const message = err && err.message ? err.message : String(err || 'Unknown error');
     document.getElementById('messagePanel').classList.remove('hidden');
-    document.getElementById('messagePanel').textContent = 'Error loading app: ' + (err.message || err);
+    document.getElementById('messagePanel').textContent = 'Error loading app: ' + message;
+    console.error('App load failed', err);
+    appState.user = { email: '', role: 'VIEWER', loggedIn: false };
+    appState.items = [];
+    appState.summary = {};
+    appState.analytics = {};
+    appState.audit = [];
+    appState.settings = {};
+    populateFilters();
+    renderDashboard();
+    applyTheme();
+    setUserStatus(appState.user);
   }).getAppData();
 }
 
