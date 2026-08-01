@@ -37,6 +37,14 @@ const CONFIG = Object.freeze({
   }
 });
 
+const DATE_FORMAT = Object.freeze({
+  DISPLAY: CONFIG.TITLE.DATE_FORMAT,
+  SHEET: CONFIG.TITLE.DATE_FORMAT,
+  FILE: 'yyyyMMdd'
+});
+
+const APP = CONFIG.APP;
+
 const COL = Object.freeze({
   ID: 1,
   SECTOR: 2,

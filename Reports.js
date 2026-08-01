@@ -30,6 +30,16 @@ function getFlaggedItemsReport() {
   return (getData().items || []).filter(item => item.flagged);
 }
 
+function getMonthlyTrend() {
+  const trend = {};
+  (getData().items || []).forEach(function (item) {
+    if (!item || !item.entryDate) return;
+    const key = String(item.entryDate).slice(0, 7);
+    trend[key] = (trend[key] || 0) + 1;
+  });
+  return trend;
+}
+
 function getPrintableReport() {
   const data = getData();
   return {
