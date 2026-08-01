@@ -228,64 +228,13 @@ function getAuditDerivedRows_() {
 }
 
 const SOURCE_SPREADSHEET_ID = "1xQaysoLjDIqNa5X_QnvA5FWp7J6lMr5r6lzLGalm-y8";
-const WORKING_SPREADSHEET_ID_PROP = "WORKING_SPREADSHEET_ID";
 
 function getSourceSpreadsheetId_() {
   return SOURCE_SPREADSHEET_ID;
 }
 
-function getWorkingSpreadsheetId_() {
-  return String(
-    PropertiesService
-      .getScriptProperties()
-      .getProperty(WORKING_SPREADSHEET_ID_PROP) || ""
-  ).trim();
-}
-
-function setWorkingSpreadsheetId_(id) {
-  if (!id) return;
-  PropertiesService
-    .getScriptProperties()
-    .setProperty(WORKING_SPREADSHEET_ID_PROP, String(id).trim());
-}
-
-function createWorkingSpreadsheetCopy_(sourceId) {
-  try {
-    const source = SpreadsheetApp.openById(sourceId);
-    const copy = source.copy("Dashboard Copy - " + new Date().toISOString().slice(0, 10));
-    const id = copy.getId();
-    setWorkingSpreadsheetId_(id);
-    return id;
-  } catch (err) {
-    return null;
-  }
-}
-
-function ensureWorkingSpreadsheet_() {
-  const boundId = getBoundSpreadsheetId_();
-
-  if (boundId) {
-    return boundId;
-  }
-
-  const workingId = getWorkingSpreadsheetId_();
-
-  if (workingId) {
-    try {
-      SpreadsheetApp.openById(workingId);
-      return workingId;
-    } catch (err) {
-      PropertiesService.getScriptProperties().deleteProperty(WORKING_SPREADSHEET_ID_PROP);
-    }
-  }
-
-  const sourceId = getSourceSpreadsheetId_();
-
-  if (!sourceId) {
-    return "";
-  }
-
-  return createWorkingSpreadsheetCopy_(sourceId) || sourceId;
+function getPreferredSpreadsheetId_() {
+  return SOURCE_SPREADSHEET_ID;
 }
 
 function bindSpreadsheet_(spreadsheetId) {
@@ -314,18 +263,8 @@ function getBoundSpreadsheetId_() {
   ).trim();
 }
 
-function getPreferredSpreadsheetId_() {
-  const configuredId = getBoundSpreadsheetId_();
-
-  if (configuredId) {
-    return configuredId;
-  }
-
-  return ensureWorkingSpreadsheet_();
-}
-
 function getSpreadsheetBindingInfo() {
-  const id = getBoundSpreadsheetId_();
+  const id = getPreferredSpreadsheetId_();
 
   if (!id) {
     return {
@@ -379,25 +318,17 @@ function bindCurrentSpreadsheet() {
 }
 
 function getSpreadsheet_() {
-  try {
-    const activeSpreadsheet = SpreadsheetApp.getActiveSpreadsheet();
-    if (activeSpreadsheet) {
-      return activeSpreadsheet;
-    }
-  } catch (err) {}
+  const spreadsheetId = getPreferredSpreadsheetId_();
 
-  const boundSpreadsheetId = getPreferredSpreadsheetId_();
-
-  if (boundSpreadsheetId) {
-    try {
-      const spreadsheet = SpreadsheetApp.openById(boundSpreadsheetId);
-      if (spreadsheet) {
-        return spreadsheet;
-      }
-    } catch (err) {}
+  if (!spreadsheetId) {
+    return null;
   }
 
-  return null;
+  try {
+    return SpreadsheetApp.openById(spreadsheetId);
+  } catch (err) {
+    return null;
+  }
 }
 
 
