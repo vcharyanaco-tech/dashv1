@@ -69,6 +69,31 @@ function findHeaderRow_(sheet) {
   return 0;
 }
 
+function getPreferredHeaderRow_(sheet) {
+  if (!sheet) {
+    return 0;
+  }
+
+  const values = sheet.getDataRange().getValues();
+  const row3 = values[2] || [];
+
+  if (row3.length && isLikelyHeaderRow_(row3)) {
+    return 3;
+  }
+
+  return findHeaderRow_(sheet);
+}
+
+function getHeaderValues_(sheet) {
+  if (!sheet) {
+    return [];
+  }
+
+  const headerRow = getPreferredHeaderRow_(sheet);
+  const values = sheet.getDataRange().getValues();
+  return headerRow > 0 ? (values[headerRow - 1] || []) : [];
+}
+
 function buildFieldMap_(headers) {
   const map = {};
 
@@ -100,8 +125,8 @@ function buildFieldMap_(headers) {
 }
 
 function getDataStartRow_(sheet) {
-  // Assume header row is row 3 in the bound sheet (data starts at row 4)
-  return 4;
+  const headerRow = getPreferredHeaderRow_(sheet);
+  return headerRow > 0 ? headerRow + 1 : CONFIG.SHEET.START_ROW;
 }
 
 function getFieldValue_(fieldMap, row, fieldName, fallbackIndex) {
@@ -141,9 +166,9 @@ function getSheetDataRows_(sheet) {
     return [];
   }
 
-  const headerRow = findHeaderRow_(sheet);
+  const headerRow = getPreferredHeaderRow_(sheet);
   const startRow = headerRow > 0 ? headerRow + 1 : 1;
-  const headerValues = headerRow > 0 ? values[headerRow - 1] || [] : [];
+  const headerValues = getHeaderValues_(sheet);
   const fieldMap = headerValues.length ? buildFieldMap_(headerValues) : {};
 
   return values.slice(startRow - 1).reduce(function (rows, row, index) {
