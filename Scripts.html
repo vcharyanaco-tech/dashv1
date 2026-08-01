@@ -104,9 +104,19 @@ function addNewItem(){
  .withFailureHandler(e=>{hideOverlay();toast("Error: "+(e.message||e));})
  .addItem({sector:"",description:"",entryDate:"",action:"",responsibility:"",reviewDate:"",flagged:false});
 }
+
+function refreshData(){
+ loadData();
+}
+
 window.onload=function(){
  $("searchInput").oninput=()=>render(current());
  $("sectorFilter").onchange=()=>render(current());
  loadData();
+ window.addEventListener('focus', function(){
+   if (!editingId) {
+     refreshData();
+   }
+ });
 };
 </script>
