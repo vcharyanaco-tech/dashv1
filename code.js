@@ -200,18 +200,17 @@ function getData() {
         formattedValue = formatDate_(value);
       }
 
+      let fieldHtml = "";
       if (normalizedLabel === "action") {
-        return {
-          label: label,
-          value: formattedValue,
-          html: actionHtml
-        };
+        fieldHtml = actionHtml;
+      } else if (looksLikeUrl_(formattedValue)) {
+        fieldHtml = linkifyText_(formattedValue);
       }
 
       return {
         label: label,
         value: formattedValue,
-        html: ""
+        html: fieldHtml
       };
     });
 
