@@ -118,10 +118,10 @@ function renderDashboard() {
       const isHeaderRowValue = field && field.label && String(field.label).trim() !== '';
       const valueHtml = field.html
         ? `<div class="field-value preserve-whitespace field-html">${field.html}</div>`
-        : `<div class="field-value preserve-whitespace ${isHeaderRowValue ? 'field-value-highlight' : ''}">${escapeHtml(field.value)}</div>`;
+        : `<div class="field-value preserve-whitespace">${escapeHtml(field.value)}</div>`;
       return `
         <div class="card-field ${isHeaderRowValue ? 'card-field-highlight' : ''}">
-          <span class="field-label">${escapeHtml(field.label || 'Value')}</span>
+          <span class="field-label ${isHeaderRowValue ? 'field-label-highlight' : ''}">${escapeHtml(field.label || 'Value')}</span>
           ${valueHtml}
         </div>
       `;
