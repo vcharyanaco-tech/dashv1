@@ -20,6 +20,17 @@ function displayToast(message) {
   setTimeout(() => toast.classList.remove('show'), 3000);
 }
 
+function renderLinkableText(value) {
+  const text = value == null ? '' : String(value);
+  if (!text) return '';
+  const normalized = text.trim();
+  if (!normalized) return '';
+  const isUrl = /^(https?:\/\/|mailto:|ftp:\/\/|www\.)/i.test(normalized) || /(?:\.[a-z]{2,})(?:\/|$)/i.test(normalized);
+  if (!isUrl) return escapeHtml(text);
+  const href = /^www\./i.test(normalized) ? 'https://' + normalized : normalized;
+  return `<a href="${escapeHtml(href)}" target="_blank" rel="noopener noreferrer">${escapeHtml(text)}</a>`;
+}
+
 function showOverlay(message) {
   const overlay = document.getElementById('overlay');
   overlay.querySelector('.overlay-text').textContent = message || 'Working...';
@@ -165,16 +176,16 @@ function renderAudit() {
     <tr>
       <td class="preserve-whitespace">${escapeHtml(row.timestamp)}</td>
       <td class="preserve-whitespace">${escapeHtml(row.user)}</td>
-      <td class="preserve-whitespace">${escapeHtml(row.action)}</td>
-      <td class="preserve-whitespace">${escapeHtml(row.recordId)}</td>
-      <td class="details-cell preserve-whitespace">${escapeHtml(row.details)}</td>
+      <td class="preserve-whitespace">${renderLinkableText(row.action)}</td>
+      <td class="preserve-whitespace">${renderLinkableText(row.recordId)}</td>
+      <td class="details-cell preserve-whitespace">${renderLinkableText(row.details)}</td>
     </tr>
   `).join('');
 }
 
 function renderReportPreview() {
   const itemsHtml = (appState.items || []).map(item => `
-    <tr><td class="preserve-whitespace">${escapeHtml(item.id)}</td><td class="preserve-whitespace">${escapeHtml(item.sector)}</td><td class="preserve-whitespace">${escapeHtml(item.description)}</td><td class="preserve-whitespace">${escapeHtml(item.action)}</td><td class="preserve-whitespace">${escapeHtml(item.responsibility)}</td><td class="preserve-whitespace">${escapeHtml(item.reviewDate)}</td></tr>`).join('');
+    <tr><td class="preserve-whitespace">${escapeHtml(item.id)}</td><td class="preserve-whitespace">${renderLinkableText(item.sector)}</td><td class="preserve-whitespace">${renderLinkableText(item.description)}</td><td class="preserve-whitespace">${renderLinkableText(item.action)}</td><td class="preserve-whitespace">${renderLinkableText(item.responsibility)}</td><td class="preserve-whitespace">${renderLinkableText(item.reviewDate)}</td></tr>`).join('');
   document.getElementById('reportPreview').innerHTML = `
     <div class="report-preview">
       <h3>Report preview</h3>
