@@ -289,16 +289,23 @@ function deleteItem(row) {
 }
 
 function exportSpreadsheet() {
-  showOverlay('Exporting spreadsheet...');
+  showOverlay('Exporting Excel file...');
   google.script.run.withSuccessHandler(result => {
     hideOverlay();
-    if (result && result.url) {
-      window.open(result.url, '_blank');
-      displayToast('Report spreadsheet created');
+    if (result && result.downloadUrl) {
+      const link = document.createElement('a');
+      link.href = result.downloadUrl;
+      link.download = result.filename || 'IndiaPostDashboard_Report.xlsx';
+      document.body.appendChild(link);
+      link.click();
+      document.body.removeChild(link);
+      displayToast('Excel file downloaded');
+    } else {
+      displayToast('Excel export failed');
     }
   }).withFailureHandler(err => {
     hideOverlay();
-    displayToast('Export failed: ' + (err.message || err));
+    displayToast('Excel export failed: ' + (err.message || err));
   }).exportToSpreadsheet();
 }
 
@@ -306,9 +313,16 @@ function downloadPdf() {
   showOverlay('Generating PDF...');
   google.script.run.withSuccessHandler(result => {
     hideOverlay();
-    if (result && result.url) {
-      window.open(result.url, '_blank');
-      displayToast('PDF report created');
+    if (result && result.downloadUrl) {
+      const link = document.createElement('a');
+      link.href = result.downloadUrl;
+      link.download = result.filename || 'IndiaPostDashboard_Report.pdf';
+      document.body.appendChild(link);
+      link.click();
+      document.body.removeChild(link);
+      displayToast('PDF downloaded');
+    } else {
+      displayToast('PDF export failed');
     }
   }).withFailureHandler(err => {
     hideOverlay();
