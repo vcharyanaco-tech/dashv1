@@ -200,18 +200,17 @@ function getData() {
         formattedValue = formatDate_(value);
       }
 
+      let fieldHtml = "";
       if (normalizedLabel === "action") {
-        return {
-          label: label,
-          value: formattedValue,
-          html: actionHtml
-        };
+        fieldHtml = actionHtml;
+      } else if (looksLikeUrl_(formattedValue)) {
+        fieldHtml = linkifyText_(formattedValue);
       }
 
       return {
         label: label,
         value: formattedValue,
-        html: ""
+        html: fieldHtml
       };
     });
 
@@ -415,11 +414,47 @@ function escHtml_(s) {
     .replace(/'/g,'&#39;');
 }
 
+function looksLikeUrl_(value) {
+  if (value === null || value === undefined) return false;
+  const text = String(value).trim();
+  if (!text) return false;
+  return /^(https?:\/\/|mailto:|ftp:\/\/|www\.)/i.test(text) || /(?:\.[a-z]{2,})(?:\/|$)/i.test(text);
+}
+
+function normalizeUrl_(value) {
+  const text = String(value || '').trim();
+  if (!text) return '';
+  if (/^www\./i.test(text)) return 'https://' + text;
+  return text;
+}
+
+function linkifyText_(text) {
+  if (text === null || text === undefined) return '';
+  const source = String(text);
+  if (!source) return '';
+  const pieces = source.split(/(\s+)/);
+  return pieces.map(function (piece) {
+    if (!looksLikeUrl_(piece)) {
+      return escHtml_(piece);
+    }
+    const url = normalizeUrl_(piece);
+    const safeUrl = absUrl_(url);
+    if (!safeUrl) {
+      return escHtml_(piece);
+    }
+    return '<a href="' + escHtml_(safeUrl) + '" target="_blank" rel="noopener noreferrer">' + escHtml_(piece) + '</a>';
+  }).join('');
+}
+
 function richToHtml_(rt, fallback) {
-  if (!rt) return escHtml_(fallback);
+  if (!rt) return linkifyText_(fallback);
   var runs = null;
   try { runs = rt.getRuns(); } catch (e) { runs = null; }
-  if (!runs || !runs.length) return escHtml_(rt.getText());
+  if (!runs || !runs.length) {
+    var text = '';
+    try { text = rt.getText(); } catch (e) { text = ''; }
+    return linkifyText_(text || fallback);
+  }
   var out = [];
   for (var i = 0; i < runs.length; i++) {
     var t = runs[i].getText();
@@ -447,9 +482,12 @@ function richToHtml_(rt, fallback) {
     var body = escHtml_(t);
     var url = null;
     try { url = runs[i].getLinkUrl(); } catch (e8) { url = null; }
+    if (!url && looksLikeUrl_(t)) {
+      url = normalizeUrl_(t);
+    }
     if (url) {
       var au = absUrl_(url);
-      if (au) { body = '<a href="' + au + '" target="_blank" rel="noopener noreferrer">' + body + '</a>'; }
+      if (au) { body = '<a href="' + escHtml_(au) + '" target="_blank" rel="noopener noreferrer">' + body + '</a>'; }
     }
     if (css.length) { out.push('<span style="' + css.join(';') + '">' + body + '</span>'); }
     else { out.push(body); }

@@ -20,6 +20,17 @@ function displayToast(message) {
   setTimeout(() => toast.classList.remove('show'), 3000);
 }
 
+function renderLinkableText(value) {
+  const text = value == null ? '' : String(value);
+  if (!text) return '';
+  const normalized = text.trim();
+  if (!normalized) return '';
+  const isUrl = /^(https?:\/\/|mailto:|ftp:\/\/|www\.)/i.test(normalized) || /(?:\.[a-z]{2,})(?:\/|$)/i.test(normalized);
+  if (!isUrl) return escapeHtml(text);
+  const href = /^www\./i.test(normalized) ? 'https://' + normalized : normalized;
+  return `<a href="${escapeHtml(href)}" target="_blank" rel="noopener noreferrer">${escapeHtml(text)}</a>`;
+}
+
 function showOverlay(message) {
   const overlay = document.getElementById('overlay');
   overlay.querySelector('.overlay-text').textContent = message || 'Working...';
@@ -77,8 +88,20 @@ function initApp() {
     }
   }).withFailureHandler(err => {
     hideOverlay();
+    const message = err && err.message ? err.message : String(err || 'Unknown error');
     document.getElementById('messagePanel').classList.remove('hidden');
-    document.getElementById('messagePanel').textContent = 'Error loading app: ' + (err.message || err);
+    document.getElementById('messagePanel').textContent = 'Error loading app: ' + message;
+    console.error('App load failed', err);
+    appState.user = { email: '', role: 'VIEWER', loggedIn: false };
+    appState.items = [];
+    appState.summary = {};
+    appState.analytics = {};
+    appState.audit = [];
+    appState.settings = {};
+    populateFilters();
+    renderDashboard();
+    applyTheme();
+    setUserStatus(appState.user);
   }).getAppData();
 }
 
@@ -165,16 +188,16 @@ function renderAudit() {
     <tr>
       <td class="preserve-whitespace">${escapeHtml(row.timestamp)}</td>
       <td class="preserve-whitespace">${escapeHtml(row.user)}</td>
-      <td class="preserve-whitespace">${escapeHtml(row.action)}</td>
-      <td class="preserve-whitespace">${escapeHtml(row.recordId)}</td>
-      <td class="details-cell preserve-whitespace">${escapeHtml(row.details)}</td>
+      <td class="preserve-whitespace">${renderLinkableText(row.action)}</td>
+      <td class="preserve-whitespace">${renderLinkableText(row.recordId)}</td>
+      <td class="details-cell preserve-whitespace">${renderLinkableText(row.details)}</td>
     </tr>
   `).join('');
 }
 
 function renderReportPreview() {
   const itemsHtml = (appState.items || []).map(item => `
-    <tr><td class="preserve-whitespace">${escapeHtml(item.id)}</td><td class="preserve-whitespace">${escapeHtml(item.sector)}</td><td class="preserve-whitespace">${escapeHtml(item.description)}</td><td class="preserve-whitespace">${escapeHtml(item.action)}</td><td class="preserve-whitespace">${escapeHtml(item.responsibility)}</td><td class="preserve-whitespace">${escapeHtml(item.reviewDate)}</td></tr>`).join('');
+    <tr><td class="preserve-whitespace">${escapeHtml(item.id)}</td><td class="preserve-whitespace">${renderLinkableText(item.sector)}</td><td class="preserve-whitespace">${renderLinkableText(item.description)}</td><td class="preserve-whitespace">${renderLinkableText(item.action)}</td><td class="preserve-whitespace">${renderLinkableText(item.responsibility)}</td><td class="preserve-whitespace">${renderLinkableText(item.reviewDate)}</td></tr>`).join('');
   document.getElementById('reportPreview').innerHTML = `
     <div class="report-preview">
       <h3>Report preview</h3>
@@ -266,16 +289,23 @@ function deleteItem(row) {
 }
 
 function exportSpreadsheet() {
-  showOverlay('Exporting spreadsheet...');
+  showOverlay('Exporting Excel file...');
   google.script.run.withSuccessHandler(result => {
     hideOverlay();
-    if (result && result.url) {
-      window.open(result.url, '_blank');
-      displayToast('Report spreadsheet created');
+    if (result && result.downloadUrl) {
+      const link = document.createElement('a');
+      link.href = result.downloadUrl;
+      link.download = result.filename || 'IndiaPostDashboard_Report.xlsx';
+      document.body.appendChild(link);
+      link.click();
+      document.body.removeChild(link);
+      displayToast('Excel file downloaded');
+    } else {
+      displayToast('Excel export failed');
     }
   }).withFailureHandler(err => {
     hideOverlay();
-    displayToast('Export failed: ' + (err.message || err));
+    displayToast('Excel export failed: ' + (err.message || err));
   }).exportToSpreadsheet();
 }
 
@@ -283,9 +313,16 @@ function downloadPdf() {
   showOverlay('Generating PDF...');
   google.script.run.withSuccessHandler(result => {
     hideOverlay();
-    if (result && result.url) {
-      window.open(result.url, '_blank');
-      displayToast('PDF report created');
+    if (result && result.downloadUrl) {
+      const link = document.createElement('a');
+      link.href = result.downloadUrl;
+      link.download = result.filename || 'IndiaPostDashboard_Report.pdf';
+      document.body.appendChild(link);
+      link.click();
+      document.body.removeChild(link);
+      displayToast('PDF downloaded');
+    } else {
+      displayToast('PDF export failed');
     }
   }).withFailureHandler(err => {
     hideOverlay();
