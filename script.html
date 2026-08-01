@@ -115,9 +115,12 @@ function renderDashboard() {
   applyFilters();
   const cards = appState.filtered.slice(0, 100).map(item => {
     const fieldsHtml = (item.displayFields || []).map(field => {
-      const valueHtml = field.html ? field.html : `<div class="field-value preserve-whitespace">${escapeHtml(field.value)}</div>`;
+      const isHeaderField = ['id','sector','description','entrydate','action','responsibility','reviewdate'].includes((field.label || '').toLowerCase().replace(/[^a-z0-9]+/g, ''));
+      const valueHtml = field.html
+        ? `<div class="field-value preserve-whitespace field-html">${field.html}</div>`
+        : `<div class="field-value preserve-whitespace ${isHeaderField ? 'field-value-highlight' : ''}">${escapeHtml(field.value)}</div>`;
       return `
-        <div class="card-field">
+        <div class="card-field ${isHeaderField ? 'card-field-highlight' : ''}">
           <span class="field-label">${escapeHtml(field.label || 'Value')}</span>
           ${valueHtml}
         </div>
