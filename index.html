@@ -26,6 +26,7 @@
 
       <div class="header-actions">
         <button id="themeToggle" class="btn btn-secondary" onclick="toggleDarkMode()">Dark mode</button>
+        <button id="logoutButton" class="btn btn-secondary hidden" onclick="logout()">Log out</button>
         <div class="user-chip" id="userChip">Signing in...</div>
       </div>
     </header>
@@ -107,6 +108,9 @@
             <p class="section-copy">App-level settings and admin controls.</p>
           </div>
         </div>
+
+        <div id="mustChangeBanner" class="message-panel hidden">You must set a new password before continuing.</div>
+
         <form id="settingsForm" class="settings-form" onsubmit="saveSettings(event)">
           <label>Application title<input id="settingAppName" type="text" /></label>
           <label>Default sheet name<input id="settingSheetName" type="text" /></label>
@@ -116,6 +120,54 @@
             <span id="settingsStatus" class="settings-status"></span>
           </div>
         </form>
+
+        <div class="settings-section">
+          <div class="section-header">
+            <div>
+              <h3>Change password</h3>
+              <p class="section-copy">Update the password you use to sign in.</p>
+            </div>
+          </div>
+          <form id="changePasswordForm" class="settings-form" onsubmit="handleChangePassword(event)">
+            <label>Current password<input id="changeCurrentPassword" type="password" required autocomplete="current-password"></label>
+            <label>New password<input id="changeNewPassword" type="password" required autocomplete="new-password"></label>
+            <label>Confirm new password<input id="changeConfirmPassword" type="password" required autocomplete="new-password"></label>
+            <div class="settings-row">
+              <button class="btn btn-primary" type="submit">Update password</button>
+              <span id="changePasswordStatus" class="settings-status"></span>
+            </div>
+          </form>
+        </div>
+
+        <div id="usersAdmin" class="settings-section hidden">
+          <div class="section-header">
+            <div>
+              <h3>Manage users</h3>
+              <p class="section-copy">Add, remove or reset passwords for dashboard users.</p>
+            </div>
+          </div>
+          <form id="addUserForm" class="settings-form" onsubmit="handleAddUser(event)">
+            <label>Email<input id="newUserEmail" type="email" required></label>
+            <label>Role
+              <select id="newUserRole">
+                <option value="VIEWER">Viewer</option>
+                <option value="EDITOR">Editor</option>
+                <option value="ADMIN">Admin</option>
+              </select>
+            </label>
+            <label>Initial password<input id="newUserPassword" type="password" required></label>
+            <div class="settings-row">
+              <button class="btn btn-primary" type="submit">Add user</button>
+              <span id="addUserStatus" class="settings-status"></span>
+            </div>
+          </form>
+          <div class="table-wrapper">
+            <table class="audit-table" id="usersTable">
+              <thead><tr><th>Email</th><th>Role</th><th>Created</th><th></th><th></th></tr></thead>
+              <tbody></tbody>
+            </table>
+          </div>
+        </div>
       </section>
     </main>
 
@@ -123,6 +175,61 @@
       <span>India Post Dashboard</span>
       <span>Circle Office Haryana</span>
     </footer>
+
+    <div id="loginScreen" class="auth-screen hidden">
+      <div class="auth-card">
+        <div class="auth-brand">
+          <div class="brand-mark" aria-label="India Post logo">
+            <span class="brand-mark-fallback">✉</span>
+          </div>
+          <div>
+            <div class="brand-name">India Post Dashboard</div>
+            <div class="auth-subtitle">Sign in to continue</div>
+          </div>
+        </div>
+        <div id="loginMessage" class="message-panel hidden"></div>
+        <form id="loginForm" class="auth-form" onsubmit="handleLogin(event)">
+          <label>Email<input id="loginEmail" type="email" required autocomplete="username"></label>
+          <label>Password<input id="loginPassword" type="password" required autocomplete="current-password"></label>
+          <button class="btn btn-primary auth-submit" type="submit">Log in</button>
+        </form>
+        <div class="auth-links">
+          <button class="btn btn-secondary" onclick="showForgotPassword()">Forgot password?</button>
+        </div>
+      </div>
+    </div>
+
+    <div id="forgotScreen" class="auth-screen hidden">
+      <div class="auth-card">
+        <h3>Reset password</h3>
+        <p class="section-copy">We'll email you a link to set a new password.</p>
+        <div id="forgotMessage" class="message-panel hidden"></div>
+        <form id="forgotForm" class="auth-form" onsubmit="handleForgotPassword(event)">
+          <label>Email<input id="forgotEmail" type="email" required autocomplete="username"></label>
+          <button class="btn btn-primary auth-submit" type="submit">Send reset link</button>
+        </form>
+        <div class="auth-links">
+          <button class="btn btn-secondary" onclick="showLogin()">Back to login</button>
+        </div>
+      </div>
+    </div>
+
+    <div id="resetScreen" class="auth-screen hidden">
+      <div class="auth-card">
+        <h3>Set a new password</h3>
+        <p class="section-copy">Choose a password of at least 8 characters.</p>
+        <div id="resetMessage" class="message-panel hidden"></div>
+        <form id="resetForm" class="auth-form" onsubmit="handleResetPassword(event)">
+          <label>Email<input id="resetEmail" type="email" required autocomplete="username"></label>
+          <label>New password<input id="resetNewPassword" type="password" required autocomplete="new-password"></label>
+          <label>Confirm new password<input id="resetConfirmPassword" type="password" required autocomplete="new-password"></label>
+          <button class="btn btn-primary auth-submit" type="submit">Set password</button>
+        </form>
+        <div class="auth-links">
+          <button class="btn btn-secondary" onclick="showLogin()">Back to login</button>
+        </div>
+      </div>
+    </div>
 
     <div id="overlay" class="overlay hidden"><div class="spinner"></div><div class="overlay-text">Working...</div></div>
     <div id="toast" class="toast"></div>

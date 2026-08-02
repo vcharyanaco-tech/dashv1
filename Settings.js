@@ -27,6 +27,13 @@ const CONFIG = Object.freeze({
     ENABLED: true,
     TTL: 300
   },
+  USERS: {
+    SHEET_NAME: 'Users',
+    SESSION_TTL_SECONDS: 21600,
+    RESET_TTL_MINUTES: 30,
+    MAX_LOGIN_ATTEMPTS: 5,
+    LOCK_MINUTES: 15
+  },
   LOCK: {
     WAIT_TIME: 30000
   },
@@ -83,8 +90,8 @@ function getAppSettings() {
   };
 }
 
-function saveAppSettings(settings) {
-  requireAdmin();
+function saveAppSettings(settings, token) {
+  requireAdmin_(token);
   const props = getPropertyStore();
   props.setProperties({
     [PROP.APP_NAME]: String(settings.appName || CONFIG.TITLE.DEFAULT),

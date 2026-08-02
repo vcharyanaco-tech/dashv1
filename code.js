@@ -258,7 +258,9 @@ function getData() {
  * Update Existing Item
  * ============================================================ */
 
-function updateItem(item) {
+function updateItem(item, token) {
+
+  requireEditor_(token);
 
   return runWithLock_(function () {
 
@@ -312,7 +314,9 @@ function updateItem(item) {
  * Add New Item
  * ============================================================ */
 
-function addItem(item) {
+function addItem(item, token) {
+
+  requireEditor_(token);
 
   return runWithLock_(function () {
 
@@ -383,9 +387,10 @@ function addItem(item) {
 
 }
 
-function deleteItem(row) {
+function deleteItem(row, token) {
   return withLock_(function(){
     try {
+      requireAdmin_(token);
       const sheet = getSheet_();
       sheet.deleteRow(row);
       dataRenumber_();
@@ -516,8 +521,8 @@ function absUrl_(u) {
 }
 
 
-function getAppData() {
-  const user = getCurrentUserInfo();
+function getAppData(token) {
+  const user = requireLogin_(token);
   const data = getData();
   const audit = getAuditEntries(80);
   const settings = getAppSettings();
@@ -528,7 +533,11 @@ function getAppData() {
     trend: getMonthlyTrend()
   };
   return {
-    user: user,
+    user: {
+      email: user.email,
+      role: user.role,
+      loggedIn: true
+    },
     items: data.items || [],
     summary: summary,
     analytics: analytics,

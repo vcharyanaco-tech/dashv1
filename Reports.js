@@ -50,8 +50,8 @@ function getPrintableReport() {
   };
 }
 
-function exportToSpreadsheet() {
-  requireViewer();
+function exportToSpreadsheet(token) {
+  requireLogin_(token);
   const report = getPrintableReport();
   const ss = SpreadsheetApp.create('India Post Dashboard Report ' + Utilities.formatDate(new Date(), Session.getScriptTimeZone(), 'yyyy-MM-dd HH:mm'));
   const sheet = ss.getSheets()[0];
@@ -67,8 +67,8 @@ function exportToSpreadsheet() {
   return { url: file.getUrl(), id: file.getId(), downloadUrl: file.getDownloadUrl(), filename: filename };
 }
 
-function createPdfReport() {
-  requireViewer();
+function createPdfReport(token) {
+  requireLogin_(token);
   const template = HtmlService.createTemplateFromFile('ReportPdf');
   template.data = getPrintableReport();
   const html = template.evaluate().getContent();

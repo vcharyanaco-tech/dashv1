@@ -10,8 +10,61 @@ const appState = {
   isAdmin: false,
   isEditor: false,
   isViewer: false,
-  darkMode: false
+  darkMode: false,
+  mustChange: false
 };
+
+function getAuthToken() {
+  return window.localStorage.getItem('indiaPostAuthToken') || '';
+}
+
+function setAuthToken(token) {
+  if (token) window.localStorage.setItem('indiaPostAuthToken', token);
+  else window.localStorage.removeItem('indiaPostAuthToken');
+}
+
+function showScreen(screen) {
+  ['login', 'forgot', 'reset'].forEach(name => {
+    document.getElementById(name + 'Screen').classList.add('hidden');
+  });
+  document.getElementById(screen + 'Screen').classList.remove('hidden');
+}
+
+function showAuthMessage(elementId, message) {
+  const el = document.getElementById(elementId);
+  el.textContent = message || '';
+  el.classList.toggle('hidden', !message);
+}
+
+function parseQueryParams() {
+  const params = {};
+  const query = window.location.search || '';
+  if (!query) return params;
+  query.substring(1).split('&').forEach(pair => {
+    const parts = pair.split('=');
+    const key = decodeURIComponent(parts[0] || '');
+    if (key) params[key] = decodeURIComponent(parts[1] || '');
+  });
+  return params;
+}
+
+function isAuthError(message) {
+  const msg = String(message || '');
+  return msg.indexOf('Login required') !== -1 ||
+    msg.indexOf('Session expired') !== -1 ||
+    msg.indexOf('Please log in') !== -1;
+}
+
+function handleServerFailure(err) {
+  hideOverlay();
+  const msg = err && err.message ? err.message : String(err || 'Unknown error');
+  if (isAuthError(msg)) {
+    setAuthToken('');
+    showScreen('login');
+    return true;
+  }
+  return false;
+}
 
 function displayToast(message) {
   const toast = document.getElementById('toast');
@@ -60,15 +113,34 @@ function setUserStatus(user) {
   appState.isEditor = user.role === 'ADMIN' || user.role === 'EDITOR';
   appState.isViewer = ['ADMIN','EDITOR','VIEWER'].includes(user.role);
   document.getElementById('addButton').style.display = appState.isEditor ? 'inline-flex' : 'none';
+  document.getElementById('logoutButton').classList.toggle('hidden', !user.loggedIn);
 }
 
 function initApp() {
+  const params = parseQueryParams();
+  const token = getAuthToken();
+
+  if (params.resetToken && params.email) {
+    document.getElementById('resetEmail').value = params.email;
+    showScreen('reset');
+    return;
+  }
+
+  if (!token) {
+    showScreen('login');
+    return;
+  }
+
+  loadApp();
+}
+
+function loadApp() {
   showOverlay('Loading app...');
   google.script.run.withSuccessHandler(data => {
     hideOverlay();
     if (!data || !data.user) {
-      document.getElementById('messagePanel').classList.remove('hidden');
-      document.getElementById('messagePanel').textContent = 'Unable to load application data. Please refresh.';
+      setAuthToken('');
+      showScreen('login');
       return;
     }
     setUserStatus(data.user);
@@ -80,29 +152,105 @@ function initApp() {
     populateFilters();
     renderDashboard();
     applyTheme();
-    if (!appState.isViewer) {
-      document.getElementById('messagePanel').classList.remove('hidden');
-      document.getElementById('messagePanel').textContent = 'You are signed out or not authorized. Viewer mode is limited.';
-    } else {
-      document.getElementById('messagePanel').classList.add('hidden');
+    showScreen('login');
+    document.getElementById('loginScreen').classList.add('hidden');
+    document.getElementById('forgotScreen').classList.add('hidden');
+    document.getElementById('resetScreen').classList.add('hidden');
+    if (appState.mustChange) {
+      document.getElementById('mustChangeBanner').classList.remove('hidden');
+      openTab('settings');
+      displayToast('Please set a new password to continue.');
     }
   }).withFailureHandler(err => {
     hideOverlay();
+    if (handleServerFailure(err)) return;
     const message = err && err.message ? err.message : String(err || 'Unknown error');
     document.getElementById('messagePanel').classList.remove('hidden');
     document.getElementById('messagePanel').textContent = 'Error loading app: ' + message;
     console.error('App load failed', err);
-    appState.user = { email: '', role: 'VIEWER', loggedIn: false };
-    appState.items = [];
-    appState.summary = {};
-    appState.analytics = {};
-    appState.audit = [];
-    appState.settings = {};
-    populateFilters();
-    renderDashboard();
-    applyTheme();
-    setUserStatus(appState.user);
-  }).getAppData();
+  }).getAppData(getAuthToken());
+}
+
+function handleLogin(e) {
+  e.preventDefault();
+  const email = document.getElementById('loginEmail').value.trim();
+  const password = document.getElementById('loginPassword').value;
+  showOverlay('Logging in...');
+  google.script.run.withSuccessHandler(res => {
+    hideOverlay();
+    if (!res || !res.success) {
+      showAuthMessage('loginMessage', (res && res.message) || 'Login failed.');
+      return;
+    }
+    setAuthToken(res.token);
+    appState.mustChange = !!res.mustChange;
+    showAuthMessage('loginMessage', '');
+    loadApp();
+  }).withFailureHandler(err => {
+    hideOverlay();
+    showAuthMessage('loginMessage', err && err.message ? err.message : 'Login failed.');
+  }).login(email, password);
+}
+
+function handleForgotPassword(e) {
+  e.preventDefault();
+  const email = document.getElementById('forgotEmail').value.trim();
+  showOverlay('Sending reset link...');
+  google.script.run.withSuccessHandler(res => {
+    hideOverlay();
+    showAuthMessage('forgotMessage', (res && res.message) || 'Reset link sent.');
+  }).withFailureHandler(err => {
+    hideOverlay();
+    showAuthMessage('forgotMessage', err && err.message ? err.message : 'Could not send reset link.');
+  }).requestPasswordReset(email, window.location.href);
+}
+
+function handleResetPassword(e) {
+  e.preventDefault();
+  const email = document.getElementById('resetEmail').value.trim();
+  const np = document.getElementById('resetNewPassword').value;
+  const cp = document.getElementById('resetConfirmPassword').value;
+  const params = parseQueryParams();
+  if (np !== cp) {
+    showAuthMessage('resetMessage', 'Passwords do not match.');
+    return;
+  }
+  showOverlay('Setting new password...');
+  google.script.run.withSuccessHandler(res => {
+    hideOverlay();
+    if (!res || !res.success) {
+      showAuthMessage('resetMessage', (res && res.message) || 'Could not reset password.');
+      return;
+    }
+    setAuthToken(res.token);
+    appState.mustChange = false;
+    showAuthMessage('resetMessage', '');
+    loadApp();
+  }).withFailureHandler(err => {
+    hideOverlay();
+    showAuthMessage('resetMessage', err && err.message ? err.message : 'Could not reset password.');
+  }).resetPasswordWithToken(email, params.resetToken, np);
+}
+
+function showForgotPassword() {
+  showAuthMessage('forgotMessage', '');
+  document.getElementById('forgotEmail').value = document.getElementById('loginEmail').value || '';
+  showScreen('forgot');
+}
+
+function showLogin() {
+  ['loginMessage', 'forgotMessage', 'resetMessage'].forEach(id => showAuthMessage(id, ''));
+  showScreen('login');
+}
+
+function logout() {
+  google.script.run.withSuccessHandler(() => {
+    setAuthToken('');
+    window.location.href = window.location.href.split('?')[0];
+  }).withFailureHandler(() => {
+    setAuthToken('');
+    window.location.reload();
+  }).logout(getAuthToken());
 }
 
 function applyTheme() {
@@ -212,6 +360,111 @@ function renderSettings() {
   document.getElementById('settingAppName').value = appState.settings.appName || 'India Post Dashboard';
   document.getElementById('settingSheetName').value = appState.settings.sheetName || 'Sheet1';
   document.getElementById('settingStartRow').value = appState.settings.startRow || 4;
+  document.getElementById('mustChangeBanner').classList.toggle('hidden', !appState.mustChange);
+  const usersAdmin = document.getElementById('usersAdmin');
+  if (appState.isAdmin) {
+    usersAdmin.classList.remove('hidden');
+    loadUsers();
+  } else {
+    usersAdmin.classList.add('hidden');
+  }
+}
+
+function loadUsers() {
+  google.script.run.withSuccessHandler(users => {
+    renderUsersTable(users || []);
+  }).withFailureHandler(err => {
+    if (handleServerFailure(err)) return;
+    displayToast('Could not load users: ' + (err.message || err));
+  }).adminGetUsers(getAuthToken());
+}
+
+function renderUsersTable(users) {
+  const tbody = document.querySelector('#usersTable tbody');
+  tbody.dataset.users = JSON.stringify(users);
+  tbody.innerHTML = users.map((u, i) => `
+    <tr>
+      <td class="preserve-whitespace">${escapeHtml(u.email)}${u.mustChange ? ' <em>(must change)</em>' : ''}</td>
+      <td>${escapeHtml(u.role)}</td>
+      <td class="preserve-whitespace">${escapeHtml(u.createdAt || '')}</td>
+      <td><button class="btn btn-secondary btn-small" data-action="reset" data-index="${i}">Reset password</button></td>
+      <td><button class="btn btn-danger btn-small" data-action="delete" data-index="${i}">Delete</button></td>
+    </tr>
+  `).join('');
+}
+
+function handleAddUser(e) {
+  e.preventDefault();
+  if (!appState.isAdmin) { displayToast('Admin access required'); return; }
+  const email = document.getElementById('newUserEmail').value.trim();
+  const role = document.getElementById('newUserRole').value;
+  const password = document.getElementById('newUserPassword').value;
+  showOverlay('Adding user...');
+  google.script.run.withSuccessHandler(users => {
+    hideOverlay();
+    document.getElementById('newUserEmail').value = '';
+    document.getElementById('newUserPassword').value = '';
+    document.getElementById('addUserStatus').textContent = 'User added';
+    setTimeout(() => document.getElementById('addUserStatus').textContent = '', 3000);
+    renderUsersTable(users || []);
+  }).withFailureHandler(err => {
+    hideOverlay();
+    if (handleServerFailure(err)) return;
+    document.getElementById('addUserStatus').textContent = err.message || 'Could not add user';
+  }).adminAddUser(email, role, password, getAuthToken());
+}
+
+function deleteUser(email) {
+  if (!confirm('Delete user ' + email + '?')) return;
+  google.script.run.withSuccessHandler(users => {
+    displayToast('User deleted');
+    renderUsersTable(users || []);
+  }).withFailureHandler(err => {
+    if (handleServerFailure(err)) return;
+    displayToast('Delete failed: ' + (err.message || err));
+  }).adminDeleteUser(email, getAuthToken());
+}
+
+function resetUserPassword(email) {
+  const newPassword = prompt('New password for ' + email + ' (min 8 characters):');
+  if (!newPassword) return;
+  google.script.run.withSuccessHandler(users => {
+    displayToast('Password reset for ' + email);
+    renderUsersTable(users || []);
+  }).withFailureHandler(err => {
+    if (handleServerFailure(err)) return;
+    displayToast('Reset failed: ' + (err.message || err));
+  }).adminResetPassword(email, newPassword, getAuthToken());
+}
+
+function handleChangePassword(e) {
+  e.preventDefault();
+  const current = document.getElementById('changeCurrentPassword').value;
+  const np = document.getElementById('changeNewPassword').value;
+  const cp = document.getElementById('changeConfirmPassword').value;
+  if (np !== cp) {
+    document.getElementById('changePasswordStatus').textContent = 'Passwords do not match';
+    return;
+  }
+  showOverlay('Updating password...');
+  google.script.run.withSuccessHandler(res => {
+    hideOverlay();
+    const status = document.getElementById('changePasswordStatus');
+    status.textContent = (res && res.message) || 'Password updated';
+    setTimeout(() => status.textContent = '', 3000);
+    if (res && res.success) {
+      document.getElementById('changeCurrentPassword').value = '';
+      document.getElementById('changeNewPassword').value = '';
+      document.getElementById('changeConfirmPassword').value = '';
+      appState.mustChange = false;
+      document.getElementById('mustChangeBanner').classList.add('hidden');
+      displayToast('Password updated');
+    }
+  }).withFailureHandler(err => {
+    hideOverlay();
+    if (handleServerFailure(err)) return;
+    document.getElementById('changePasswordStatus').textContent = err.message || 'Could not update password';
+  }).changePassword(current, np, getAuthToken());
 }
 
 function refreshData() {
@@ -227,8 +480,9 @@ function refreshData() {
     displayToast('Dashboard refreshed');
   }).withFailureHandler(err => {
     hideOverlay();
+    if (handleServerFailure(err)) return;
     displayToast('Refresh failed: ' + (err.message || err));
-  }).getAppData();
+  }).getAppData(getAuthToken());
 }
 
 function addNewItem() {
@@ -244,8 +498,9 @@ function addNewItem() {
     displayToast('New item created');
   }).withFailureHandler(err => {
     hideOverlay();
+    if (handleServerFailure(err)) return;
     displayToast('Add failed: ' + (err.message || err));
-  }).addItem(payload);
+  }).addItem(payload, getAuthToken());
 }
 
 function editItem(row) {
@@ -268,8 +523,9 @@ function saveItem(item) {
     displayToast('Record saved');
   }).withFailureHandler(err => {
     hideOverlay();
+    if (handleServerFailure(err)) return;
     displayToast('Save failed: ' + (err.message || err));
-  }).updateItem(item);
+  }).updateItem(item, getAuthToken());
 }
 
 function deleteItem(row) {
@@ -284,8 +540,9 @@ function deleteItem(row) {
     displayToast('Record deleted');
   }).withFailureHandler(err => {
     hideOverlay();
+    if (handleServerFailure(err)) return;
     displayToast('Delete failed: ' + (err.message || err));
-  }).deleteItem(row);
+  }).deleteItem(row, getAuthToken());
 }
 
 function exportSpreadsheet() {
@@ -305,8 +562,9 @@ function exportSpreadsheet() {
     }
   }).withFailureHandler(err => {
     hideOverlay();
+    if (handleServerFailure(err)) return;
     displayToast('Excel export failed: ' + (err.message || err));
-  }).exportToSpreadsheet();
+  }).exportToSpreadsheet(getAuthToken());
 }
 
 function downloadPdf() {
@@ -326,8 +584,9 @@ function downloadPdf() {
     }
   }).withFailureHandler(err => {
     hideOverlay();
+    if (handleServerFailure(err)) return;
     displayToast('PDF export failed: ' + (err.message || err));
-  }).createPdfReport();
+  }).createPdfReport(getAuthToken());
 }
 
 function printReport() {
@@ -350,14 +609,25 @@ function saveSettings(e) {
     displayToast('Settings saved');
   }).withFailureHandler(err => {
     hideOverlay();
+    if (handleServerFailure(err)) return;
     displayToast('Could not save settings: ' + (err.message || err));
-  }).saveAppSettings(settings);
+  }).saveAppSettings(settings, getAuthToken());
 }
 
 function escapeHtml(value) {
   if (value === undefined || value === null) return '';
   return String(value).replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
 }
+
+document.getElementById('usersTable').addEventListener('click', function (e) {
+  const btn = e.target.closest('button[data-action]');
+  if (!btn) return;
+  const users = JSON.parse(document.getElementById('usersTable').dataset.users || '[]');
+  const user = users[Number(btn.dataset.index)];
+  if (!user) return;
+  if (btn.dataset.action === 'delete') deleteUser(user.email);
+  else if (btn.dataset.action === 'reset') resetUserPassword(user.email);
+});
 
 window.addEventListener('load', initApp);
 </script>

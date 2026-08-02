@@ -18,10 +18,10 @@ function getAuditSheet_() {
   return sheet;
 }
 
-function logAudit_(action, id, details) {
+function logAudit_(action, id, details, userEmail) {
   try {
     const sheet = getAuditSheet_();
-    sheet.appendRow([new Date(), getCurrentUser(), action, id || '', typeof details === 'string' ? details : JSON.stringify(details)]);
+    sheet.appendRow([new Date(), userEmail || getCurrentUser(), action, id || '', typeof details === 'string' ? details : JSON.stringify(details)]);
   } catch (err) {
     Logger.log(err);
   }

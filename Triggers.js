@@ -85,6 +85,10 @@ function setupProject() {
 
   stampTitle_();
 
+  try {
+    ensureUserRecord_(ADMIN_USERS[0]);
+  } catch (err) {}
+
   Logger.log("Dashboard setup completed.");
 
 }
