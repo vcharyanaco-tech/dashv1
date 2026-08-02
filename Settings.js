@@ -18,6 +18,7 @@ const CONFIG = Object.freeze({
   },
   COLORS: {
     FLAG: '#ffab00',
+    REVIEW_DONE: '#c8e6c9',
     NORMAL: '#ffffff',
     BORDER: '#ded9d2',
     PRIMARY: '#da291c',

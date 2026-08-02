@@ -68,6 +68,7 @@ function getPrintableReport() {
 function exportToSpreadsheet(token) {
   requireLogin_(token);
   const report = getPrintableReport();
+  const xlsxMime = 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet';
   const ss = SpreadsheetApp.create('India Post Dashboard Report ' + Utilities.formatDate(new Date(), Session.getScriptTimeZone(), 'yyyy-MM-dd HH:mm'));
   try {
     const sheet = ss.getSheets()[0];
@@ -76,12 +77,12 @@ function exportToSpreadsheet(token) {
     report.items.forEach(row => {
       sheet.appendRow([row.id, row.sector, row.description, row.entryDate, row.action, row.responsibility, row.reviewDate, row.flagged ? 'YES' : 'NO']);
     });
+    SpreadsheetApp.flush();
 
-    const xlsxMime = 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet';
     let blob = null;
 
-    // Preferred: Google Drive REST export endpoint. This is the only path that
-    // reliably produces a real .xlsx from a Google Sheets file.
+    // Fast path 1: Google Drive REST export endpoint (works when the script
+    // has a Drive scope; otherwise this returns non-200 and we fall through).
     try {
       const exportUrl = 'https://www.googleapis.com/drive/v3/files/' + encodeURIComponent(ss.getId()) + '/export?mimeType=' + encodeURIComponent(xlsxMime);
       const response = UrlFetchApp.fetch(exportUrl, {
@@ -90,20 +91,27 @@ function exportToSpreadsheet(token) {
       });
       if (response.getResponseCode() === 200) {
         blob = Utilities.newBlob(response.getContent(), xlsxMime, 'report.xlsx');
-      } else {
-        console.log('Drive export failed: ' + response.getResponseCode() + ' ' + response.getContentText());
       }
     } catch (err) {
-      console.log('Drive export error: ' + (err && err.message ? err.message : err));
       blob = null;
     }
 
+    // Fast path 2: DriveApp File conversion (drive.file scope).
     if (!blob) {
       try { blob = DriveApp.getFileById(ss.getId()).getAs(xlsxMime); } catch (err) { blob = null; }
     }
+
+    // Fast path 3: spreadsheet blob conversion (spreadsheets scope only).
     if (!blob) {
-      try { blob = ss.getAs(xlsxMime); } catch (err) { blob = null; }
+      try { blob = ss.getBlob().getAs(xlsxMime); } catch (err) { blob = null; }
     }
+
+    // Guaranteed fallback: build a valid .xlsx entirely in memory. This uses
+    // only Utilities (no Drive scope), so it always succeeds.
+    if (!blob) {
+      try { blob = buildXlsxFromItems_(report.items); } catch (err) { blob = null; }
+    }
+
     if (!blob) throw new Error('Could not convert the report to Excel format.');
 
     const filename = 'IndiaPostDashboard_Report_' + Utilities.formatDate(new Date(), Session.getScriptTimeZone(), 'yyyyMMdd_HHmm') + '.xlsx';
@@ -112,6 +120,112 @@ function exportToSpreadsheet(token) {
   } finally {
     try { DriveApp.getFileById(ss.getId()).setTrashed(true); } catch (err) {}
   }
+}
+
+function xlsxColLetter_(index) {
+  let letters = '';
+  while (index > 0) {
+    const rem = (index - 1) % 26;
+    letters = String.fromCharCode(65 + rem) + letters;
+    index = Math.floor((index - 1) / 26);
+  }
+  return letters;
+}
+
+function xlsxEscape_(value) {
+  return String(value === null || value === undefined ? '' : value)
+    .replace(/&/g, '&amp;')
+    .replace(/</g, '&lt;')
+    .replace(/>/g, '&gt;')
+    .replace(/"/g, '&quot;')
+    .replace(/[\x00-\x08\x0B\x0C\x0E-\x1F]/g, '');
+}
+
+function buildXlsxFromItems_(items) {
+  const xlsxMime = 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet';
+  const headers = ['ID', 'Sector', 'Description', 'Entry Date', 'Action', 'Responsibility', 'Review Date', 'Flagged'];
+  const rows = [headers].concat((items || []).map(function (row) {
+    return [
+      row.id, row.sector, row.description, row.entryDate,
+      row.action, row.responsibility, row.reviewDate,
+      row.flagged ? 'YES' : 'NO'
+    ];
+  }));
+
+  let sheetXml = '<?xml version="1.0" encoding="UTF-8" standalone="yes"?>' +
+    '<worksheet xmlns="http://schemas.openxmlformats.org/spreadsheetml/2006/main"><sheetData>';
+  rows.forEach(function (row, rIdx) {
+    const rowNum = rIdx + 1;
+    sheetXml += '<row r="' + rowNum + '">';
+    row.forEach(function (value, cIdx) {
+      sheetXml += '<c r="' + xlsxColLetter_(cIdx + 1) + rowNum + '" t="inlineStr"><is><t xml:space="preserve">' + xlsxEscape_(value) + '</t></is></c>';
+    });
+    sheetXml += '</row>';
+  });
+  sheetXml += '</sheetData></worksheet>';
+
+  const contentTypes = '<?xml version="1.0" encoding="UTF-8" standalone="yes"?>' +
+    '<Types xmlns="http://schemas.openxmlformats.org/package/2006/content-types">' +
+    '<Default Extension="rels" ContentType="application/vnd.openxmlformats-package.relationships+xml"/>' +
+    '<Default Extension="xml" ContentType="application/xml"/>' +
+    '<Override PartName="/xl/workbook.xml" ContentType="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet.main+xml"/>' +
+    '<Override PartName="/xl/worksheets/sheet1.xml" ContentType="application/vnd.openxmlformats-officedocument.spreadsheetml.worksheet+xml"/>' +
+    '<Override PartName="/xl/styles.xml" ContentType="application/vnd.openxmlformats-officedocument.spreadsheetml.styles+xml"/>' +
+    '<Override PartName="/docProps/core.xml" ContentType="application/vnd.openxmlformats-package.core-properties+xml"/>' +
+    '<Override PartName="/docProps/app.xml" ContentType="application/vnd.openxmlformats-officedocument.extended-properties+xml"/>' +
+    '</Types>';
+
+  const rootRels = '<?xml version="1.0" encoding="UTF-8" standalone="yes"?>' +
+    '<Relationships xmlns="http://schemas.openxmlformats.org/package/2006/relationships">' +
+    '<Relationship Id="rId1" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/officeDocument" Target="xl/workbook.xml"/>' +
+    '<Relationship Id="rId2" Type="http://schemas.openxmlformats.org/package/2006/relationships/metadata/core-properties" Target="docProps/core.xml"/>' +
+    '<Relationship Id="rId3" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/extended-properties" Target="docProps/app.xml"/>' +
+    '</Relationships>';
+
+  const workbookXml = '<?xml version="1.0" encoding="UTF-8" standalone="yes"?>' +
+    '<workbook xmlns="http://schemas.openxmlformats.org/spreadsheetml/2006/main" xmlns:r="http://schemas.openxmlformats.org/officeDocument/2006/relationships">' +
+    '<sheets><sheet name="Report" sheetId="1" r:id="rId1"/></sheets>' +
+    '</workbook>';
+
+  const workbookRels = '<?xml version="1.0" encoding="UTF-8" standalone="yes"?>' +
+    '<Relationships xmlns="http://schemas.openxmlformats.org/package/2006/relationships">' +
+    '<Relationship Id="rId1" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/worksheet" Target="worksheets/sheet1.xml"/>' +
+    '<Relationship Id="rId2" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/styles" Target="styles.xml"/>' +
+    '</Relationships>';
+
+  const stylesXml = '<?xml version="1.0" encoding="UTF-8" standalone="yes"?>' +
+    '<styleSheet xmlns="http://schemas.openxmlformats.org/spreadsheetml/2006/main">' +
+    '<fonts count="1"><font><sz val="11"/><name val="Calibri"/></font></fonts>' +
+    '<fills count="2"><fill><patternFill patternType="none"/></fill><fill><patternFill patternType="gray125"/></fill></fills>' +
+    '<borders count="1"><border><left/><right/><top/><bottom/><diagonal/></border></borders>' +
+    '<cellStyleXfs count="1"><xf numFmtId="0" fontId="0" fillId="0" borderId="0"/></cellStyleXfs>' +
+    '<cellXfs count="1"><xf numFmtId="0" fontId="0" fillId="0" borderId="0" xfId="0"/></cellXfs>' +
+    '<cellStyles count="1"><cellStyle name="Normal" xfId="0" builtinId="0"/></cellStyles>' +
+    '</styleSheet>';
+
+  const coreProps = '<?xml version="1.0" encoding="UTF-8" standalone="yes"?>' +
+    '<cp:coreProperties xmlns:cp="http://schemas.openxmlformats.org/package/2006/metadata/core-properties" xmlns:dc="http://purl.org/dc/elements/1.1/" xmlns:dcterms="http://purl.org/dc/terms/" xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance">' +
+    '<dc:creator>India Post Dashboard</dc:creator>' +
+    '<dcterms:created xsi:type="dcterms:W3CDTF">' + new Date().toISOString() + '</dcterms:created>' +
+    '</cp:coreProperties>';
+
+  const appProps = '<?xml version="1.0" encoding="UTF-8" standalone="yes"?>' +
+    '<Properties xmlns="http://schemas.openxmlformats.org/officeDocument/2006/extended-properties" xmlns:vt="http://schemas.openxmlformats.org/officeDocument/2006/docPropsVTypes">' +
+    '<Application>India Post Dashboard</Application>' +
+    '</Properties>';
+
+  const parts = [
+    Utilities.newBlob(contentTypes, 'application/xml', '[Content_Types].xml'),
+    Utilities.newBlob(rootRels, 'application/xml', '_rels/.rels'),
+    Utilities.newBlob(workbookXml, 'application/xml', 'xl/workbook.xml'),
+    Utilities.newBlob(workbookRels, 'application/xml', 'xl/_rels/workbook.xml.rels'),
+    Utilities.newBlob(sheetXml, 'application/xml', 'xl/worksheets/sheet1.xml'),
+    Utilities.newBlob(stylesXml, 'application/xml', 'xl/styles.xml'),
+    Utilities.newBlob(coreProps, 'application/xml', 'docProps/core.xml'),
+    Utilities.newBlob(appProps, 'application/xml', 'docProps/app.xml')
+  ];
+
+  return Utilities.zip(parts, 'report.xlsx').setContentType(xlsxMime);
 }
 
 function createPdfReport(token) {

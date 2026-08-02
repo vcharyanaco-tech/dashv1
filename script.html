@@ -323,8 +323,21 @@ function renderDashboard() {
         </div>
       `).join('');
 
+    const reviewBadgeHtml = item.reviewStatus === 'due'
+      ? `<span class="review-badge review-due">Review due${appState.isAdmin ? `
+          <span class="review-dropdown">
+            <button type="button" class="review-dropdown-toggle" aria-label="Review actions" onclick="event.stopPropagation(); toggleReviewDropdown(this);">&#9662;</button>
+            <span class="review-dropdown-menu">
+              <button type="button" class="review-dropdown-item" onclick="event.stopPropagation(); markReviewDone('${item.row}');">Mark as review done</button>
+            </span>
+          </span>` : ''}</span>`
+      : item.reviewStatus === 'done'
+        ? `<span class="review-badge review-done">Review done</span>`
+        : '';
+
     return `
-      <article class="card ${item.flagged ? 'flagged' : ''}">
+      <article class="card ${item.reviewStatus === 'due' ? 'review-due' : ''}">
+        ${reviewBadgeHtml}
         <div class="card-title preserve-whitespace"><span class="id-badge">#${escapeHtml(item.id)}</span></div>
         <div class="card-fields">${fieldsHtml || '<div class="card-field"><span class="field-label">Details</span><div class="field-value preserve-whitespace">No details available</div></div>'}${updateFieldsHtml}</div>
         <div class="card-footer">
@@ -607,6 +620,31 @@ function saveItem(item) {
     if (handleServerFailure(err)) return;
     displayToast('Save failed: ' + (err.message || err));
   }).updateItem(item, getAuthToken());
+}
+
+function toggleReviewDropdown(btn) {
+  const menu = btn.parentElement.querySelector('.review-dropdown-menu');
+  const isOpen = menu.classList.toggle('open');
+  document.querySelectorAll('.review-dropdown-menu.open').forEach(m => {
+    if (m !== menu) m.classList.remove('open');
+  });
+}
+
+function markReviewDone(row) {
+  if (!appState.isAdmin) { displayToast('Admin access required'); return; }
+  if (!confirm('Mark this record as review done?')) return;
+  showOverlay('Marking review as done...');
+  google.script.run.withSuccessHandler(data => {
+    hideOverlay();
+    appState.items = data.items || [];
+    appState.summary = data.summary || {};
+    renderDashboard();
+    displayToast('Marked review as done');
+  }).withFailureHandler(err => {
+    hideOverlay();
+    if (handleServerFailure(err)) return;
+    displayToast('Failed: ' + (err.message || err));
+  }).markReviewDone(row, getAuthToken());
 }
 
 function deleteItem(row) {
@@ -905,6 +943,12 @@ function escapeHtml(value) {
   if (value === undefined || value === null) return '';
   return String(value).replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
 }
+
+document.addEventListener('click', function (event) {
+  document.querySelectorAll('.review-dropdown-menu.open').forEach(menu => {
+    if (!menu.parentElement.contains(event.target)) menu.classList.remove('open');
+  });
+});
 
 document.getElementById('usersTable').addEventListener('click', function (e) {
   const btn = e.target.closest('button[data-action]');

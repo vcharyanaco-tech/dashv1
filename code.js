@@ -130,7 +130,24 @@ function isFlagged_(background) {
 
 }
 
-function getFlaggedBackgrounds_(sheet, rows) {
+function isReviewDoneColor_(background) {
+
+  if (!background)
+    return false;
+
+  const hex = String(background).replace("#", "").trim();
+  if (!/^[0-9a-fA-F]{6}$/.test(hex))
+    return false;
+
+  const r = parseInt(hex.substring(0, 2), 16);
+  const g = parseInt(hex.substring(2, 4), 16);
+  const b = parseInt(hex.substring(4, 6), 16);
+
+  return g >= 150 && g > r + 20 && g > b + 20;
+
+}
+
+function getReviewStatuses_(sheet, rows) {
   const out = {};
 
   if (!sheet || !rows || !rows.length) {
@@ -158,7 +175,10 @@ function getFlaggedBackgrounds_(sheet, rows) {
 
     rows.forEach(function (rowSpec) {
       if (rowSpec && rowSpec.rowNumber) {
-        out[String(rowSpec.rowNumber)] = isFlagged_(colors[rowSpec.rowNumber - start][0]);
+        const background = colors[rowSpec.rowNumber - start][0];
+        out[String(rowSpec.rowNumber)] = isReviewDoneColor_(background)
+          ? "done"
+          : (isFlagged_(background) ? "due" : "");
       }
     });
   } catch (err) {}
@@ -199,13 +219,15 @@ function getData() {
 
   }
 
-  const backgrounds = getFlaggedBackgrounds_(sheet, rows);
+  const statuses = getReviewStatuses_(sheet, rows);
 
   const items = rows.map(function (rowSpec) {
 
     let actionHtml = escHtml_(rowSpec.action);
 
-    const flagged = backgrounds[String(rowSpec.rowNumber)] || false;
+    const reviewStatus = statuses[String(rowSpec.rowNumber)] || "";
+
+    const flagged = reviewStatus === "due";
 
     const displayFields = (rowSpec.displayFields || []).map(function (field) {
       const label = String(field && field.label ? field.label : "").trim();
@@ -258,6 +280,8 @@ function getData() {
       reviewDate: formatDate_(rowSpec.reviewDate),
 
       flagged: flagged,
+
+      reviewStatus: reviewStatus,
 
       displayFields: displayFields
 
@@ -424,6 +448,22 @@ function deleteItem(row, token) {
       dataRenumber_();
       return getData();
     } catch(err){throw new Error(err.message);} 
+  });
+}
+
+function markReviewDone(row, token) {
+  return withLock_(function () {
+    try {
+      requireAdmin_(token);
+      const sheet = getSheet_();
+      sheet.getRange(row, COL.REVIEW_DATE).setBackground(CONFIG.COLORS.REVIEW_DONE);
+      logAudit_('REVIEW_DONE', String(row), 'Marked review as done');
+      const data = getData();
+      return {
+        items: data.items || [],
+        summary: buildSummaryFromItems(data.items || [])
+      };
+    } catch (err) { throw new Error(err.message); }
   });
 }
 

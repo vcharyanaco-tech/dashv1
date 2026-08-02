@@ -225,8 +225,117 @@ button, input, select, textarea {
 }
 
 .card {
+  position: relative;
   display: grid;
   gap: 14px;
+}
+
+.card.review-due {
+  background: rgba(255, 193, 7, .12);
+  border-color: rgba(255, 193, 7, .45);
+}
+
+body.dark-mode .card.review-due {
+  background: rgba(255, 193, 7, .1);
+  border-color: rgba(255, 213, 79, .35);
+}
+
+.review-badge {
+  position: absolute;
+  top: 14px;
+  right: 14px;
+  z-index: 5;
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 5px 12px;
+  border-radius: 999px;
+  font-size: 12px;
+  font-weight: 700;
+  letter-spacing: .3px;
+}
+
+.review-due.review-badge {
+  background: #ffeb3b;
+  color: #5d5200;
+  box-shadow: 0 2px 8px rgba(255, 193, 7, .35);
+}
+
+.review-done.review-badge {
+  background: #c8e6c9;
+  color: #1b5e20;
+  box-shadow: 0 2px 8px rgba(76, 175, 80, .35);
+}
+
+body.dark-mode .review-due.review-badge {
+  background: rgba(255, 213, 79, .9);
+  color: #3f3500;
+}
+
+body.dark-mode .review-done.review-badge {
+  background: rgba(129, 199, 132, .9);
+  color: #0d2818;
+}
+
+.review-dropdown {
+  position: relative;
+  display: inline-flex;
+}
+
+.review-dropdown-toggle {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 18px;
+  height: 18px;
+  padding: 0;
+  border: none;
+  border-radius: 999px;
+  background: rgba(0, 0, 0, .18);
+  color: inherit;
+  font-size: 11px;
+  line-height: 1;
+  cursor: pointer;
+}
+
+.review-dropdown-toggle:hover {
+  background: rgba(0, 0, 0, .32);
+}
+
+.review-dropdown-menu {
+  display: none;
+  position: absolute;
+  top: 26px;
+  right: 0;
+  z-index: 20;
+  min-width: 170px;
+  padding: 6px;
+  border-radius: 10px;
+  background: var(--surface);
+  border: 1px solid var(--border);
+  box-shadow: 0 10px 30px rgba(0, 0, 0, .18);
+}
+
+.review-dropdown-menu.open {
+  display: block;
+}
+
+.review-dropdown-item {
+  display: block;
+  width: 100%;
+  padding: 8px 12px;
+  border: none;
+  border-radius: 8px;
+  background: transparent;
+  color: var(--text);
+  font-size: 13px;
+  font-weight: 600;
+  text-align: left;
+  cursor: pointer;
+}
+
+.review-dropdown-item:hover {
+  background: rgba(0, 75, 135, .08);
 }
 
 .card-title {
