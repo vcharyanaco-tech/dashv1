@@ -85,6 +85,19 @@
   password changes notify the affected user.
 - Verified with `node --check` and a DOM/onclick audit; deployed @84.
 
+### Phase 4 — Enterprise Features, Tranche D: Task Management (deployment @85)
+- **Task management module:** new `Tasks.js` server module backed by a hidden
+  `Tasks` sheet. Tasks can be linked to records, assigned to users, and tracked
+  through statuses (OPEN, IN_PROGRESS, DONE, CANCELLED) and priorities
+  (LOW, MEDIUM, HIGH, URGENT).
+- **Task creation:** editors/admins can create tasks with title, description,
+  assignee, priority, due date, and optional record row link.
+- **Task list:** dedicated Tasks tab with filterable table (by status and
+  priority), status badges, and a quick Complete action.
+- **API surface:** `createTask`, `getTasks`, `getMyTasks`, `updateTask`,
+  `deleteTask` exposed via ApiService.
+- Verified with `node --check` and a DOM/onclick audit; deployed @85.
+
 ### Phase 4 — Enterprise Features, Tranche A: User & Role Management (deployment @82)
 - **Granular RBAC permission matrix:** new `MODULES` / `MODULE_ACTIONS` /
   `PERMISSIONS` in `Settings.js` with View/Create/Edit/Delete/Export/Approve per
