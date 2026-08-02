@@ -119,6 +119,15 @@
   the existing sector breakdown.
 - Verified with `node --check` and a DOM/onclick audit; deployed @89.
 
+### Phase 4 — Enterprise Features, Tranche G: Reports (deployment @90)
+- **Report templates:** predefined report types (Summary, Detailed, Flagged only)
+  selectable from the Reports tab. Template selection filters the preview and
+  export payloads.
+- **Email scheduling:** admins can email a PDF report directly from the Reports
+  tab. `emailReport` generates the PDF via `createPdfReport` and sends it via
+  `MailApp` with the selected template.
+- Verified with `node --check` and a DOM/onclick audit; deployed @90.
+
 ### Phase 4 — Enterprise Features, Tranche A: User & Role Management (deployment @82)
 - **Granular RBAC permission matrix:** new `MODULES` / `MODULE_ACTIONS` /
   `PERMISSIONS` in `Settings.js` with View/Create/Edit/Delete/Export/Approve per
