@@ -18,7 +18,7 @@ const EDITOR_USERS = [
 const VIEWER_USERS = [
 ];
 
-const USER_SHEET_HEADERS = ['Email', 'Role', 'Salt', 'PasswordHash', 'MustChange', 'CreatedBy', 'CreatedAt', 'ResetToken', 'ResetExpires', 'Group', 'Department', 'Office'];
+const USER_SHEET_HEADERS = ['Email', 'Role', 'Salt', 'PasswordHash', 'MustChange', 'CreatedBy', 'CreatedAt', 'ResetToken', 'ResetExpires', 'Group', 'Department', 'Office', 'Preferences'];
 
 const USER_COL = Object.freeze({
   EMAIL: 1,

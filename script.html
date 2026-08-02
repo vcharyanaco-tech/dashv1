@@ -87,6 +87,8 @@ const ApiService = {
   getMyTasks: function () { return apiCall_('getMyTasks', getAuthToken()); },
   updateTask: function (id, fields) { return apiCall_('updateTask', id, fields, getAuthToken()); },
   deleteTask: function (id) { return apiCall_('deleteTask', id, getAuthToken()); },
+  getDashboardPreferences: function () { return apiCall_('getDashboardPreferences', getAuthToken()); },
+  saveDashboardPreferences: function (prefs) { return apiCall_('saveDashboardPreferences', prefs, getAuthToken()); },
   getSubmissions: function (cardRow) { return apiCall_('getSubmissions', getAuthToken(), cardRow); },
   addSubmission: function (cardRow, cardId, text) { return apiCall_('addSubmission', cardRow, cardId, text, getAuthToken()); },
   updateSubmission: function (submissionId, text) { return apiCall_('updateSubmission', submissionId, text, getAuthToken()); },
@@ -623,6 +625,7 @@ function loadApp() {
     renderDashboard();
     updateOfflineBanner();
     loadNotifications(true);
+    loadDashboardPreferences();
     EventBus.emit('DataRefreshed');
     EventBus.emit('UserLoggedIn');
 
@@ -1058,6 +1061,27 @@ function renderDashboardTable() {
 
   const summaryEl = getEl('dashboardTableSummary');
   if (summaryEl) summaryEl.textContent = appState.filtered.length + ' record' + (appState.filtered.length === 1 ? '' : 's') + ' found';
+
+  applyColumnVisibility();
+}
+
+function applyColumnVisibility() {
+  const prefs = appState.dashboardPrefs || {};
+  const columns = prefs.columns || {};
+  const table = getEl('dashboardTable');
+  if (!table) return;
+  table.querySelectorAll('th[data-col]').forEach(function (th) {
+    const col = th.getAttribute('data-col');
+    const show = columns[col] !== false;
+    th.style.display = show ? '' : 'none';
+  });
+  table.querySelectorAll('tbody tr').forEach(function (tr) {
+    const cells = tr.querySelectorAll('td');
+    const headers = table.querySelectorAll('th[data-col]');
+    headers.forEach(function (th, idx) {
+      if (cells[idx]) cells[idx].style.display = th.style.display;
+    });
+  });
 }
 
 function setDashSort(key) {
@@ -2201,6 +2225,71 @@ function formatDate(ts) {
   return day + '/' + month + '/' + year;
 }
 
+/* ---------------------------------- Dashboard Studio ---------------------------------- */
+
+function loadDashboardPreferences() {
+  return ApiService.getDashboardPreferences().then(function (prefs) {
+    appState.dashboardPrefs = prefs || { viewMode: 'cards', columns: {}, layout: {} };
+    applyDashboardPreferences();
+  }).catch(function (err) {
+    if (handleServerFailure(err)) return;
+    appState.dashboardPrefs = { viewMode: 'cards', columns: {}, layout: {} };
+  });
+}
+
+function applyDashboardPreferences() {
+  const prefs = appState.dashboardPrefs || {};
+  if (prefs.viewMode === 'table') {
+    switchView('table');
+  } else {
+    switchView('cards');
+  }
+}
+
+function saveDashboardPreferences() {
+  const columns = {};
+  document.querySelectorAll('.col-toggle').forEach(function (cb) {
+    columns[cb.dataset.col] = cb.checked;
+  });
+  const modeRadio = document.querySelector('input[name="viewMode"]:checked');
+  const viewMode = modeRadio ? modeRadio.value : 'cards';
+  const prefs = { viewMode: viewMode, columns: columns };
+  showOverlay('Saving preferences…');
+  ApiService.saveDashboardPreferences(prefs).then(function () {
+    hideOverlay();
+    showToast('Dashboard preferences saved.', 'success');
+    appState.dashboardPrefs = prefs;
+    applyDashboardPreferences();
+  }).catch(function (err) {
+    hideOverlay();
+    if (handleServerFailure(err)) return;
+    showToast('Could not save preferences.', 'error');
+  });
+}
+
+function toggleColumnVisibility(colKey) {
+  const cb = document.querySelector('.col-toggle[data-col="' + colKey + '"]');
+  if (cb) {
+    cb.checked = !cb.checked;
+    renderDashboard();
+  }
+}
+
+function openColumnDialog() {
+  const prefs = appState.dashboardPrefs || {};
+  const columns = prefs.columns || {};
+  document.querySelectorAll('.col-toggle').forEach(function (cb) {
+    cb.checked = columns[cb.dataset.col] !== false;
+  });
+  const modeRadio = document.querySelector('input[name="viewMode"][value="' + (prefs.viewMode || 'cards') + '"]');
+  if (modeRadio) modeRadio.checked = true;
+  openDialog('columnModal');
+}
+
+function closeColumnDialog() {
+  closeDialog('columnModal');
+}
+
 /* ---------------------------------- Edit modal ---------------------------------- */
 
 function openEditModal() {
@@ -2661,7 +2750,7 @@ function wireGlobalEvents() {
         cancelConfirmDialog();
         return;
       }
-      ['editModal', 'aboutModal', 'submissionsModal', 'recordDetailModal', 'editUserModal', 'reviewModal', 'taskModal'].forEach(function (id) {
+      ['editModal', 'aboutModal', 'submissionsModal', 'recordDetailModal', 'editUserModal', 'reviewModal', 'taskModal', 'columnModal'].forEach(function (id) {
         const el = getEl(id);
         if (el && !el.classList.contains('hidden')) closeDialog(id);
       });
