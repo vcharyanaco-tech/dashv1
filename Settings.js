@@ -44,7 +44,7 @@ const CONFIG = Object.freeze({
   },
   APP: {
     NAME: 'India Post Dashboard',
-    VERSION: '3.1',
+    VERSION: '1.0.0',
     BRAND: 'India Post'
   }
 });
