@@ -547,7 +547,7 @@ function writeRows_(rows) {
 
 function runWithLock_(callback) {
 
-  const lock = LockService.getDocumentLock();
+  const lock = LockService.getScriptLock();
 
   lock.waitLock(CONFIG.LOCK.WAIT_TIME);
 
