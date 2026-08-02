@@ -1034,7 +1034,7 @@ function buildTableRowHtml(item) {
       ${appState.isEditor ? `<button class="btn btn-danger btn-small" onclick="event.stopPropagation(); deleteItem('${escAttr(item.row)}')">Delete</button>` : ''}
     </div>`;
   return `
-    <tr class="row-clickable ${item.reviewStatus === 'due' ? 'row-flagged' : ''}" data-row="${escAttr(item.row)}">
+    <tr class="row-clickable ${item.reviewStatus === 'due' ? 'row-flagged' : ''}" data-row="${escAttr(item.row)}" tabindex="0">
       <td><span class="id-badge">#${escapeHtml(item.id)}</span></td>
       <td class="preserve-whitespace">${escapeHtml(item.sector || '')}</td>
       <td class="details-cell preserve-whitespace">${escapeHtml(item.description || '')}</td>
@@ -3013,6 +3013,15 @@ function wireGlobalEvents() {
         if (e.target.closest('button')) return;
         const tr = e.target.closest('tr[data-row]');
         if (tr) openRecordDetail(tr.getAttribute('data-row'));
+      });
+      dashTbody.addEventListener('keydown', function (e) {
+        const focused = document.activeElement;
+        if (!focused || focused.tagName !== 'TR') return;
+        const rows = Array.from(dashTbody.querySelectorAll('tr[data-row]'));
+        const idx = rows.indexOf(focused);
+        if (e.key === 'ArrowDown' && idx < rows.length - 1) { rows[idx + 1].focus(); e.preventDefault(); }
+        if (e.key === 'ArrowUp' && idx > 0) { rows[idx - 1].focus(); e.preventDefault(); }
+        if (e.key === 'Enter' || e.key === ' ') { openRecordDetail(focused.getAttribute('data-row')); e.preventDefault(); }
       });
     }
   }
