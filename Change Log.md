@@ -98,6 +98,17 @@
   `deleteTask` exposed via ApiService.
 - Verified with `node --check` and a DOM/onclick audit; deployed @85.
 
+### Phase 4 — Enterprise Features, Tranche E: Dashboard Studio (deployment @88)
+- **Dashboard customization:** new `DashboardStudio.js` server module backed by a
+  `Preferences` JSON column in the `Users` sheet. Stores per-user view mode
+  (cards/table) and table column visibility.
+- **Column visibility toggles:** a Customize dialog lets users pick which columns
+  are visible in table view (ID, Sector, Description, Entry date, Review date,
+  Status, Actions). Preferences persist across sessions.
+- **Default view mode:** users can set Cards or Table as their default dashboard
+  view; applied on login.
+- Verified with `node --check` and a DOM/onclick audit; deployed @88.
+
 ### Phase 4 — Enterprise Features, Tranche A: User & Role Management (deployment @82)
 - **Granular RBAC permission matrix:** new `MODULES` / `MODULE_ACTIONS` /
   `PERMISSIONS` in `Settings.js` with View/Create/Edit/Delete/Export/Approve per

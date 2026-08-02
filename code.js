@@ -394,11 +394,7 @@ function getAppData(token) {
   const items = scopeItemsForUser_(data.items || [], context);
   const settings = getAppSettings();
   const summary = buildSummaryFromItems(items);
-  const analytics = {
-    sectors: buildSectorReportFromSummary(summary),
-    flaggedItems: buildFlaggedItemsFromItems(items),
-    trend: buildMonthlyTrendFromItems(items)
-  };
+  const analytics = buildAnalytics_(items);
   const submissionOverview = getSubmissionOverview_();
   return {
     user: {

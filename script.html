@@ -1172,18 +1172,27 @@ function refreshData() {
 
 function renderAnalytics() {
   const summary = appState.summary || {};
+  const analytics = appState.analytics || {};
+  const trendPrev = (analytics.trendPrev && analytics.trendPrev.length) ? analytics.trendPrev[analytics.trendPrev.length - 1].value : 0;
+  const trendCurr = (analytics.trend && analytics.trend.length) ? analytics.trend[analytics.trend.length - 1].value : 0;
+  const trendDir = trendCurr > trendPrev ? 'up' : trendCurr < trendPrev ? 'down' : 'flat';
+  const trendLabel = trendDir === 'up' ? '↑' : trendDir === 'down' ? '↓' : '→';
+  const trendClass = trendDir === 'up' ? 'trend-up' : trendDir === 'down' ? 'trend-down' : 'trend-flat';
+
   const cards = [
-    { title: 'Total records', value: summary.total || 0 },
-    { title: 'Review due', value: summary.flagged || 0 },
-    { title: 'Normal items', value: summary.normal || 0 }
+    { title: 'Total records', value: summary.total || 0, trend: '' },
+    { title: 'Review due', value: summary.flagged || 0, trend: '' },
+    { title: 'Normal items', value: summary.normal || 0, trend: '' },
+    { title: 'This month', value: trendCurr, trend: trendLabel, trendClass: trendClass }
   ].map(function (item) {
-    return `<div class="analytics-card"><h3>${item.title}</h3><p>${item.value}</p></div>`;
+    return `<div class="analytics-card"><h3>${item.title}</h3><p>${item.value}${item.trend ? ' <span class="' + item.trendClass + '">' + item.trend + '</span>' : ''}</p></div>`;
   }).join('');
   getEl('analyticsCards').innerHTML = cards;
 
-  const sectors = (appState.analytics && appState.analytics.sectors) || [];
-  const flagged = (appState.analytics && appState.analytics.flaggedItems) || [];
-  const trend = monthlyTrendArray();
+  const sectors = (analytics.sectors) || [];
+  const offices = (analytics.offices) || [];
+  const flagged = (analytics.flaggedItems) || [];
+  const trend = (analytics.trend) || [];
 
   let reportHtml = `
     <div class="card">
@@ -1192,6 +1201,16 @@ function renderAnalytics() {
         return `<li>${escapeHtml(s.sector)}: ${s.total}</li>`;
       }).join('') : '<li>No sector data</li>'}</ul>
     </div>`;
+
+  if (offices.length) {
+    reportHtml += `
+    <div class="card">
+      <h3>Records by office</h3>
+      <ul>${offices.map(function (o) {
+        return `<li>${escapeHtml(o.office)}: ${o.total}</li>`;
+      }).join('')}</ul>
+    </div>`;
+  }
 
   if (trend.length) {
     reportHtml += `
