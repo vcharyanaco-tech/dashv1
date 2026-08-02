@@ -18,6 +18,7 @@ const appState = {
   submissionCardId: '',
   submissionEditingId: '',
   submissionCounts: {},
+  submissionFlash: {},
   displayedSubmissions: []
 };
 
@@ -157,6 +158,7 @@ function loadApp() {
     appState.audit = data.audit || [];
     appState.settings = data.settings || {};
     appState.submissionCounts = data.submissionCounts || {};
+    appState.submissionFlash = data.submissionFlash || {};
     appState.displayedSubmissions = data.displayedSubmissions || [];
     populateFilters();
     renderDashboard();
@@ -311,6 +313,7 @@ function renderDashboard() {
     }).join('');
 
     const subCount = (appState.submissionCounts || {})[item.row] || 0;
+    const subFlash = !!(appState.submissionFlash || {})[item.row];
     const updateFieldsHtml = (appState.displayedSubmissions || [])
       .filter(s => Number(s.cardRow) === Number(item.row))
       .map(s => `
@@ -322,11 +325,14 @@ function renderDashboard() {
 
     return `
       <article class="card ${item.flagged ? 'flagged' : ''}">
-        <div class="card-title preserve-whitespace"><strong>#${escapeHtml(item.id)}</strong></div>
+        <div class="card-title preserve-whitespace"><span class="id-badge">#${escapeHtml(item.id)}</span></div>
         <div class="card-fields">${fieldsHtml || '<div class="card-field"><span class="field-label">Details</span><div class="field-value preserve-whitespace">No details available</div></div>'}${updateFieldsHtml}</div>
         <div class="card-footer">
           <div class="actions">
-            <button class="btn btn-secondary btn-small" onclick="openSubmissionsModal('${item.row}','${escapeHtml(item.id)}')">Submit update${subCount > 0 ? ` (${subCount})` : ''}</button>
+            <div class="submit-update-wrap">
+              <button class="btn btn-secondary btn-small" onclick="openSubmissionsModal('${item.row}','${escapeHtml(item.id)}')">Submit update</button>
+              ${subCount > 0 ? `<span class="submission-badge${subFlash ? ' flash' : ''}">${subCount}</span>` : ''}
+            </div>
             ${appState.isEditor ? `<button class="btn btn-secondary btn-small" onclick="editItem('${item.row}')">Edit</button>` : ''}
             ${appState.isEditor ? `<button class="btn btn-danger btn-small" onclick="deleteItem('${item.row}')">Delete</button>` : ''}
           </div>
@@ -499,6 +505,7 @@ function refreshData() {
     appState.analytics = data.analytics || {};
     appState.audit = data.audit || [];
     appState.submissionCounts = data.submissionCounts || {};
+    appState.submissionFlash = data.submissionFlash || {};
     appState.displayedSubmissions = data.displayedSubmissions || [];
     populateFilters();
     renderDashboard();
@@ -742,6 +749,7 @@ function submitSubmission() {
       hideOverlay();
       appState.submissions = list || [];
       appState.submissionCounts[Number(appState.submissionCardRow)] = (list || []).length;
+      appState.submissionFlash[Number(appState.submissionCardRow)] = true;
       document.getElementById('submissionText').value = '';
       resetSubmissionCompose();
       document.getElementById('submissionStatus').textContent = '';

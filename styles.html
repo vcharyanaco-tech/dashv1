@@ -210,7 +210,7 @@ button, input, select, textarea {
 
 .cards-grid {
   display: grid;
-  grid-template-columns: repeat(3,minmax(0,1fr));
+  grid-template-columns: 1fr;
   gap: 18px;
 }
 
@@ -226,18 +226,42 @@ button, input, select, textarea {
 
 .card {
   display: grid;
-  gap: 12px;
+  gap: 14px;
+}
+
+.card-title {
+  display: flex;
+  align-items: center;
+}
+
+.id-badge {
+  display: inline-flex;
+  align-items: center;
+  padding: 4px 14px;
+  border-radius: 999px;
+  background: rgba(0,75,135,.1);
+  border: 1px solid rgba(0,75,135,.18);
+  color: var(--accent);
+  font-weight: 700;
+  font-size: 14px;
+  letter-spacing: .3px;
+}
+
+body.dark-mode .id-badge {
+  background: rgba(144,202,249,.14);
+  border-color: rgba(144,202,249,.28);
+  color: #90caf9;
 }
 
 .card-fields {
   display: grid;
-  gap: 10px;
+  gap: 12px;
 }
 
 .card-field {
   display: grid;
-  gap: 4px;
-  padding: 10px 12px;
+  gap: 6px;
+  padding: 12px 14px;
   border-radius: 12px;
   background: rgba(0,0,0,.03);
   border: 1px solid transparent;
@@ -293,6 +317,44 @@ button, input, select, textarea {
   display: flex;
   gap: 10px;
   flex-wrap: wrap;
+}
+
+.submit-update-wrap {
+  position: relative;
+  display: inline-flex;
+}
+
+.submission-badge {
+  position: absolute;
+  top: -9px;
+  right: -9px;
+  min-width: 20px;
+  height: 20px;
+  padding: 0 6px;
+  border-radius: 999px;
+  background: var(--primary);
+  color: #fff;
+  font-size: 12px;
+  font-weight: 700;
+  line-height: 20px;
+  text-align: center;
+  box-shadow: 0 2px 6px rgba(0,0,0,.2);
+}
+
+@keyframes submission-flash {
+  0%, 100% {
+    transform: scale(1);
+    box-shadow: 0 0 0 0 rgba(218,41,28,.55);
+  }
+  50% {
+    transform: scale(1.28);
+    box-shadow: 0 0 0 10px rgba(218,41,28,0);
+  }
+}
+
+.submission-badge.flash {
+  background: var(--danger, #da291c);
+  animation: submission-flash 1.2s ease-in-out infinite;
 }
 
 .btn {
@@ -714,14 +776,9 @@ body.dark-mode .badge-displayed {
   opacity: 1;
 }
 
-@media (max-width: 1024px) {
-  .cards-grid { grid-template-columns: repeat(2,minmax(0,1fr)); }
-}
-
 @media (max-width: 760px) {
   .app-header, .section-header { flex-direction: column; align-items: stretch; }
   .filters-row { grid-template-columns: 1fr; }
-  .cards-grid { grid-template-columns: 1fr; }
   .nav-item { flex: 1 1 100%; }
 }
 

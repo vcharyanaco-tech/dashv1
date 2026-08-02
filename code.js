@@ -574,6 +574,7 @@ function getAppData(token) {
     audit: audit,
     settings: settings,
     submissionCounts: submissionOverview.counts,
+    submissionFlash: submissionOverview.flash,
     displayedSubmissions: submissionOverview.displayed
   };
 }

@@ -181,11 +181,15 @@ function getSubmissionOverview_() {
   if (__submissionOverviewCache__) return __submissionOverviewCache__;
 
   const counts = {};
+  const flash = {};
   const displayed = [];
+  const cutoff = Date.now() - 24 * 60 * 60 * 1000;
 
   readSubmissionRows_().forEach(function (rec) {
     const key = Number(rec.cardRow);
     counts[key] = (counts[key] || 0) + 1;
+    const ts = Object.prototype.toString.call(rec.createdAt) === '[object Date]' ? rec.createdAt.getTime() : 0;
+    if (ts >= cutoff) flash[key] = true;
     if (rec.displayed) {
       displayed.push({
         cardRow: key,
@@ -196,7 +200,7 @@ function getSubmissionOverview_() {
     }
   });
 
-  __submissionOverviewCache__ = { counts: counts, displayed: displayed };
+  __submissionOverviewCache__ = { counts: counts, flash: flash, displayed: displayed };
   return __submissionOverviewCache__;
 }
 
