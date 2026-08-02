@@ -100,7 +100,13 @@ function formatDateTime_(value) {
   return String(value).trim();
 }
 
-function visibleSubmission_(rec, user) {
+function visibleSubmission_(rec, user, roleOf) {
+  const locked = submissionLocked_(rec);
+  const lockRole = locked ? roleOf(rec.lockedBy) : '';
+  const isAdmin = user.role === 'ADMIN';
+  const isEditorUser = isAdmin || user.role === 'EDITOR';
+  const adminLocked = locked && lockRole === 'ADMIN';
+
   return {
     id: rec.id,
     cardRow: rec.cardRow,
@@ -111,14 +117,27 @@ function visibleSubmission_(rec, user) {
     updatedAt: formatDateTime_(rec.updatedAt),
     lockedBy: rec.lockedBy,
     lockedAt: formatDateTime_(rec.lockedAt),
+    lockRole: lockRole,
     isOwner: String(rec.email || '').toLowerCase() === String(user.email || '').toLowerCase(),
-    locked: submissionLocked_(rec),
-    editable: canEditSubmission_(user, rec)
+    locked: locked,
+    editable: canEditSubmission_(user, rec),
+    canLock: isEditorUser && !locked,
+    canUnlock: isEditorUser && locked && (isAdmin || lockRole !== 'ADMIN')
   };
 }
 
 function submissionsForCard_(cardRow, user) {
   const rows = readSubmissionRows_();
+  const roleCache = {};
+  const roleOf = function (email) {
+    email = String(email || '').toLowerCase().trim();
+    if (!email) return '';
+    if (roleCache[email]) return roleCache[email];
+    const role = getUserRole(email);
+    roleCache[email] = role;
+    return role;
+  };
+
   const filtered = (cardRow !== undefined && cardRow !== null && cardRow !== '')
     ? rows.filter(function (r) { return Number(r.cardRow) === Number(cardRow); })
     : rows;
@@ -130,7 +149,7 @@ function submissionsForCard_(cardRow, user) {
       const tb = Object.prototype.toString.call(b.createdAt) === '[object Date]' ? b.createdAt.getTime() : 0;
       return tb - ta;
     })
-    .map(function (rec) { return visibleSubmission_(rec, user); });
+    .map(function (rec) { return visibleSubmission_(rec, user, roleOf); });
 }
 
 function cardExists_(cardRow) {
@@ -202,6 +221,9 @@ function lockSubmission(submissionId, token) {
   return runWithLock_(function () {
     const rec = findSubmissionRecord_(submissionId);
     if (!rec) throw new Error('Submission not found.');
+    if (submissionLocked_(rec) && getUserRole(rec.lockedBy) === 'ADMIN' && editor.role !== 'ADMIN') {
+      throw new Error('This submission was locked by an admin and can only be changed by an admin.');
+    }
 
     const sh = submissionsSheet_();
     sh.getRange(rec.row, SUBMISSION_COL.LOCKED_BY).setValue(editor.email);
@@ -218,6 +240,9 @@ function unlockSubmission(submissionId, token) {
   return runWithLock_(function () {
     const rec = findSubmissionRecord_(submissionId);
     if (!rec) throw new Error('Submission not found.');
+    if (submissionLocked_(rec) && getUserRole(rec.lockedBy) === 'ADMIN' && editor.role !== 'ADMIN') {
+      throw new Error('This submission was locked by an admin and can only be changed by an admin.');
+    }
 
     const sh = submissionsSheet_();
     sh.getRange(rec.row, SUBMISSION_COL.LOCKED_BY).setValue('');
@@ -225,5 +250,20 @@ function unlockSubmission(submissionId, token) {
 
     try { logAudit_('SUBMISSION_UNLOCK', rec.cardRow, { id: submissionId }, editor.email); } catch (err) {}
     return submissionsForCard_(rec.cardRow, editor);
+  });
+}
+
+function deleteSubmission(submissionId, token) {
+  const admin = requireAdmin_(token);
+
+  return runWithLock_(function () {
+    const rec = findSubmissionRecord_(submissionId);
+    if (!rec) throw new Error('Submission not found.');
+
+    const sh = submissionsSheet_();
+    sh.deleteRow(rec.row);
+
+    try { logAudit_('SUBMISSION_DELETE', rec.cardRow, { id: submissionId, text: rec.text }, admin.email); } catch (err) {}
+    return submissionsForCard_(rec.cardRow, admin);
   });
 }

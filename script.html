@@ -652,13 +652,17 @@ function renderSubmissionCard(s) {
     ? `<button class="btn btn-secondary btn-small" onclick="editSubmission('${escapeHtml(s.id)}')">Edit</button>`
     : '';
   let lockBtn = '';
-  if (appState.isEditor) {
-    lockBtn = s.locked
-      ? `<button class="btn btn-secondary btn-small" onclick="unlockSubmission('${escapeHtml(s.id)}')">Unlock</button>`
-      : `<button class="btn btn-secondary btn-small" onclick="lockSubmission('${escapeHtml(s.id)}')">Lock</button>`;
+  if (s.canUnlock) {
+    lockBtn = `<button class="btn btn-secondary btn-small" onclick="unlockSubmission('${escapeHtml(s.id)}')">Unlock</button>`;
+  } else if (s.canLock) {
+    lockBtn = `<button class="btn btn-secondary btn-small" onclick="lockSubmission('${escapeHtml(s.id)}')">Lock</button>`;
   }
+  const deleteBtn = appState.isAdmin
+    ? `<button class="btn btn-danger btn-small" onclick="deleteSubmission('${escapeHtml(s.id)}')">Delete</button>`
+    : '';
+  const lockRoleTag = s.lockRole ? ` (${escapeHtml(s.lockRole.toLowerCase())})` : '';
   const lockNote = s.lockedBy
-    ? `<span class="submission-note">Locked by ${escapeHtml(s.lockedBy)}${s.lockedAt ? ' on ' + escapeHtml(s.lockedAt) : ''}</span>`
+    ? `<span class="submission-note">Locked by ${escapeHtml(s.lockedBy)}${lockRoleTag}${s.lockedAt ? ' on ' + escapeHtml(s.lockedAt) : ''}</span>`
     : '';
   return `
     <div class="submission-card">
@@ -667,7 +671,7 @@ function renderSubmissionCard(s) {
         <span>${escapeHtml(s.createdAt || '')}</span>
       </div>
       <div class="submission-text preserve-whitespace">${escapeHtml(s.text || '')}</div>
-      <div class="submission-actions">${editBtn}${lockBtn}${lockNote}</div>
+      <div class="submission-actions">${editBtn}${lockBtn}${deleteBtn}${lockNote}</div>
     </div>
   `;
 }
@@ -758,6 +762,22 @@ function unlockSubmission(id) {
     if (handleServerFailure(err)) return;
     displayToast('Could not unlock submission: ' + (err.message || err));
   }).unlockSubmission(id, getAuthToken());
+}
+
+function deleteSubmission(id) {
+  if (!appState.isAdmin) { displayToast('Admin access required'); return; }
+  if (!confirm('Delete this submission permanently?')) return;
+  showOverlay('Deleting submission...');
+  google.script.run.withSuccessHandler(list => {
+    hideOverlay();
+    appState.submissions = list || [];
+    renderSubmissionList();
+    displayToast('Submission deleted');
+  }).withFailureHandler(err => {
+    hideOverlay();
+    if (handleServerFailure(err)) return;
+    displayToast('Could not delete submission: ' + (err.message || err));
+  }).deleteSubmission(id, getAuthToken());
 }
 
 function downloadFromBase64(base64, filename, mimeType) {
