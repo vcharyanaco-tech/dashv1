@@ -55,6 +55,31 @@
   when that tab is visible during a manual refresh.
 - Verified with `node --check` and a DOM/onclick audit; deployed @81.
 
+### Phase 4 — Enterprise Features, Tranche A: User & Role Management (deployment @82)
+- **Granular RBAC permission matrix:** new `MODULES` / `MODULE_ACTIONS` /
+  `PERMISSIONS` in `Settings.js` with View/Create/Edit/Delete/Export/Approve per
+  module (`records`, `submissions`, `audit`, `users`, `reports`, `settings`).
+  Server-side `hasPermission_` / `getUserPermissions` / `getUserContext` enforce
+  and expose the caller's effective permission set.
+- **User groups:** `USER_GROUPS` (Approver, Auditor, Exporter) grant extra
+  permissions on top of the role; a user's `Group` cell may list several
+  comma-separated groups.
+- **Department / office access restrictions:** users now have `Department` and
+  `Office` fields. When set (non-admin), `getAppData` scopes visible records to
+  the user's department (matches record sector) and office (matches
+  responsibility) — summary and analytics follow the scoped set.
+- **Users schema v2:** the hidden `Users` sheet gained `Group`, `Department`,
+  `Office` columns (auto-migrated on first run). Add-user form, users table, and
+  a new Edit-user dialog manage them.
+- **Bulk import/export:** `adminExportUsers` downloads all users as CSV;
+  `adminImportUsers` creates/updates users from pasted CSV (email, role, group,
+  department, office, optional password; random password + forced change for new
+  users without one) with per-row error reporting.
+- **User activity dashboard:** `adminGetUserActivity` aggregates per-user
+  actions/logins/last-seen and recent events from the audit log; rendered as a
+  stats grid, table, and recent-activity list in Settings.
+- Verified with `node --check` and a DOM/onclick audit; deployed @82.
+
 Major refresh and stabilization of the India Post Dashboard for Circle Office, Haryana.
 
 ### Auth, roles & users

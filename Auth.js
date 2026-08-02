@@ -18,7 +18,22 @@ const EDITOR_USERS = [
 const VIEWER_USERS = [
 ];
 
-const USER_SHEET_HEADERS = ['Email', 'Role', 'Salt', 'PasswordHash', 'MustChange', 'CreatedBy', 'CreatedAt', 'ResetToken', 'ResetExpires'];
+const USER_SHEET_HEADERS = ['Email', 'Role', 'Salt', 'PasswordHash', 'MustChange', 'CreatedBy', 'CreatedAt', 'ResetToken', 'ResetExpires', 'Group', 'Department', 'Office'];
+
+const USER_COL = Object.freeze({
+  EMAIL: 1,
+  ROLE: 2,
+  SALT: 3,
+  PASSWORD_HASH: 4,
+  MUST_CHANGE: 5,
+  CREATED_BY: 6,
+  CREATED_AT: 7,
+  RESET_TOKEN: 8,
+  RESET_EXPIRES: 9,
+  GROUP: 10,
+  DEPARTMENT: 11,
+  OFFICE: 12
+});
 
 function getCurrentUser() {
   try {
@@ -102,8 +117,9 @@ function usersSheet_() {
     try { sh.hideSheet(); } catch (err) {}
   } else {
     try {
-      const header = sh.getRange(1, 1, 1, 2).getValues()[0];
-      if (String(header[0] || '').toLowerCase() !== 'email') {
+      const header = sh.getRange(1, 1, 1, USER_SHEET_HEADERS.length).getValues()[0];
+      const existing = header.filter(function (h) { return String(h || '').trim() !== ''; });
+      if (existing.length < USER_SHEET_HEADERS.length) {
         sh.getRange(1, 1, 1, USER_SHEET_HEADERS.length).setValues([USER_SHEET_HEADERS]);
       }
     } catch (err) {}
@@ -132,7 +148,10 @@ function userRecordFromRow_(row) {
     createdBy: row[5] || '',
     createdAt: row[6],
     resetToken: row[7] || '',
-    resetExpires: row[8] || null
+    resetExpires: row[8] || null,
+    group: row[9] || '',
+    department: row[10] || '',
+    office: row[11] || ''
   };
 }
 
@@ -159,15 +178,18 @@ function setUserField_(email, field, value) {
   if (!rec) return;
 
   const colMap = {
-    email: 1,
-    role: 2,
-    salt: 3,
-    passwordHash: 4,
-    mustChange: 5,
-    createdBy: 6,
-    createdAt: 7,
-    resetToken: 8,
-    resetExpires: 9
+    email: USER_COL.EMAIL,
+    role: USER_COL.ROLE,
+    salt: USER_COL.SALT,
+    passwordHash: USER_COL.PASSWORD_HASH,
+    mustChange: USER_COL.MUST_CHANGE,
+    createdBy: USER_COL.CREATED_BY,
+    createdAt: USER_COL.CREATED_AT,
+    resetToken: USER_COL.RESET_TOKEN,
+    resetExpires: USER_COL.RESET_EXPIRES,
+    group: USER_COL.GROUP,
+    department: USER_COL.DEPARTMENT,
+    office: USER_COL.OFFICE
   };
 
   const col = colMap[field];
@@ -177,7 +199,7 @@ function setUserField_(email, field, value) {
   if (sh) sh.getRange(rec.row, col).setValue(value);
 }
 
-function addUserRecord_(email, role, salt, passwordHash, createdBy) {
+function addUserRecord_(email, role, salt, passwordHash, createdBy, group, department, office) {
   const sh = usersSheet_();
   if (!sh) return;
   const row = sh.getLastRow() + 1;
@@ -190,7 +212,10 @@ function addUserRecord_(email, role, salt, passwordHash, createdBy) {
     createdBy || '',
     new Date(),
     '',
-    null
+    null,
+    group || '',
+    department || '',
+    office || ''
   ]]);
 }
 
@@ -219,7 +244,10 @@ function listUserRecords_() {
       email: values[i][0],
       role: values[i][1] || ROLES.VIEWER,
       mustChange: values[i][4] === true || String(values[i][4]).toLowerCase() === 'true',
-      createdAt: values[i][6] ? String(values[i][6]) : ''
+      createdAt: values[i][6] ? String(values[i][6]) : '',
+      group: values[i][9] || '',
+      department: values[i][10] || '',
+      office: values[i][11] || ''
     });
   }
 
@@ -331,6 +359,118 @@ function isViewer(email) {
   return true;
 }
 
+/* ============================================================
+ * Granular RBAC (permission matrix + user groups)
+ * ============================================================ */
+
+let __groupsCache__ = null;
+
+function getUserGroups(email) {
+  email = String(email || '').toLowerCase().trim();
+  if (!email) return [];
+
+  if (!__groupsCache__) __groupsCache__ = {};
+  if (__groupsCache__[email]) return __groupsCache__[email];
+
+  const rec = findUserRecord_(email);
+  const groups = String((rec && rec.group) || '')
+    .split(',')
+    .map(function (g) { return String(g).toUpperCase().trim(); })
+    .filter(function (g) { return g && USER_GROUP_KEYS.indexOf(g) !== -1; });
+
+  __groupsCache__[email] = groups;
+  return groups;
+}
+
+function rolePermissions_(role) {
+  return PERMISSIONS[role] || PERMISSIONS[ROLES.VIEWER] || {};
+}
+
+function groupPermissions_(groups) {
+  const merged = {};
+  groups.forEach(function (g) {
+    const grants = (USER_GROUPS[g] && USER_GROUPS[g].permissions) || {};
+    Object.keys(grants).forEach(function (module) {
+      if (!merged[module]) merged[module] = [];
+      grants[module].forEach(function (action) {
+        if (merged[module].indexOf(action) === -1) merged[module].push(action);
+      });
+    });
+  });
+  return merged;
+}
+
+/**
+ * Builds the effective permission set (module -> actions) for an email by
+ * unioning the role matrix with any group grants.
+ * @param {string} email User email.
+ * @returns {Object<string, string[]>}
+ */
+function getUserPermissions(email) {
+  email = String(email || '').toLowerCase().trim();
+  if (!email) return {};
+
+  const role = getUserRole(email);
+  const rolePerms = rolePermissions_(role);
+  const groupPerms = groupPermissions_(getUserGroups(email));
+
+  const out = {};
+  Object.keys(rolePerms).forEach(function (module) {
+    const set = [];
+    (rolePerms[module] || []).forEach(function (a) {
+      if (set.indexOf(a) === -1) set.push(a);
+    });
+    (groupPerms[module] || []).forEach(function (a) {
+      if (set.indexOf(a) === -1) set.push(a);
+    });
+    out[module] = set;
+  });
+  Object.keys(groupPerms).forEach(function (module) {
+    if (!out[module]) out[module] = (groupPerms[module] || []).slice();
+  });
+
+  return out;
+}
+
+function hasModulePermission_(module) {
+  return MODULES[module] !== undefined || Object.prototype.hasOwnProperty.call(MODULES, module);
+}
+
+/**
+ * Checks whether a user holds a given module/action permission. Uses the
+ * caller identity when no email is supplied (best-effort, for server-side
+ * helpers running in the deploying user's context).
+ * @param {string} email User email.
+ * @param {string} module One of MODULES.
+ * @param {string} action One of MODULE_ACTIONS.
+ * @returns {boolean}
+ */
+function hasPermission_(email, module, action) {
+  email = String(email || getCurrentUser() || '').toLowerCase().trim();
+  if (!hasModulePermission_(module)) return false;
+  const perms = getUserPermissions(email);
+  return (perms[module] || []).indexOf(action) !== -1;
+}
+
+/**
+ * Full identity + permission context for a user.
+ * @param {string} email User email.
+ * @returns {{email: string, role: string, group: string, department: string, office: string, groups: string[], permissions: Object<string, string[]>}}
+ */
+function getUserContext(email) {
+  email = String(email || '').toLowerCase().trim();
+  const rec = findUserRecord_(email) || {};
+  return {
+    email: email,
+    role: getUserRole(email),
+    group: rec.group || '',
+    department: rec.department || '',
+    office: rec.office || '',
+    groups: getUserGroups(email),
+    permissions: getUserPermissions(email)
+  };
+}
+
 function authenticate_(token) {
   const email = sessionEmail_(token);
   if (!email) throw new Error('Login required. Please log in again.');
@@ -410,11 +550,21 @@ function login(email, password) {
   const token = createSession_(email);
   try { logAudit_(ACTIONS.LOGIN, '', 'Signed in', email); } catch (err) {}
 
+  const context = getUserContext(email);
   return {
     success: true,
     token: token,
     mustChange: rec.mustChange === true,
-    user: { email: email, role: rec.role, loggedIn: true }
+    user: {
+      email: email,
+      role: context.role,
+      loggedIn: true,
+      group: context.group,
+      department: context.department,
+      office: context.office,
+      groups: context.groups,
+      permissions: context.permissions
+    }
   };
 }
 
@@ -585,10 +735,13 @@ function adminGetUsers(token) {
  * @param {string} email New user email.
  * @param {string} role One of ROLES.VIEWER / ROLES.EDITOR / ROLES.ADMIN.
  * @param {string} password Initial password (min 8 chars).
+ * @param {string} group Optional comma-separated group names (USER_GROUPS).
+ * @param {string} department Optional department (data-scoping + metadata).
+ * @param {string} office Optional office (data-scoping + metadata).
  * @param {string} token Session token (admin required).
  * @returns {Object[]} Updated user list.
  */
-function adminAddUser(email, role, password, token) {
+function adminAddUser(email, role, password, group, department, office, token) {
   const admin = requireAdmin_(token);
 
   return runWithLock_(function () {
@@ -604,11 +757,220 @@ function adminAddUser(email, role, password, token) {
     if (pwError) throw new Error(pwError);
 
     const salt = generateSalt_();
-    addUserRecord_(email, role, salt, hashPassword_(password, salt), admin.email);
+    addUserRecord_(email, role, salt, hashPassword_(password, salt), admin.email, group, department, office);
 
     try { logAudit_(ACTIONS.USER_ADD, '', email + ' as ' + role, admin.email); } catch (err) {}
     return listUserRecords_();
   });
+}
+
+/**
+ * Updates a user's group / department / office metadata.
+ * @param {string} email Email of the target user.
+ * @param {Object} fields { group?, department?, office? } new values.
+ * @param {string} token Session token (admin required).
+ * @returns {Object[]} Updated user list.
+ */
+function adminUpdateUser(email, fields, token) {
+  const admin = requireAdmin_(token);
+
+  return runWithLock_(function () {
+    email = String(email || '').toLowerCase().trim();
+    if (!findUserRecord_(email)) throw new Error('User not found.');
+
+    const f = fields || {};
+    if (f.group !== undefined) setUserField_(email, 'group', String(f.group || ''));
+    if (f.department !== undefined) setUserField_(email, 'department', String(f.department || ''));
+    if (f.office !== undefined) setUserField_(email, 'office', String(f.office || ''));
+
+    try { logAudit_(ACTIONS.USER_UPDATE, '', email + ' metadata updated', admin.email); } catch (err) {}
+    return listUserRecords_();
+  });
+}
+
+/**
+ * Exports all users as CSV (Email, Role, Group, Department, Office, CreatedAt, MustChange).
+ * @param {string} token Session token (admin required).
+ * @returns {string} CSV content.
+ */
+function adminExportUsers(token) {
+  requireAdmin_(token);
+  const users = listUserRecords_();
+  const header = ['Email', 'Role', 'Group', 'Department', 'Office', 'CreatedAt', 'MustChange'];
+  const lines = users.map(function (u) {
+    return [
+      u.email,
+      u.role,
+      u.group || '',
+      u.department || '',
+      u.office || '',
+      u.createdAt || '',
+      u.mustChange ? 'TRUE' : 'FALSE'
+    ].map(function (cell) {
+      const s = String(cell == null ? '' : cell);
+      return '"' + s.replace(/"/g, '""') + '"';
+    }).join(',');
+  });
+  return [header.map(function (h) { return '"' + h + '"'; }).join(',')].concat(lines).join('\n');
+}
+
+function parseCsvLine_(line) {
+  const out = [];
+  let current = '';
+  let inQuotes = false;
+  for (let i = 0; i < line.length; i++) {
+    const ch = line[i];
+    if (inQuotes) {
+      if (ch === '"' && line[i + 1] === '"') {
+        current += '"';
+        i++;
+      } else if (ch === '"') {
+        inQuotes = false;
+      } else {
+        current += ch;
+      }
+    } else if (ch === '"') {
+      inQuotes = true;
+    } else if (ch === ',') {
+      out.push(current.trim());
+      current = '';
+    } else {
+      current += ch;
+    }
+  }
+  out.push(current.trim());
+  return out;
+}
+
+/**
+ * Bulk-imports users from CSV. Expected columns:
+ * Email, Role, Group, Department, Office, [Password].
+ * New users without a password get a random one and must change it on login;
+ * existing users are updated for group/department/office (and password if given).
+ * @param {string} csv CSV content (first row may be a header row).
+ * @param {string} token Session token (admin required).
+ * @returns {{users: Object[], added: number, updated: number, errors: string[]}}
+ */
+function adminImportUsers(csv, token) {
+  const admin = requireAdmin_(token);
+
+  const result = { users: listUserRecords_(), added: 0, updated: 0, errors: [] };
+  if (!csv || !String(csv).trim()) throw new Error('Paste CSV content to import.');
+
+  return runWithLock_(function () {
+    const lines = String(csv)
+      .replace(/\r\n/g, '\n')
+      .split('\n')
+      .filter(function (l) { return String(l).trim() !== ''; });
+
+    if (!lines.length) throw new Error('No rows to import.');
+
+    const rows = lines.map(parseCsvLine_);
+
+    for (let r = 0; r < rows.length; r++) {
+      const cols = rows[r];
+      const email = String(cols[0] || '').toLowerCase().trim();
+      const role = String(cols[1] || '').toUpperCase().trim();
+
+      if (r === 0 && !isValidEmail_(email)) continue;
+
+      if (!email) { result.errors.push('Row ' + (r + 1) + ': missing email.'); continue; }
+      if (!isValidEmail_(email)) { result.errors.push('Row ' + (r + 1) + ': invalid email "' + email + '".'); continue; }
+      if ([ROLES.VIEWER, ROLES.EDITOR, ROLES.ADMIN].indexOf(role) === -1) {
+        result.errors.push('Row ' + (r + 1) + ': invalid role "' + (role || '') + '".');
+        continue;
+      }
+
+      const group = String(cols[2] || '').trim();
+      const department = String(cols[3] || '').trim();
+      const office = String(cols[4] || '').trim();
+      const password = String(cols[5] || '').trim();
+
+      const existing = findUserRecord_(email);
+
+      if (existing) {
+        if (group) setUserField_(email, 'group', group);
+        if (department) setUserField_(email, 'department', department);
+        if (office) setUserField_(email, 'office', office);
+        if (password) {
+          const pwError = validatePassword_(password);
+          if (pwError) { result.errors.push('Row ' + (r + 1) + ': ' + pwError); continue; }
+          const salt = generateSalt_();
+          setUserField_(email, 'salt', salt);
+          setUserField_(email, 'passwordHash', hashPassword_(password, salt));
+          setUserField_(email, 'mustChange', false);
+        }
+        result.updated++;
+      } else {
+        const pw = password || Utilities.getUuid().replace(/-/g, '').slice(0, 12);
+        const pwError = validatePassword_(pw);
+        if (pwError) { result.errors.push('Row ' + (r + 1) + ': ' + pwError); continue; }
+        const salt = generateSalt_();
+        addUserRecord_(email, role, salt, hashPassword_(pw, salt), admin.email, group, department, office);
+        if (!password) setUserField_(email, 'mustChange', true);
+        result.added++;
+      }
+    }
+
+    try {
+      logAudit_(ACTIONS.USER_IMPORT, '', 'Imported users: +' + result.added + ' added, ' + result.updated + ' updated, ' + result.errors.length + ' errors', admin.email);
+    } catch (err) {}
+
+    result.users = listUserRecords_();
+    return result;
+  });
+}
+
+/**
+ * Aggregates user activity from the audit log: per-user action/login counts,
+ * most recent events, and overall totals.
+ * @param {string} token Session token (admin required).
+ * @returns {{users: Object[], recent: Object[], totals: Object}}
+ */
+function adminGetUserActivity(token) {
+  requireAdmin_(token);
+
+  const sheet = getAuditSheet_();
+  const lastRow = sheet.getLastRow();
+  if (lastRow < 2) {
+    return { users: [], recent: [], totals: { events: 0, logins: 0, activeUsers: 0 } };
+  }
+
+  const startRow = Math.max(2, lastRow - CONFIG.USERS.ACTIVITY_LIMIT + 1);
+  const values = sheet.getRange(startRow, 1, lastRow - startRow + 1, 5).getValues();
+
+  const perUser = {};
+  const recent = [];
+  let logins = 0;
+
+  values.forEach(function (row, i) {
+    const email = String(row[1] || '').toLowerCase().trim();
+    const action = String(row[2] || '');
+    const timestamp = row[0] ? row[0].toString() : '';
+
+    if (!perUser[email]) {
+      perUser[email] = { email: email || '(system)', actions: 0, logins: 0, lastSeen: timestamp };
+    }
+    perUser[email].actions++;
+    perUser[email].lastSeen = timestamp;
+    if (action === ACTIONS.LOGIN) {
+      perUser[email].logins++;
+      logins++;
+    }
+    if (recent.length < 30) {
+      recent.push({ timestamp: timestamp, user: email, action: action, recordId: row[3] || '', details: row[4] || '' });
+    }
+  });
+
+  const userList = Object.keys(perUser)
+    .map(function (k) { return perUser[k]; })
+    .sort(function (a, b) { return b.actions - a.actions; });
+
+  return {
+    users: userList,
+    recent: recent,
+    totals: { events: values.length, logins: logins, activeUsers: userList.length }
+  };
 }
 
 /**
@@ -674,10 +1036,16 @@ function adminResetPassword(email, newPassword, token) {
  */
 function getCurrentUserInfo() {
   const email = getCurrentUser();
+  const context = getUserContext(email);
   return {
     email: email,
-    role: getUserRole(email),
-    loggedIn: !!email
+    role: context.role,
+    loggedIn: !!email,
+    group: context.group,
+    department: context.department,
+    office: context.office,
+    groups: context.groups,
+    permissions: context.permissions
   };
 }
 

@@ -33,7 +33,8 @@ const CONFIG = Object.freeze({
     SESSION_TTL_SECONDS: 21600,
     RESET_TTL_MINUTES: 30,
     MAX_LOGIN_ATTEMPTS: 5,
-    LOCK_MINUTES: 15
+    LOCK_MINUTES: 15,
+    ACTIVITY_LIMIT: 500
   },
   SUBMISSIONS: {
     SHEET_NAME: 'Submissions',
@@ -82,7 +83,9 @@ const ACTIONS = Object.freeze({
   PASSWORD_RESET: 'PASSWORD_RESET',
   CHANGE_PASSWORD: 'CHANGE_PASSWORD',
   USER_ADD: 'USER_ADD',
+  USER_UPDATE: 'USER_UPDATE',
   USER_DELETE: 'USER_DELETE',
+  USER_IMPORT: 'USER_IMPORT',
   USER_RESET_PASSWORD: 'USER_RESET_PASSWORD',
   SUBMISSION_ADD: 'SUBMISSION_ADD',
   SUBMISSION_UPDATE: 'SUBMISSION_UPDATE',
@@ -103,6 +106,84 @@ const COL = Object.freeze({
   RESPONSIBILITY: 6,
   REVIEW_DATE: 7
 });
+
+/**
+ * Feature modules used by the RBAC permission matrix.
+ */
+const MODULES = Object.freeze({
+  RECORDS: 'records',
+  SUBMISSIONS: 'submissions',
+  AUDIT: 'audit',
+  USERS: 'users',
+  REPORTS: 'reports',
+  SETTINGS: 'settings'
+});
+
+/**
+ * Granular actions available on each module.
+ */
+const MODULE_ACTIONS = Object.freeze({
+  VIEW: 'view',
+  CREATE: 'create',
+  EDIT: 'edit',
+  DELETE: 'delete',
+  EXPORT: 'export',
+  APPROVE: 'approve'
+});
+
+/**
+ * RBAC permission matrix. A user's effective permissions are the union of
+ * their role's grants and any grants from their assigned groups.
+ * @type {Object<string, Object<string, string[]>>}
+ */
+const PERMISSIONS = Object.freeze({
+  ADMIN: {
+    records: ['view', 'create', 'edit', 'delete', 'export', 'approve'],
+    submissions: ['view', 'create', 'edit', 'delete', 'export', 'approve'],
+    audit: ['view', 'delete', 'export'],
+    users: ['view', 'create', 'edit', 'delete', 'export'],
+    reports: ['view', 'export'],
+    settings: ['view', 'edit']
+  },
+  EDITOR: {
+    records: ['view', 'create', 'edit', 'export'],
+    submissions: ['view', 'create', 'edit', 'export'],
+    audit: ['view'],
+    users: [],
+    reports: ['view', 'export'],
+    settings: []
+  },
+  VIEWER: {
+    records: ['view'],
+    submissions: ['view', 'create'],
+    audit: [],
+    users: [],
+    reports: ['view'],
+    settings: []
+  }
+});
+
+/**
+ * User groups. Assigning a group to a user grants the group's permissions
+ * on top of the user's role permissions. A user's 'Group' cell may hold one
+ * or more comma-separated group names.
+ */
+const USER_GROUPS = Object.freeze({
+  APPROVER: {
+    label: 'Approver',
+    permissions: { records: ['approve'] }
+  },
+  AUDITOR: {
+    label: 'Auditor',
+    permissions: { audit: ['view', 'export', 'delete'], users: ['view'] }
+  },
+  EXPORTER: {
+    label: 'Exporter',
+    permissions: { records: ['export'], audit: ['export'], reports: ['export'] }
+  }
+});
+
+const USER_GROUP_KEYS = Object.freeze(Object.keys(USER_GROUPS));
 
 const PROP = Object.freeze({
   APP_NAME: 'APP_NAME',

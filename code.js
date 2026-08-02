@@ -356,17 +356,42 @@ function absUrl_(u) {
 
 
 /**
+ * Restricts the visible records to the caller's department/office when those
+ * are set (department matches the record's sector; office matches its
+ * responsibility). Admins and users without a scope see everything.
+ * @param {Object[]} items Display-ready items from getData().
+ * @param {Object} user Authenticated user context.
+ * @returns {Object[]} Scoped item list.
+ */
+function scopeItemsForUser_(items, user) {
+  const department = String((user && user.department) || '').trim().toLowerCase();
+  const office = String((user && user.office) || '').trim().toLowerCase();
+  if ((!department && !office) || (user && user.role === ROLES.ADMIN)) {
+    return items;
+  }
+  return items.filter(function (item) {
+    const sector = String(item.sector || '').trim().toLowerCase();
+    const responsibility = String(item.responsibility || '').trim().toLowerCase();
+    const departmentOk = !department || (sector === department || (sector && sector.indexOf(department) !== -1) || (department && department.indexOf(sector) !== -1));
+    const officeOk = !office || (responsibility === office || (responsibility && responsibility.indexOf(office) !== -1) || (office && office.indexOf(responsibility) !== -1));
+    return departmentOk && officeOk;
+  });
+}
+
+/**
  * Aggregates everything the dashboard needs for one full-screen load:
- * user identity, records, summary, analytics, settings and the
- * submission overview. The audit tail is intentionally excluded and is
- * fetched lazily by the client when the Audit tab is opened.
+ * user identity + permissions, records (scoped to the caller's department/
+ * office), summary, analytics, settings and the submission overview. The
+ * audit tail is intentionally excluded and is fetched lazily by the client
+ * when the Audit tab is opened.
  * @param {string} token Session token (any logged-in user).
  * @returns {Object} The full dashboard payload.
  */
 function getAppData(token) {
   const user = requireLogin_(token);
+  const context = getUserContext(user.email);
   const data = getData();
-  const items = data.items || [];
+  const items = scopeItemsForUser_(data.items || [], context);
   const settings = getAppSettings();
   const summary = buildSummaryFromItems(items);
   const analytics = {
@@ -377,9 +402,14 @@ function getAppData(token) {
   const submissionOverview = getSubmissionOverview_();
   return {
     user: {
-      email: user.email,
-      role: user.role,
-      loggedIn: true
+      email: context.email,
+      role: context.role,
+      loggedIn: true,
+      group: context.group,
+      department: context.department,
+      office: context.office,
+      groups: context.groups,
+      permissions: context.permissions
     },
     items: items,
     summary: summary,

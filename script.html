@@ -69,7 +69,11 @@ const ApiService = {
   resetPasswordWithToken: function (email, resetToken, newPassword) { return apiCall_('resetPasswordWithToken', email, resetToken, newPassword); },
   changePassword: function (currentPassword, newPassword) { return apiCall_('changePassword', currentPassword, newPassword, getAuthToken()); },
   adminGetUsers: function () { return apiCall_('adminGetUsers', getAuthToken()); },
-  adminAddUser: function (email, role, password) { return apiCall_('adminAddUser', email, role, password, getAuthToken()); },
+  adminAddUser: function (email, role, password, group, department, office) { return apiCall_('adminAddUser', email, role, password, group, department, office, getAuthToken()); },
+  adminUpdateUser: function (email, fields) { return apiCall_('adminUpdateUser', email, fields, getAuthToken()); },
+  adminExportUsers: function () { return apiCall_('adminExportUsers', getAuthToken()); },
+  adminImportUsers: function (csv) { return apiCall_('adminImportUsers', csv, getAuthToken()); },
+  adminGetUserActivity: function () { return apiCall_('adminGetUserActivity', getAuthToken()); },
   adminDeleteUser: function (email) { return apiCall_('adminDeleteUser', email, getAuthToken()); },
   adminResetPassword: function (email, newPassword) { return apiCall_('adminResetPassword', email, newPassword, getAuthToken()); },
   getSubmissions: function (cardRow) { return apiCall_('getSubmissions', getAuthToken(), cardRow); },
@@ -114,12 +118,18 @@ const appState = {
   selectedAuditRows: [],
   dashboardView: 'cards',
   dashSortKey: 'id',
-  dashSortDir: 'asc'
+  dashSortDir: 'asc',
+  permissions: {}
 };
 
 /* ---------------------------------- Helpers ---------------------------------- */
 
 function getEl(id) { return document.getElementById(id); }
+
+function can(module, action) {
+  const perms = appState.permissions || {};
+  return (perms[module] || []).indexOf(action) !== -1;
+}
 
 /* Apply a full server payload (getAppData shape) to the client state in one
    place so every refresh path keeps the same fields in sync. */
@@ -133,6 +143,7 @@ function applyAppData(data) {
   appState.submissionCounts = (data && data.submissionCounts) || {};
   appState.submissionFlash = (data && data.submissionFlash) || {};
   appState.displayedSubmissions = (data && data.displayedSubmissions) || [];
+  appState.permissions = (data && data.user && data.user.permissions) || {};
   appState.auditPage = 1;
 }
 
@@ -496,6 +507,7 @@ function loadApp() {
     appState.isAdmin = data.user.role === 'ADMIN';
     appState.isEditor = data.user.role === 'ADMIN' || data.user.role === 'EDITOR';
     appState.mustChange = !!data.mustChange;
+    appState.permissions = (data.user && data.user.permissions) || {};
     applyAppData(data);
 
     populateFilters();
@@ -1524,12 +1536,217 @@ function renderSettings() {
   getEl('mustChangeBanner').classList.toggle('hidden', !appState.mustChange);
 
   const usersAdmin = getEl('usersAdmin');
-  if (appState.isAdmin) {
+  const userActivityCard = getEl('userActivityCard');
+  if (appState.isAdmin && can('users', 'view')) {
     usersAdmin.classList.remove('hidden');
+    if (userActivityCard) userActivityCard.classList.remove('hidden');
     loadUsers();
+    loadUserActivity();
   } else {
     usersAdmin.classList.add('hidden');
+    if (userActivityCard) userActivityCard.classList.add('hidden');
   }
+}
+
+function loadUsers() {
+  ApiService.adminGetUsers().then(function (users) {
+    renderUsersTable(users || []);
+  }).catch(function (err) {
+    if (handleServerFailure(err)) return;
+    showToast('Could not load users: ' + (err.message || err), 'error');
+  });
+}
+
+function renderUsersTable(users) {
+  const tbody = getEl('usersTable').querySelector('tbody');
+  tbody.dataset.users = JSON.stringify(users);
+  tbody.innerHTML = users.length ? users.map(function (u, i) {
+    const group = escapeHtml(u.group || '');
+    const dept = escapeHtml(u.department || '');
+    const office = escapeHtml(u.office || '');
+    return `
+      <tr>
+        <td class="preserve-whitespace">${escapeHtml(u.email)}${u.mustChange ? ' <em>(must change)</em>' : ''}</td>
+        <td>${escapeHtml(u.role)}</td>
+        <td class="preserve-whitespace">${group || '<span class="badge" data-tone="muted">—</span>'}</td>
+        <td class="preserve-whitespace">${dept || '<span class="badge" data-tone="muted">—</span>'}</td>
+        <td class="preserve-whitespace">${office || '<span class="badge" data-tone="muted">—</span>'}</td>
+        <td class="preserve-whitespace">${escapeHtml(u.createdAt || '')}</td>
+        <td><button class="btn btn-secondary btn-small" type="button" data-action="reset" data-index="${i}">Reset password</button></td>
+        <td><button class="btn btn-secondary btn-small" type="button" data-action="edit" data-index="${i}">Edit</button></td>
+        <td><button class="btn btn-danger btn-small" type="button" data-action="delete" data-index="${i}">Delete</button></td>
+      </tr>`;
+  }).join('') : '<tr><td colspan="9">No users found.</td></tr>';
+}
+
+function loadUserActivity() {
+  ApiService.adminGetUserActivity().then(function (activity) {
+    renderUserActivity(activity || {});
+  }).catch(function (err) {
+    if (handleServerFailure(err)) return;
+    showToast('Could not load user activity: ' + (err.message || err), 'error');
+  });
+}
+
+function renderUserActivity(activity) {
+  const totals = activity.totals || {};
+  const statsEl = getEl('activityStats');
+  if (statsEl) {
+    statsEl.innerHTML = `
+      <div class="activity-stat"><span class="activity-stat-value">${totals.events || 0}</span><span class="activity-stat-label">Events (tracked)</span></div>
+      <div class="activity-stat"><span class="activity-stat-value">${totals.logins || 0}</span><span class="activity-stat-label">Logins</span></div>
+      <div class="activity-stat"><span class="activity-stat-value">${totals.activeUsers || 0}</span><span class="activity-stat-label">Active users</span></div>`;
+  }
+  const tbody = getEl('activityTableBody');
+  if (tbody) {
+    tbody.innerHTML = (activity.users || []).map(function (u) {
+      return `
+        <tr>
+          <td class="preserve-whitespace">${escapeHtml(u.email)}</td>
+          <td>${u.actions || 0}</td>
+          <td>${u.logins || 0}</td>
+          <td class="preserve-whitespace">${escapeHtml(u.lastSeen || '')}</td>
+        </tr>`;
+    }).join('') || '<tr><td colspan="4">No activity recorded yet.</td></tr>';
+  }
+  const recent = getEl('activityRecentList');
+  if (recent) {
+    recent.innerHTML = (activity.recent || []).map(function (row) {
+      return `
+        <li class="activity-recent-item">
+          <span class="badge" data-tone="muted">${escapeHtml(row.action)}</span>
+          <span class="preserve-whitespace">${escapeHtml(row.user)}</span>
+          <span class="preserve-whitespace activity-recent-time">${escapeHtml(row.timestamp)}</span>
+        </li>`;
+    }).join('') || '<li class="activity-recent-item">No recent activity.</li>';
+  }
+}
+
+function exportUsers() {
+  if (!appState.isAdmin) { showToast('Admin access required', 'error'); return; }
+  showOverlay('Preparing CSV…');
+  ApiService.adminExportUsers().then(function (csv) {
+    hideOverlay();
+    downloadTextFile('IndiaPostDashboard_Users_' + new Date().toISOString().slice(0, 10) + '.csv', csv || '', 'text/csv;charset=utf-8');
+    showToast('Users CSV downloaded', 'success');
+  }).catch(function (err) {
+    hideOverlay();
+    if (handleServerFailure(err)) return;
+    showToast('Export failed: ' + (err.message || err), 'error');
+  });
+}
+
+function importUsersFile(file) {
+  if (!file) return;
+  const reader = new FileReader();
+  reader.onload = function (e) {
+    const csv = String(e.target.result || '');
+    if (!csv.trim()) { showToast('The file is empty', 'error'); return; }
+    showOverlay('Importing users…');
+    ApiService.adminImportUsers(csv).then(function (result) {
+      hideOverlay();
+      renderUsersTable((result && result.users) || []);
+      const errors = (result && result.errors) || [];
+      const summary = 'Imported: ' + (result.added || 0) + ' added, ' + (result.updated || 0) + ' updated' + (errors.length ? ', ' + errors.length + ' errors' : '');
+      showToast(summary, errors.length ? 'warning' : 'success');
+      if (errors.length) {
+        console.warn('User import errors', errors);
+      }
+    }).catch(function (err) {
+      hideOverlay();
+      if (handleServerFailure(err)) return;
+      showToast('Import failed: ' + (err.message || err), 'error');
+    });
+  };
+  reader.readAsText(file);
+}
+
+function triggerUserImport() {
+  const input = getEl('userImportFile');
+  if (input) input.click();
+}
+
+function openEditUser(email) {
+  const users = JSON.parse(getEl('usersTable').dataset.users || '[]');
+  const u = users.find(function (x) { return String(x.email).toLowerCase() === String(email).toLowerCase(); });
+  if (!u) return;
+  getEl('editUserEmail').value = u.email;
+  getEl('editUserGroup').value = u.group || '';
+  getEl('editUserDepartment').value = u.department || '';
+  getEl('editUserOffice').value = u.office || '';
+  openDialog('editUserModal');
+}
+
+function closeEditUser() {
+  closeDialog('editUserModal');
+}
+
+function saveEditUser() {
+  const email = getEl('editUserEmail').value.trim();
+  const fields = {
+    group: getEl('editUserGroup').value.trim(),
+    department: getEl('editUserDepartment').value.trim(),
+    office: getEl('editUserOffice').value.trim()
+  };
+  if (!email) return;
+  showOverlay('Saving user…');
+  ApiService.adminUpdateUser(email, fields).then(function (users) {
+    hideOverlay();
+    closeEditUser();
+    renderUsersTable(users || []);
+    showToast('User updated', 'success');
+  }).catch(function (err) {
+    hideOverlay();
+    if (handleServerFailure(err)) return;
+    showToast('Update failed: ' + (err.message || err), 'error');
+  });
+}
+
+function handleAddUser(e) {
+  e.preventDefault();
+  if (!appState.isAdmin) { showToast('Admin access required', 'error'); return; }
+  const emailEl = getEl('newUserEmail');
+  const roleEl = getEl('newUserRole');
+  const passwordEl = getEl('newUserPassword');
+  const groupEl = getEl('newUserGroup');
+  const departmentEl = getEl('newUserDepartment');
+  const officeEl = getEl('newUserOffice');
+  const email = emailEl.value.trim();
+  const role = roleEl.value;
+  const password = passwordEl.value;
+  const group = (groupEl && groupEl.value) || '';
+  const department = (departmentEl && departmentEl.value) || '';
+  const office = (officeEl && officeEl.value) || '';
+
+  let valid = true;
+  valid = setFieldInvalid(emailEl, /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email) ? '' : 'Enter a valid email address.') && valid;
+  valid = setFieldInvalid(passwordEl, password.length >= 8 ? '' : 'Password must be at least 8 characters.') && valid;
+  if (!valid) return;
+
+  showOverlay('Adding user…');
+  ApiService.adminAddUser(email, role, password, group, department, office).then(function (users) {
+    hideOverlay();
+    emailEl.value = '';
+    passwordEl.value = '';
+    if (groupEl) groupEl.value = '';
+    if (departmentEl) departmentEl.value = '';
+    if (officeEl) officeEl.value = '';
+    const status = getEl('addUserStatus');
+    status.textContent = 'User added';
+    status.classList.add('success');
+    setTimeout(function () {
+      status.textContent = '';
+      status.classList.remove('success');
+    }, 3000);
+    renderUsersTable(users || []);
+    showToast('User added', 'success');
+  }).catch(function (err) {
+    hideOverlay();
+    if (handleServerFailure(err)) return;
+    const status = getEl('addUserStatus');
+    status.textContent = err.message || 'Could not add user';
+    status.classList.add('error');
+  });
 }
 
 function handleChangePassword(e) {
@@ -1580,68 +1797,6 @@ function handleChangePassword(e) {
     if (handleServerFailure(err)) return;
     const status = getEl('changePasswordStatus');
     status.textContent = err.message || 'Could not update password';
-    status.classList.add('error');
-  });
-}
-
-function loadUsers() {
-  ApiService.adminGetUsers().then(function (users) {
-    renderUsersTable(users || []);
-  }).catch(function (err) {
-    if (handleServerFailure(err)) return;
-    showToast('Could not load users: ' + (err.message || err), 'error');
-  });
-}
-
-function renderUsersTable(users) {
-  const tbody = getEl('usersTable').querySelector('tbody');
-  tbody.dataset.users = JSON.stringify(users);
-  tbody.innerHTML = users.length ? users.map(function (u, i) {
-    return `
-      <tr>
-        <td class="preserve-whitespace">${escapeHtml(u.email)}${u.mustChange ? ' <em>(must change)</em>' : ''}</td>
-        <td>${escapeHtml(u.role)}</td>
-        <td class="preserve-whitespace">${escapeHtml(u.createdAt || '')}</td>
-        <td><button class="btn btn-secondary btn-small" type="button" data-action="reset" data-index="${i}">Reset password</button></td>
-        <td><button class="btn btn-danger btn-small" type="button" data-action="delete" data-index="${i}">Delete</button></td>
-      </tr>`;
-  }).join('') : '<tr><td colspan="5">No users found.</td></tr>';
-}
-
-function handleAddUser(e) {
-  e.preventDefault();
-  if (!appState.isAdmin) { showToast('Admin access required', 'error'); return; }
-  const emailEl = getEl('newUserEmail');
-  const roleEl = getEl('newUserRole');
-  const passwordEl = getEl('newUserPassword');
-  const email = emailEl.value.trim();
-  const role = roleEl.value;
-  const password = passwordEl.value;
-
-  let valid = true;
-  valid = setFieldInvalid(emailEl, /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email) ? '' : 'Enter a valid email address.') && valid;
-  valid = setFieldInvalid(passwordEl, password.length >= 8 ? '' : 'Password must be at least 8 characters.') && valid;
-  if (!valid) return;
-
-  showOverlay('Adding user…');
-  ApiService.adminAddUser(email, role, password).then(function (users) {
-    hideOverlay();
-    emailEl.value = '';
-    passwordEl.value = '';
-    const status = getEl('addUserStatus');
-    status.textContent = 'User added';
-    status.classList.add('success');
-    setTimeout(function () {
-      status.textContent = '';
-      status.classList.remove('success');
-    }, 3000);
-    renderUsersTable(users || []);
-    showToast('User added', 'success');
-  }).catch(function (err) {
-    hideOverlay();
-    if (handleServerFailure(err)) return;
-    const status = getEl('addUserStatus');
-    status.textContent = err.message || 'Could not add user';
     status.classList.add('error');
   });
 }
@@ -2177,7 +2332,7 @@ function wireGlobalEvents() {
         cancelConfirmDialog();
         return;
       }
-      ['editModal', 'aboutModal', 'submissionsModal', 'recordDetailModal'].forEach(function (id) {
+      ['editModal', 'aboutModal', 'submissionsModal', 'recordDetailModal', 'editUserModal'].forEach(function (id) {
         const el = getEl(id);
         if (el && !el.classList.contains('hidden')) closeDialog(id);
       });
@@ -2207,6 +2362,7 @@ function wireGlobalEvents() {
         else if (backdrop.id === 'aboutModal') closeAbout();
         else if (backdrop.id === 'submissionsModal') closeSubmissionsModal();
         else if (backdrop.id === 'recordDetailModal') closeRecordDetail();
+        else if (backdrop.id === 'editUserModal') closeEditUser();
         else if (backdrop.id === 'confirmModal') cancelConfirmDialog();
       }
     });
@@ -2250,6 +2406,7 @@ function wireGlobalEvents() {
       if (!user) return;
       if (btn.dataset.action === 'delete') deleteUser(user.email);
       else if (btn.dataset.action === 'reset') resetUserPassword(user.email);
+      else if (btn.dataset.action === 'edit') openEditUser(user.email);
     });
   }
 
