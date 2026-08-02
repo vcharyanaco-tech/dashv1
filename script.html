@@ -312,8 +312,7 @@ function renderDashboard() {
         <div class="card-fields">${fieldsHtml || '<div class="card-field"><span class="field-label">Details</span><div class="field-value preserve-whitespace">No details available</div></div>'}</div>
         <div class="card-footer">
           <div class="actions">
-            <button class="btn btn-secondary btn-small" onclick="openSubmissionsModal('${item.row}','${escapeHtml(item.id)}',false)">Submit update</button>
-            <button class="btn btn-secondary btn-small" onclick="openSubmissionsModal('${item.row}','${escapeHtml(item.id)}',true)">My submissions</button>
+            <button class="btn btn-secondary btn-small" onclick="openSubmissionsModal('${item.row}','${escapeHtml(item.id)}')">Submit update</button>
             ${appState.isEditor ? `<button class="btn btn-secondary btn-small" onclick="editItem('${item.row}')">Edit</button>` : ''}
             ${appState.isEditor ? `<button class="btn btn-danger btn-small" onclick="deleteItem('${item.row}')">Delete</button>` : ''}
           </div>
