@@ -160,7 +160,10 @@ function getSheetDataRows_(sheet) {
     return [];
   }
 
-  const values = sheet.getDataRange().getValues();
+  const dataRange = sheet.getDataRange();
+  const values = dataRange.getValues();
+  let richValues = null;
+  try { richValues = dataRange.getRichTextValues(); } catch (err) { richValues = null; }
 
   if (!values.length) {
     return [];
@@ -189,9 +192,21 @@ function getSheetDataRows_(sheet) {
       }
 
       const value = normalizedRow[headerIndex] !== undefined ? normalizedRow[headerIndex] : "";
+
+      let html = "";
+      const richValue = (richValues[rowNumber - 1] || [])[headerIndex];
+      if (richValue) {
+        try {
+          html = richToHtml_(richValue, String(value === null || value === undefined ? "" : value));
+        } catch (err) {
+          html = "";
+        }
+      }
+
       fields.push({
         label: label,
-        value: value
+        value: value,
+        html: html
       });
 
       return fields;

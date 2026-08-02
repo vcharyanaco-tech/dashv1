@@ -197,7 +197,7 @@ function renderAudit() {
 
 function renderReportPreview() {
   const itemsHtml = (appState.items || []).map(item => `
-    <tr><td class="preserve-whitespace">${escapeHtml(item.id)}</td><td class="preserve-whitespace">${renderLinkableText(item.sector)}</td><td class="preserve-whitespace">${renderLinkableText(item.description)}</td><td class="preserve-whitespace">${renderLinkableText(item.action)}</td><td class="preserve-whitespace">${renderLinkableText(item.responsibility)}</td><td class="preserve-whitespace">${renderLinkableText(item.reviewDate)}</td></tr>`).join('');
+    <tr><td class="preserve-whitespace">${escapeHtml(item.id)}</td><td class="preserve-whitespace">${renderLinkableText(item.sector)}</td><td class="preserve-whitespace">${renderLinkableText(item.description)}</td><td class="preserve-whitespace">${item.actionHtml || renderLinkableText(item.action)}</td><td class="preserve-whitespace">${renderLinkableText(item.responsibility)}</td><td class="preserve-whitespace">${renderLinkableText(item.reviewDate)}</td></tr>`).join('');
   document.getElementById('reportPreview').innerHTML = `
     <div class="report-preview">
       <h3>Report preview</h3>

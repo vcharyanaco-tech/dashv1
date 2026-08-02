@@ -167,17 +167,6 @@ function getData() {
 
     let actionHtml = escHtml_(rowSpec.action);
 
-    try {
-      if (rowSpec.rowNumber && sheet) {
-        const richValue = sheet.getRange(rowSpec.rowNumber, COL.ACTION).getRichTextValue();
-        actionHtml = richToHtml_(richValue, rowSpec.action);
-      } else {
-        actionHtml = escHtml_(rowSpec.action);
-      }
-    } catch (err) {
-      actionHtml = escHtml_(rowSpec.action);
-    }
-
     let flagged = false;
 
     try {
@@ -201,10 +190,16 @@ function getData() {
       }
 
       let fieldHtml = "";
-      if (normalizedLabel === "action") {
-        fieldHtml = actionHtml;
-      } else if (looksLikeUrl_(formattedValue)) {
-        fieldHtml = linkifyText_(formattedValue);
+      if (normalizedLabel.indexOf("date") === -1) {
+        if (field && field.html) {
+          fieldHtml = field.html;
+        } else if (looksLikeUrl_(formattedValue)) {
+          fieldHtml = linkifyText_(formattedValue);
+        }
+      }
+
+      if (normalizedLabel.indexOf("action") !== -1 && fieldHtml) {
+        actionHtml = fieldHtml;
       }
 
       return {
@@ -482,12 +477,11 @@ function richToHtml_(rt, fallback) {
     var body = escHtml_(t);
     var url = null;
     try { url = runs[i].getLinkUrl(); } catch (e8) { url = null; }
-    if (!url && looksLikeUrl_(t)) {
-      url = normalizeUrl_(t);
-    }
     if (url) {
       var au = absUrl_(url);
       if (au) { body = '<a href="' + escHtml_(au) + '" target="_blank" rel="noopener noreferrer">' + body + '</a>'; }
+    } else {
+      body = linkifyText_(t);
     }
     if (css.length) { out.push('<span style="' + css.join(';') + '">' + body + '</span>'); }
     else { out.push(body); }
