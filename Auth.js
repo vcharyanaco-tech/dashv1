@@ -601,10 +601,9 @@ function validateSession(token) {
  * Starts a password reset: stores a time-limited token and emails a reset
  * link. Always returns a generic response to avoid account enumeration.
  * @param {string} email User email.
- * @param {string} pageUrl Base page URL to build the reset link on.
  * @returns {{success: boolean, message: string}}
  */
-function requestPasswordReset(email, pageUrl) {
+function requestPasswordReset(email) {
   email = String(email || '').toLowerCase().trim();
 
   if (!isValidEmail_(email)) {
@@ -615,18 +614,29 @@ function requestPasswordReset(email, pageUrl) {
   if (!rec) {
     return { success: true, message: 'If an account exists for that email, a reset link has been sent.' };
   }
+
   const resetToken = Utilities.getUuid().replace(/-/g, '');
+  const tokenHash = sha256Hex_(resetToken);
   const expires = new Date(Date.now() + CONFIG.USERS.RESET_TTL_MINUTES * 60 * 1000);
 
   runWithLock_(function () {
-    setUserField_(email, 'resetToken', resetToken);
+    setUserField_(email, 'resetToken', tokenHash);
     setUserField_(email, 'resetExpires', expires);
   });
 
-  const base = String(pageUrl || '').split('?')[0];
-  const link = base + '?resetToken=' + encodeURIComponent(resetToken) + '&email=' + encodeURIComponent(email);
+  let baseUrl = '';
+  try {
+    baseUrl = ScriptApp.getService().getUrl();
+  } catch (err) {
+    baseUrl = '';
+  }
+  if (!baseUrl) {
+    try { baseUrl = SpreadsheetApp.getActiveSpreadsheet().getUrl(); } catch (err) { baseUrl = ''; }
+  }
+  const link = baseUrl + '?resetToken=' + encodeURIComponent(resetToken) + '&email=' + encodeURIComponent(email);
 
-  const body = [
+  const subject = 'India Post Dashboard - Password Reset';
+  const bodyText = [
     'You requested a password reset for the India Post Dashboard.',
     '',
     'Open the link below within ' + CONFIG.USERS.RESET_TTL_MINUTES + ' minutes to choose a new password:',
@@ -636,14 +646,28 @@ function requestPasswordReset(email, pageUrl) {
     'If you did not request this, you can ignore this email.'
   ].join('\n');
 
+  const bodyHtml = [
+    '<p>You requested a password reset for the <strong>India Post Dashboard</strong>.</p>',
+    '<p>Open the link below within <strong>' + CONFIG.USERS.RESET_TTL_MINUTES + ' minutes</strong> to choose a new password:</p>',
+    '<p><a href="' + link + '">' + link + '</a></p>',
+    '<p>If you did not request this, you can ignore this email.</p>'
+  ].join('');
+
   try {
-    MailApp.sendEmail(email, 'India Post Dashboard - Password Reset', body);
+    MailApp.sendEmail({
+      to: email,
+      subject: subject,
+      body: bodyText,
+      htmlBody: bodyHtml
+    });
   } catch (err) {
-    return { success: false, message: 'Could not send the reset email: ' + (err && err.message ? err.message : err) };
+    const errMsg = (err && err.message ? err.message : String(err));
+    try { logAudit_(ACTIONS.PASSWORD_RESET_REQUESTED, '', 'Mail failed: ' + errMsg, email); } catch (e) {}
+    return { success: false, message: 'Could not send the reset email: ' + errMsg };
   }
 
-  try { logAudit_(ACTIONS.PASSWORD_RESET_REQUESTED, '', '', email); } catch (err) {}
-  return { success: true, message: 'If an account exists for that email, a reset link has been sent.' };
+  try { logAudit_(ACTIONS.PASSWORD_RESET_REQUESTED, '', 'Reset email sent', email); } catch (err) {}
+  return { success: true, message: 'If an account exists for that email, a reset link has been sent.' }
 }
 
 /**
@@ -656,9 +680,10 @@ function requestPasswordReset(email, pageUrl) {
  */
 function resetPasswordWithToken(email, resetToken, newPassword) {
   email = String(email || '').toLowerCase().trim();
+  const tokenHash = sha256Hex_(String(resetToken || ''));
 
   const rec = findUserRecord_(email);
-  if (!rec || !rec.resetToken || String(rec.resetToken) !== String(resetToken || '')) {
+  if (!rec || !rec.resetToken || String(rec.resetToken) !== tokenHash) {
     return { success: false, message: 'Invalid reset link.' };
   }
   if (!rec.resetExpires || new Date(rec.resetExpires) <= new Date()) {
@@ -709,6 +734,8 @@ function changePassword(currentPassword, newPassword, token) {
     setUserField_(user.email, 'salt', salt);
     setUserField_(user.email, 'passwordHash', hashPassword_(newPassword, salt));
     setUserField_(user.email, 'mustChange', false);
+    setUserField_(user.email, 'resetToken', '');
+    setUserField_(user.email, 'resetExpires', null);
   });
 
   try { logAudit_(ACTIONS.CHANGE_PASSWORD, '', '', user.email); } catch (err) {}

@@ -65,7 +65,7 @@ const ApiService = {
   login: function (email, password) { return apiCall_('login', email, password); },
   logout: function () { return apiCall_('logout', getAuthToken()); },
   validateSession: function () { return apiCall_('validateSession', getAuthToken()); },
-  requestPasswordReset: function (email, pageUrl) { return apiCall_('requestPasswordReset', email, pageUrl); },
+  requestPasswordReset: function (email) { return apiCall_('requestPasswordReset', email); },
   resetPasswordWithToken: function (email, resetToken, newPassword) { return apiCall_('resetPasswordWithToken', email, resetToken, newPassword); },
   changePassword: function (currentPassword, newPassword) { return apiCall_('changePassword', currentPassword, newPassword, getAuthToken()); },
   adminGetUsers: function () { return apiCall_('adminGetUsers', getAuthToken()); },
@@ -697,7 +697,7 @@ function handleForgotPassword(e) {
   const email = getEl('forgotEmail').value.trim();
   if (!setFieldInvalid(getEl('forgotEmail'), email ? '' : 'Enter your email address.')) return;
   showOverlay('Sending reset link…');
-  ApiService.requestPasswordReset(email, window.location.href).then(function (res) {
+  ApiService.requestPasswordReset(email).then(function (res) {
     hideOverlay();
     showAuthMessage('forgotMessage', (res && res.message) || 'Reset link sent.');
     showToast((res && res.message) || 'Reset link sent.', 'success');
