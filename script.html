@@ -285,8 +285,11 @@ function applyFilters() {
 
 function renderDashboard() {
   applyFilters();
-  const cards = appState.filtered.slice(0, 100).map(item => {
-    const fieldsHtml = (item.displayFields || []).map(field => {
+    const cards = appState.filtered.slice(0, 100).map(item => {
+      const fieldsHtml = (item.displayFields || []).filter(field => {
+        const label = String(field && field.label || '').trim().toLowerCase();
+        return label !== '#' && label !== 'id' && label !== 'sr no';
+      }).map(field => {
       const isHeaderRowValue = field && field.label && String(field.label).trim() !== '';
       const valueHtml = field.html
         ? `<div class="field-value preserve-whitespace field-html">${field.html}</div>`

@@ -76,7 +76,15 @@ function exportToSpreadsheet(token) {
     report.items.forEach(row => {
       sheet.appendRow([row.id, row.sector, row.description, row.entryDate, row.action, row.responsibility, row.reviewDate, row.flagged ? 'YES' : 'NO']);
     });
-    const blob = ss.getAs('application/vnd.openxmlformats-officedocument.spreadsheetml.sheet');
+
+    const xlsxMime = 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet';
+    let blob = null;
+    try { blob = DriveApp.getFileById(ss.getId()).getAs(xlsxMime); } catch (err) { blob = null; }
+    if (!blob) {
+      try { blob = ss.getAs(xlsxMime); } catch (err) { blob = null; }
+    }
+    if (!blob) throw new Error('Could not convert the report to Excel format.');
+
     const filename = 'IndiaPostDashboard_Report_' + Utilities.formatDate(new Date(), Session.getScriptTimeZone(), 'yyyyMMdd_HHmm') + '.xlsx';
     blob.setName(filename);
     return { filename: filename, base64: Utilities.base64Encode(blob.getBytes()) };
