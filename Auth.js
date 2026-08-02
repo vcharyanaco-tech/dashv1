@@ -404,7 +404,7 @@ function groupPermissions_(groups) {
  * Builds the effective permission set (module -> actions) for an email by
  * unioning the role matrix with any group grants.
  * @param {string} email User email.
- * @returns {Object<string, string[]>}
+ * @returns {{Object<string, string[]>}}
  */
 function getUserPermissions(email) {
   email = String(email || '').toLowerCase().trim();
@@ -1095,7 +1095,7 @@ function getSessionInfo() {
 
 /**
  * Debug helper: alias for getCurrentUserInfo().
- * @returns {{email: string, role: string, loggedIn: boolean}}
+ * @returns {Object} Session info.
  */
 function whoAmI() {
   return getCurrentUserInfo();
