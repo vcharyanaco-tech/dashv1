@@ -6,7 +6,7 @@
  * ============================================================
  */
 
-const SUBMISSION_HEADERS = ['Id', 'CardRow', 'CardId', 'Email', 'Text', 'CreatedAt', 'UpdatedAt', 'LockedBy', 'LockedAt'];
+const SUBMISSION_HEADERS = ['Id', 'CardRow', 'CardId', 'Email', 'Text', 'CreatedAt', 'UpdatedAt', 'LockedBy', 'LockedAt', 'Displayed'];
 
 const SUBMISSION_COL = Object.freeze({
   ID: 1,
@@ -17,7 +17,8 @@ const SUBMISSION_COL = Object.freeze({
   CREATED_AT: 6,
   UPDATED_AT: 7,
   LOCKED_BY: 8,
-  LOCKED_AT: 9
+  LOCKED_AT: 9,
+  DISPLAYED: 10
 });
 
 
@@ -33,10 +34,14 @@ function submissionsSheet_() {
 
   if (!sh) {
     sh = ss.insertSheet(CONFIG.SUBMISSIONS.SHEET_NAME);
-    sh.getRange(1, 1, 1, SUBMISSION_HEADERS.length).setValues([SUBMISSION_HEADERS]);
     sh.setFrozenRows(1);
-    sh.getRange(1, 1, 1, SUBMISSION_HEADERS.length).setFontWeight('bold');
     try { sh.hideSheet(); } catch (err) {}
+  }
+
+  const header = sh.getRange(1, 1, 1, SUBMISSION_HEADERS.length).getValues()[0] || [];
+  if (header.join('') !== SUBMISSION_HEADERS.join('')) {
+    sh.getRange(1, 1, 1, SUBMISSION_HEADERS.length).setValues([SUBMISSION_HEADERS]);
+    sh.getRange(1, 1, 1, SUBMISSION_HEADERS.length).setFontWeight('bold');
   }
 
   return sh;
@@ -53,7 +58,8 @@ function submissionRecordFromRow_(row, rowIndex) {
     createdAt: row[SUBMISSION_COL.CREATED_AT - 1],
     updatedAt: row[SUBMISSION_COL.UPDATED_AT - 1],
     lockedBy: String(row[SUBMISSION_COL.LOCKED_BY - 1] || ''),
-    lockedAt: row[SUBMISSION_COL.LOCKED_AT - 1]
+    lockedAt: row[SUBMISSION_COL.LOCKED_AT - 1],
+    displayed: row[SUBMISSION_COL.DISPLAYED - 1] === true || String(row[SUBMISSION_COL.DISPLAYED - 1]).toLowerCase() === 'true'
   };
 }
 
@@ -120,6 +126,7 @@ function visibleSubmission_(rec, user, roleOf) {
     lockRole: lockRole,
     isOwner: String(rec.email || '').toLowerCase() === String(user.email || '').toLowerCase(),
     locked: locked,
+    displayed: rec.displayed,
     editable: canEditSubmission_(user, rec),
     canLock: isEditorUser && !locked,
     canUnlock: isEditorUser && locked && (isAdmin || lockRole !== 'ADMIN')
@@ -155,6 +162,28 @@ function submissionsForCard_(cardRow, user) {
 function cardExists_(cardRow) {
   const data = getData();
   return (data.items || []).some(function (item) { return Number(item.row) === Number(cardRow); });
+}
+
+function getSubmissionCounts_() {
+  const counts = {};
+  readSubmissionRows_().forEach(function (rec) {
+    const key = Number(rec.cardRow);
+    counts[key] = (counts[key] || 0) + 1;
+  });
+  return counts;
+}
+
+function getDisplayedSubmissions_() {
+  return readSubmissionRows_()
+    .filter(function (rec) { return rec.displayed; })
+    .map(function (rec) {
+      return {
+        cardRow: Number(rec.cardRow),
+        email: rec.email,
+        text: rec.text,
+        createdAt: formatDateTime_(rec.createdAt)
+      };
+    });
 }
 
 
@@ -264,6 +293,21 @@ function deleteSubmission(submissionId, token) {
     sh.deleteRow(rec.row);
 
     try { logAudit_('SUBMISSION_DELETE', rec.cardRow, { id: submissionId, text: rec.text }, admin.email); } catch (err) {}
+    return submissionsForCard_(rec.cardRow, admin);
+  });
+}
+
+function toggleSubmissionDisplay(submissionId, token) {
+  const admin = requireAdmin_(token);
+
+  return runWithLock_(function () {
+    const rec = findSubmissionRecord_(submissionId);
+    if (!rec) throw new Error('Submission not found.');
+
+    const next = !rec.displayed;
+    submissionsSheet_().getRange(rec.row, SUBMISSION_COL.DISPLAYED).setValue(next);
+
+    try { logAudit_(next ? 'SUBMISSION_DISPLAY' : 'SUBMISSION_HIDE', rec.cardRow, { id: submissionId }, admin.email); } catch (err) {}
     return submissionsForCard_(rec.cardRow, admin);
   });
 }

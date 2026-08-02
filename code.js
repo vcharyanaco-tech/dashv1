@@ -571,7 +571,9 @@ function getAppData(token) {
     summary: summary,
     analytics: analytics,
     audit: audit,
-    settings: settings
+    settings: settings,
+    submissionCounts: getSubmissionCounts_(),
+    displayedSubmissions: getDisplayedSubmissions_()
   };
 }
 

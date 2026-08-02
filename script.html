@@ -16,7 +16,9 @@ const appState = {
   submissions: [],
   submissionCardRow: '',
   submissionCardId: '',
-  submissionEditingId: ''
+  submissionEditingId: '',
+  submissionCounts: {},
+  displayedSubmissions: []
 };
 
 function getAuthToken() {
@@ -154,6 +156,8 @@ function loadApp() {
     appState.analytics = data.analytics || {};
     appState.audit = data.audit || [];
     appState.settings = data.settings || {};
+    appState.submissionCounts = data.submissionCounts || {};
+    appState.displayedSubmissions = data.displayedSubmissions || [];
     populateFilters();
     renderDashboard();
     applyTheme();
@@ -306,13 +310,23 @@ function renderDashboard() {
       `;
     }).join('');
 
+    const subCount = (appState.submissionCounts || {})[item.row] || 0;
+    const updateFieldsHtml = (appState.displayedSubmissions || [])
+      .filter(s => Number(s.cardRow) === Number(item.row))
+      .map(s => `
+        <div class="card-field submission-display">
+          <span class="field-label submission-display-label">Update by ${escapeHtml(s.email)} <span class="submission-display-time">${escapeHtml(s.createdAt || '')}</span></span>
+          <div class="field-value preserve-whitespace">${escapeHtml(s.text || '')}</div>
+        </div>
+      `).join('');
+
     return `
       <article class="card ${item.flagged ? 'flagged' : ''}">
         <div class="card-title preserve-whitespace"><strong>#${escapeHtml(item.id)}</strong></div>
-        <div class="card-fields">${fieldsHtml || '<div class="card-field"><span class="field-label">Details</span><div class="field-value preserve-whitespace">No details available</div></div>'}</div>
+        <div class="card-fields">${fieldsHtml || '<div class="card-field"><span class="field-label">Details</span><div class="field-value preserve-whitespace">No details available</div></div>'}${updateFieldsHtml}</div>
         <div class="card-footer">
           <div class="actions">
-            <button class="btn btn-secondary btn-small" onclick="openSubmissionsModal('${item.row}','${escapeHtml(item.id)}')">Submit update</button>
+            <button class="btn btn-secondary btn-small" onclick="openSubmissionsModal('${item.row}','${escapeHtml(item.id)}')">Submit update${subCount > 0 ? ` (${subCount})` : ''}</button>
             ${appState.isEditor ? `<button class="btn btn-secondary btn-small" onclick="editItem('${item.row}')">Edit</button>` : ''}
             ${appState.isEditor ? `<button class="btn btn-danger btn-small" onclick="deleteItem('${item.row}')">Delete</button>` : ''}
           </div>
@@ -484,6 +498,8 @@ function refreshData() {
     appState.summary = data.summary || {};
     appState.analytics = data.analytics || {};
     appState.audit = data.audit || [];
+    appState.submissionCounts = data.submissionCounts || {};
+    appState.displayedSubmissions = data.displayedSubmissions || [];
     populateFilters();
     renderDashboard();
     displayToast('Dashboard refreshed');
@@ -647,6 +663,7 @@ function renderSubmissionList() {
 
 function renderSubmissionCard(s) {
   const lockedBadge = s.locked ? '<span class="badge-locked">Locked</span>' : '';
+  const displayedBadge = s.displayed ? '<span class="badge-displayed">On card</span>' : '';
   const ownerTag = s.isOwner ? ' <em>(you)</em>' : '';
   const editBtn = s.editable
     ? `<button class="btn btn-secondary btn-small" onclick="editSubmission('${escapeHtml(s.id)}')">Edit</button>`
@@ -660,6 +677,9 @@ function renderSubmissionCard(s) {
   const deleteBtn = appState.isAdmin
     ? `<button class="btn btn-danger btn-small" onclick="deleteSubmission('${escapeHtml(s.id)}')">Delete</button>`
     : '';
+  const displayBtn = appState.isAdmin
+    ? `<button class="btn btn-secondary btn-small" onclick="toggleDisplaySubmission('${escapeHtml(s.id)}')">${s.displayed ? 'Hide from card' : 'Display on card'}</button>`
+    : '';
   const lockRoleTag = s.lockRole ? ` (${escapeHtml(s.lockRole.toLowerCase())})` : '';
   const lockNote = s.lockedBy
     ? `<span class="submission-note">Locked by ${escapeHtml(s.lockedBy)}${lockRoleTag}${s.lockedAt ? ' on ' + escapeHtml(s.lockedAt) : ''}</span>`
@@ -667,11 +687,11 @@ function renderSubmissionCard(s) {
   return `
     <div class="submission-card">
       <div class="submission-meta">
-        <span>${escapeHtml(s.email)}${ownerTag} ${lockedBadge}</span>
+        <span>${escapeHtml(s.email)}${ownerTag} ${lockedBadge} ${displayedBadge}</span>
         <span>${escapeHtml(s.createdAt || '')}</span>
       </div>
       <div class="submission-text preserve-whitespace">${escapeHtml(s.text || '')}</div>
-      <div class="submission-actions">${editBtn}${lockBtn}${deleteBtn}${lockNote}</div>
+      <div class="submission-actions">${editBtn}${lockBtn}${deleteBtn}${displayBtn}${lockNote}</div>
     </div>
   `;
 }
@@ -721,10 +741,12 @@ function submitSubmission() {
     google.script.run.withSuccessHandler(list => {
       hideOverlay();
       appState.submissions = list || [];
+      appState.submissionCounts[Number(appState.submissionCardRow)] = (list || []).length;
       document.getElementById('submissionText').value = '';
       resetSubmissionCompose();
       document.getElementById('submissionStatus').textContent = '';
       renderSubmissionList();
+      renderDashboard();
       displayToast('Update submitted');
     }).withFailureHandler(err => {
       hideOverlay();
@@ -773,11 +795,28 @@ function deleteSubmission(id) {
     appState.submissions = list || [];
     renderSubmissionList();
     displayToast('Submission deleted');
+    refreshData();
   }).withFailureHandler(err => {
     hideOverlay();
     if (handleServerFailure(err)) return;
     displayToast('Could not delete submission: ' + (err.message || err));
   }).deleteSubmission(id, getAuthToken());
+}
+
+function toggleDisplaySubmission(id) {
+  if (!appState.isAdmin) { displayToast('Admin access required'); return; }
+  showOverlay('Updating display...');
+  google.script.run.withSuccessHandler(list => {
+    hideOverlay();
+    appState.submissions = list || [];
+    renderSubmissionList();
+    displayToast('Display updated');
+    refreshData();
+  }).withFailureHandler(err => {
+    hideOverlay();
+    if (handleServerFailure(err)) return;
+    displayToast('Could not update display: ' + (err.message || err));
+  }).toggleSubmissionDisplay(id, getAuthToken());
 }
 
 function downloadFromBase64(base64, filename, mimeType) {
