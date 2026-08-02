@@ -109,6 +109,16 @@
   view; applied on login.
 - Verified with `node --check` and a DOM/onclick audit; deployed @88.
 
+### Phase 4 — Enterprise Features, Tranche F: Analytics (deployment @89)
+- **Enhanced analytics engine:** new `Analytics.js` server module with
+  `buildAnalytics_` computing sector breakdowns, office breakdowns, flagged items,
+  monthly trends, and previous-month trend for comparison.
+- **Trend indicators:** analytics cards now show a directional trend (up/down/flat)
+  comparing current month to previous month.
+- **Office breakdown:** new office-level breakdown in the Analytics tab alongside
+  the existing sector breakdown.
+- Verified with `node --check` and a DOM/onclick audit; deployed @89.
+
 ### Phase 4 — Enterprise Features, Tranche A: User & Role Management (deployment @82)
 - **Granular RBAC permission matrix:** new `MODULES` / `MODULE_ACTIONS` /
   `PERMISSIONS` in `Settings.js` with View/Create/Edit/Delete/Export/Approve per
