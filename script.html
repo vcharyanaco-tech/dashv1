@@ -355,9 +355,9 @@ function renderDashboard() {
   }).join('');
   document.getElementById('dashboardCards').innerHTML = cards || '<div class="message-panel">No records found.</div>';
   document.getElementById('summaryCards').innerHTML = `
-    <div class="analytics-card"><h3>Total records</h3><p>${appState.summary.total || 0}</p></div>
-    <div class="analytics-card"><h3>Review due</h3><p>${appState.summary.flagged || 0}</p></div>
-    <div class="analytics-card"><h3>Open sectors</h3><p>${Object.keys(appState.summary.sectors || {}).length || 0}</p></div>
+    <div class="stat-card stat-total"><span class="stat-label">Total records</span><span class="stat-value">${appState.summary.total || 0}</span></div>
+    <div class="stat-card stat-review"><span class="stat-label">Review due</span><span class="stat-value">${appState.summary.flagged || 0}</span></div>
+    <div class="stat-card stat-sectors"><span class="stat-label">Open sectors</span><span class="stat-value">${Object.keys(appState.summary.sectors || {}).length || 0}</span></div>
   `;
 }
 
