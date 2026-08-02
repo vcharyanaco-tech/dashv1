@@ -44,6 +44,9 @@ const CONFIG = Object.freeze({
     SHEET_NAME: 'Notifications',
     MAX_PER_USER: 50
   },
+  WORKFLOW: {
+    APPROVALS_SHEET_NAME: 'Approvals'
+  },
   LOCK: {
     WAIT_TIME: 30000
   },
@@ -188,6 +191,24 @@ const USER_GROUPS = Object.freeze({
 });
 
 const USER_GROUP_KEYS = Object.freeze(Object.keys(USER_GROUPS));
+
+/**
+ * Workflow approval types. Each entry describes an approval flow that the
+ * engine routes to approvers (ADMIN role or APPROVER group).
+ */
+const WORKFLOW_TYPES = Object.freeze({
+  RECORD_REVIEW: {
+    key: 'RECORD_REVIEW',
+    module: MODULES.RECORDS,
+    label: 'Record review'
+  }
+});
+
+const APPROVAL_STATUS = Object.freeze({
+  PENDING: 'PENDING',
+  APPROVED: 'APPROVED',
+  REJECTED: 'REJECTED'
+});
 
 const PROP = Object.freeze({
   APP_NAME: 'APP_NAME',

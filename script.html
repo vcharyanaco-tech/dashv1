@@ -78,6 +78,10 @@ const ApiService = {
   adminResetPassword: function (email, newPassword) { return apiCall_('adminResetPassword', email, newPassword, getAuthToken()); },
   notificationsGet: function () { return apiCall_('notificationsGet', getAuthToken()); },
   notificationsRead: function (ids) { return apiCall_('notificationsRead', ids, getAuthToken()); },
+  submitRecordReview: function (row, summary) { return apiCall_('submitRecordReview', row, summary, getAuthToken()); },
+  getPendingApprovals: function () { return apiCall_('getPendingApprovals', getAuthToken()); },
+  getMyApprovals: function () { return apiCall_('getMyApprovals', getAuthToken()); },
+  reviewApproval: function (id, approve, comment) { return apiCall_('reviewApproval', id, approve, comment, getAuthToken()); },
   getSubmissions: function (cardRow) { return apiCall_('getSubmissions', getAuthToken(), cardRow); },
   addSubmission: function (cardRow, cardId, text) { return apiCall_('addSubmission', cardRow, cardId, text, getAuthToken()); },
   updateSubmission: function (submissionId, text) { return apiCall_('updateSubmission', submissionId, text, getAuthToken()); },
@@ -477,7 +481,7 @@ function renderNotifications() {
   if (list) {
     list.innerHTML = (recent.map(function (item) {
       const unreadClass = item.readAt ? '' : ' notif-item-unread';
-      return '<li class="notif-item' + unreadClass + '" data-notif-id="' + escapeAttr(String(item.id || '')) + '" data-notif-type="' + escapeAttr(String(item.type || 'system')) + '">' +
+      return '<li class="notif-item' + unreadClass + '" data-notif-id="' + escAttr(String(item.id || '')) + '" data-notif-type="' + escAttr(String(item.type || 'system')) + '">' +
         '<div class="notif-item-title">' + escapeHtml(item.title) + '</div>' +
         '<div class="notif-item-body">' + escapeHtml(item.body) + '</div>' +
         '<div class="notif-item-time">' + escapeHtml(formatNotifTime(item.createdAt)) + '</div>' +
@@ -485,15 +489,6 @@ function renderNotifications() {
     }).join('')) || '<li class="notif-item-empty">No notifications yet.</li>';
   }
   if (empty) empty.classList.toggle('hidden', !!(recent && recent.length));
-}
-
-function escapeAttr(value) {
-  return String(value)
-    .replace(/&/g, '&amp;')
-    .replace(/"/g, '&quot;')
-    .replace(/'/g, '&#39;')
-    .replace(/</g, '&lt;')
-    .replace(/>/g, '&gt;');
 }
 
 function formatNotifTime(ts) {
@@ -569,6 +564,7 @@ function openTab(tabId) {
   if (tabId === 'reports') renderReportPreview();
   if (tabId === 'settings') renderSettings();
   if (tabId === 'dashboard') renderDashboard();
+  if (tabId === 'approvals') renderApprovals();
 }
 
 /* ---------------------------------- Auth flows ---------------------------------- */
@@ -1972,6 +1968,7 @@ function openRecordDetail(row) {
   let actionsHtml = '';
   if (appState.isEditor) {
     actionsHtml += `<button class="btn btn-primary" type="button" onclick="closeRecordDetail(); editItem('${escAttr(item.row)}');">Edit</button>`;
+    actionsHtml += `<button class="btn btn-secondary" type="button" onclick="closeRecordDetail(); submitRecordReview('${escAttr(item.row)}', '${escAttr((item.description || '').slice(0, 80))}');">Submit for review</button>`;
   }
   actionsHtml += `
     <button class="btn btn-secondary" type="button" onclick="closeRecordDetail(); openSubmissionsModal('${escAttr(item.row)}','${escAttr(item.id)}');">Submit update</button>
@@ -1982,6 +1979,104 @@ function openRecordDetail(row) {
 
 function closeRecordDetail() {
   closeDialog('recordDetailModal');
+}
+
+function submitRecordReview(row, summary) {
+  showOverlay('Submitting review request…');
+  ApiService.submitRecordReview(row, summary).then(function () {
+    hideOverlay();
+    showToast('Review request submitted.', 'success');
+  }).catch(function (err) {
+    hideOverlay();
+    if (handleServerFailure(err)) return;
+    showToast('Could not submit review: ' + (err.message || err), 'error');
+  });
+}
+
+/* ---------------------------------- Approvals ---------------------------------- */
+
+function loadApprovals() {
+  return Promise.all([
+    ApiService.getPendingApprovals(),
+    ApiService.getMyApprovals()
+  ]).then(function (results) {
+    appState.pendingApprovals = results[0] || [];
+    appState.myApprovals = results[1] || [];
+    renderApprovals();
+  }).catch(function (err) {
+    if (handleServerFailure(err)) return;
+    showToast('Could not load approvals: ' + (err.message || err), 'error');
+  });
+}
+
+function renderApprovals() {
+  const pending = appState.pendingApprovals || [];
+  const mine = appState.myApprovals || [];
+  const pendingBody = getEl('approvalsPendingBody');
+  const pendingEmpty = getEl('approvalsPendingEmpty');
+  const myBody = getEl('approvalsMyBody');
+  const myEmpty = getEl('approvalsMyEmpty');
+
+  if (pendingBody) {
+    pendingBody.innerHTML = pending.map(function (a) {
+      return '<tr>' +
+        '<td>' + escapeHtml('Record #' + (a.targetRow || '')) + '</td>' +
+        '<td class="preserve-whitespace">' + escapeHtml(a.summary || '') + '</td>' +
+        '<td>' + escapeHtml(formatNotifTime(a.submittedAt)) + '</td>' +
+        '<td><button class="btn btn-primary btn-small" type="button" onclick="openReviewDialog(\'' + escapeAttr(a.id) + '\')">Review</button></td>' +
+        '</tr>';
+    }).join('') || '<tr><td colspan="4">No pending approvals.</td></tr>';
+  }
+  if (pendingEmpty) pendingEmpty.classList.toggle('hidden', !!pending.length);
+
+  if (myBody) {
+    myBody.innerHTML = mine.map(function (a) {
+      const statusBadge = a.status === 'APPROVED'
+        ? '<span class="badge" data-tone="success">Approved</span>'
+        : a.status === 'REJECTED'
+          ? '<span class="badge" data-tone="danger">Rejected</span>'
+          : '<span class="badge" data-tone="muted">Pending</span>';
+      return '<tr>' +
+        '<td>' + escapeHtml('Record #' + (a.targetRow || '')) + '</td>' +
+        '<td class="preserve-whitespace">' + escapeHtml(a.summary || '') + '</td>' +
+        '<td>' + statusBadge + '</td>' +
+        '<td>' + escapeHtml(a.reviewedBy ? formatNotifTime(a.reviewedAt) : '—') + '</td>' +
+        '</tr>';
+    }).join('') || '<tr><td colspan="4">No requests yet.</td></tr>';
+  }
+  if (myEmpty) myEmpty.classList.toggle('hidden', !!mine.length);
+}
+
+function openReviewDialog(id) {
+  getEl('reviewApprovalId').value = id;
+  getEl('reviewComment').value = '';
+  openDialog('reviewModal');
+  const commentEl = getEl('reviewComment');
+  if (commentEl) commentEl.focus();
+}
+
+function closeReviewDialog() {
+  closeDialog('reviewModal');
+}
+
+function setReviewDecision(approve) {
+  const id = getEl('reviewApprovalId').value;
+  const comment = getEl('reviewComment').value;
+  saveReview(id, approve, comment);
+}
+
+function saveReview(id, approve, comment) {
+  showOverlay('Processing review…');
+  ApiService.reviewApproval(id, approve, comment).then(function (result) {
+    hideOverlay();
+    closeReviewDialog();
+    showToast('Approval ' + (approve ? 'approved' : 'rejected') + '.', 'success');
+    loadApprovals();
+  }).catch(function (err) {
+    hideOverlay();
+    if (handleServerFailure(err)) return;
+    showToast('Could not process review: ' + (err.message || err), 'error');
+  });
 }
 
 /* ---------------------------------- Edit modal ---------------------------------- */
@@ -2444,7 +2539,7 @@ function wireGlobalEvents() {
         cancelConfirmDialog();
         return;
       }
-      ['editModal', 'aboutModal', 'submissionsModal', 'recordDetailModal', 'editUserModal'].forEach(function (id) {
+      ['editModal', 'aboutModal', 'submissionsModal', 'recordDetailModal', 'editUserModal', 'reviewModal'].forEach(function (id) {
         const el = getEl(id);
         if (el && !el.classList.contains('hidden')) closeDialog(id);
       });
