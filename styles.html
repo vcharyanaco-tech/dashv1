@@ -548,6 +548,9 @@ body.sidebar-collapsed .nav-item.active { box-shadow: inset 0 0 0 2px var(--seco
 .btn-danger { background: var(--danger); color: #fff; }
 .btn-danger:hover { filter: brightness(.94); box-shadow: var(--shadow-sm); }
 
+.btn:disabled { opacity: .55; cursor: not-allowed; box-shadow: none; transform: none; }
+.btn:disabled:hover { filter: none; box-shadow: none; }
+
 .btn-link {
   border: none;
   background: transparent;
@@ -982,6 +985,10 @@ body.sidebar-collapsed .nav-item.active { box-shadow: inset 0 0 0 2px var(--seco
 .data-table tbody tr:last-child td { border-bottom: none; }
 
 .data-table .details-cell { max-width: 320px; }
+
+.data-table .audit-check-col { width: 40px; text-align: center; }
+.data-table th.audit-check-col { padding-left: 6px; padding-right: 6px; }
+.data-table .audit-row-check { vertical-align: middle; cursor: pointer; }
 
 .table-footer {
   display: flex;

@@ -53,9 +53,11 @@ function getAuditEntries(limit) {
   const sheet = getAuditSheet_();
   const lastRow = sheet.getLastRow();
   if (lastRow < 2) return [];
-  const rows = sheet.getRange(Math.max(2, lastRow - (limit || 100) + 1), 1, Math.min(limit || 100, lastRow - 1), 5).getValues();
-  return rows.reverse().map(function (row) {
+  const startRow = Math.max(2, lastRow - (limit || 100) + 1);
+  const rows = sheet.getRange(startRow, 1, Math.min(limit || 100, lastRow - 1), 5).getValues();
+  return rows.reverse().map(function (row, i) {
     return {
+      row: lastRow - i,
       timestamp: row[0] ? row[0].toString() : '',
       user: row[1] || '',
       action: row[2] || '',
@@ -63,4 +65,26 @@ function getAuditEntries(limit) {
       details: row[4] || ''
     };
   });
+}
+
+function adminDeleteAuditRows(rowNumbers, token) {
+  requireAdmin_(token);
+  const sheet = getAuditSheet_();
+  const rows = (rowNumbers || [])
+    .map(function (n) { return Number(n); })
+    .filter(function (n) { return isFinite(n) && n >= 2; })
+    .sort(function (a, b) { return b - a; });
+  if (!rows.length) throw new Error('No audit entries selected.');
+  rows.forEach(function (r) { sheet.deleteRow(r); });
+  try { logAudit_('AUDIT_DELETE', '', 'Deleted ' + rows.length + ' audit entries', getCurrentUser()); } catch (err) {}
+  return getAuditEntries(80);
+}
+
+function adminClearAudit(token) {
+  requireAdmin_(token);
+  const sheet = getAuditSheet_();
+  const lastRow = sheet.getLastRow();
+  if (lastRow >= 2) sheet.deleteRows(2, lastRow - 1);
+  try { logAudit_('AUDIT_CLEAR', '', 'Cleared the entire audit log', getCurrentUser()); } catch (err) {}
+  return getAuditEntries(80);
 }

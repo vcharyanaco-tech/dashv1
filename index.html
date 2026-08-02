@@ -200,12 +200,23 @@
                 <svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="6 9 6 2 18 2 18 9"></polyline><path d="M6 18H4a2 2 0 0 1-2-2v-5a2 2 0 0 1 2-2h16a2 2 0 0 1 2 2v5a2 2 0 0 1-2 2h-2"></path><rect x="6" y="14" width="12" height="8"></rect></svg>
                 Print
               </button>
+              <button class="btn btn-danger hidden" id="deleteAuditBtn" type="button" onclick="deleteAuditRows()" data-tip="Delete the selected audit entries" disabled>
+                <svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="3 6 5 6 21 6"></polyline><path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"></path><line x1="10" y1="11" x2="10" y2="17"></line><line x1="14" y1="11" x2="14" y2="17"></line></svg>
+                Delete selected
+              </button>
+              <button class="btn btn-danger hidden" id="clearAuditBtn" type="button" onclick="clearAuditLog()" data-tip="Delete the entire audit log">
+                <svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="3 6 5 6 21 6"></polyline><path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"></path><line x1="10" y1="11" x2="10" y2="17"></line><line x1="14" y1="11" x2="14" y2="17"></line></svg>
+                Clear log
+              </button>
             </div>
           </div>
           <div class="table-card">
             <div class="table-scroll" tabindex="0" aria-label="Audit log table">
               <table class="data-table" id="auditTable">
                 <thead><tr>
+                  <th class="audit-check-col">
+                    <input type="checkbox" id="auditSelectAll" onclick="toggleAuditSelectAll()" aria-label="Select all audit entries">
+                  </th>
                   <th data-sort="timestamp" aria-sort="descending">Time</th>
                   <th data-sort="user">User</th>
                   <th data-sort="action">Action</th>
@@ -262,32 +273,6 @@
           <div id="mustChangeBanner" class="banner banner-warning hidden">You must set a new password before continuing.</div>
 
           <div class="settings-grid">
-            <div class="settings-card">
-              <div class="settings-card-head">
-                <h3 class="text-subheading">Application</h3>
-                <p class="section-copy">Configure the dashboard name and data source.</p>
-              </div>
-              <form id="settingsForm" class="form" novalidate onsubmit="saveSettings(event)">
-                <div class="field">
-                  <label for="settingAppName">Application title</label>
-                  <input id="settingAppName" type="text" class="input">
-                  <span class="field-error" data-for="settingAppName"></span>
-                </div>
-                <div class="field">
-                  <label for="settingSheetName">Default sheet name</label>
-                  <input id="settingSheetName" type="text" class="input">
-                </div>
-                <div class="field">
-                  <label for="settingStartRow">Start row for data</label>
-                  <input id="settingStartRow" type="number" class="input" min="1">
-                </div>
-                <div class="form-row">
-                  <button class="btn btn-primary" type="submit">Save settings</button>
-                  <span id="settingsStatus" class="form-status" aria-live="polite"></span>
-                </div>
-              </form>
-            </div>
-
             <div class="settings-card">
               <div class="settings-card-head">
                 <h3 class="text-subheading">Change password</h3>
