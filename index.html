@@ -66,6 +66,10 @@
           <svg viewBox="0 0 24 24" width="20" height="20" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z"></path><polyline points="9 12 11 14 15 10"></polyline></svg>
           <span>Approvals</span>
         </button>
+        <button class="nav-item" data-tab="tasks" onclick="openTab('tasks')">
+          <svg viewBox="0 0 24 24" width="20" height="20" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M9 11l3 3L22 4"></path><path d="M21 12v7a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h11"></path></svg>
+          <span>Tasks</span>
+        </button>
         <button class="nav-item" data-tab="settings" onclick="openTab('settings')">
           <svg viewBox="0 0 24 24" width="20" height="20" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="3"></circle><path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 0 1 0 2.83 2 2 0 0 1-2.83 0l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-2 2 2 2 0 0 1-2-2v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 0 1-2.83 0 2 2 0 0 1 0-2.83l.06-.06a1.65 1.65 0 0 0 .33-1.82 1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1-2-2 2 2 0 0 1 2-2h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 0 1 0-2.83 2 2 0 0 1 2.83 0l.06.06a1.65 1.65 0 0 0 1.82.33H9a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 2-2 2 2 0 0 1 2 2v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 0 1 2.83 0 2 2 0 0 1 0 2.83l-.06.06a1.65 1.65 0 0 0-.33 1.82V9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 2 2 2 2 0 0 1-2 2h-.09a1.65 1.65 0 0 0-1.51 1z"></path></svg>
           <span>Settings</span>
@@ -457,8 +461,52 @@
              </div></div>
              <div id="approvalsMyEmpty" class="banner banner-info">No requests yet.</div>
            </div>
-         </section>
-       </main>
+          </section>
+
+          <!-- ============================ TASKS ============================ -->
+          <section id="tasks" class="tab-panel hidden" aria-labelledby="tasksTitle">
+            <div class="section-header">
+              <div>
+                <h2 class="text-heading" id="tasksTitle">Tasks</h2>
+                <p class="section-copy">Create, assign, and track tasks linked to records.</p>
+              </div>
+              <div class="section-actions">
+                <button id="addTaskBtn" class="btn btn-primary" type="button" onclick="openTaskModal()">
+                  <svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><line x1="12" y1="5" x2="12" y2="19"></line><line x1="5" y1="12" x2="19" y2="12"></line></svg>
+                  New task
+                </button>
+              </div>
+            </div>
+            <div class="filters-row">
+              <div class="filter-chips" id="taskFilterChips"></div>
+              <div class="filters-controls">
+                <select id="taskStatusFilter" class="select" aria-label="Filter by status" onchange="renderTasks()">
+                  <option value="">All statuses</option>
+                  <option value="OPEN">Open</option>
+                  <option value="IN_PROGRESS">In progress</option>
+                  <option value="DONE">Done</option>
+                  <option value="CANCELLED">Cancelled</option>
+                </select>
+                <select id="taskPriorityFilter" class="select" aria-label="Filter by priority" onchange="renderTasks()">
+                  <option value="">All priorities</option>
+                  <option value="URGENT">Urgent</option>
+                  <option value="HIGH">High</option>
+                  <option value="MEDIUM">Medium</option>
+                  <option value="LOW">Low</option>
+                </select>
+              </div>
+            </div>
+            <div class="table-card">
+              <div class="table-scroll" tabindex="0" aria-label="Tasks list">
+                <table class="data-table" id="tasksTable">
+                  <thead><tr><th>Title</th><th>Assignee</th><th>Status</th><th>Priority</th><th>Due</th><th>Actions</th></tr></thead>
+                  <tbody id="tasksBody"></tbody>
+                </table>
+              </div>
+            </div>
+            <div id="tasksEmpty" class="banner banner-info hidden">No tasks found.</div>
+          </section>
+        </main>
 
       <footer class="app-footer">
         <div class="footer-brand-line">
@@ -741,6 +789,55 @@
           <button id="reviewApproveBtn" class="btn btn-primary" type="button" onclick="setReviewDecision(true)">Approve</button>
           <button id="reviewRejectBtn" class="btn btn-danger" type="button" onclick="setReviewDecision(false)">Reject</button>
           <button class="btn btn-secondary" type="button" onclick="closeReviewDialog()">Cancel</button>
+        </div>
+      </form>
+    </div>
+  </div>
+
+  <!-- ============================ TASK MODAL ============================ -->
+  <div id="taskModal" class="modal-backdrop hidden" role="dialog" aria-modal="true" aria-labelledby="taskModalTitle">
+    <div class="modal-card">
+      <div class="modal-header">
+        <h3 class="text-subheading" id="taskModalTitle">New task</h3>
+        <button class="icon-btn" type="button" onclick="closeTaskModal()" aria-label="Close dialog">
+          <svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><line x1="18" y1="6" x2="6" y2="18"></line><line x1="6" y1="6" x2="18" y2="18"></line></svg>
+        </button>
+      </div>
+      <form class="form" novalidate onsubmit="saveTask(); return false;">
+        <div class="field">
+          <label for="taskTitle">Title</label>
+          <input id="taskTitle" type="text" class="input" required autocomplete="off">
+        </div>
+        <div class="field">
+          <label for="taskDescription">Description</label>
+          <textarea id="taskDescription" class="input" rows="3" autocomplete="off"></textarea>
+        </div>
+        <div class="form-row">
+          <div class="field">
+            <label for="taskAssignee">Assignee</label>
+            <input id="taskAssignee" type="email" class="input" autocomplete="off">
+          </div>
+          <div class="field">
+            <label for="taskPriority">Priority</label>
+            <select id="taskPriority" class="select">
+              <option value="MEDIUM">Medium</option>
+              <option value="LOW">Low</option>
+              <option value="HIGH">High</option>
+              <option value="URGENT">Urgent</option>
+            </select>
+          </div>
+        </div>
+        <div class="field">
+          <label for="taskDueDate">Due date</label>
+          <input id="taskDueDate" type="date" class="input">
+        </div>
+        <div class="field">
+          <label for="taskRecordRow">Record row (optional)</label>
+          <input id="taskRecordRow" type="number" class="input" placeholder="Link to a record" autocomplete="off">
+        </div>
+        <div class="form-row">
+          <button class="btn btn-primary" type="submit">Create task</button>
+          <button class="btn btn-secondary" type="button" onclick="closeTaskModal()">Cancel</button>
         </div>
       </form>
     </div>

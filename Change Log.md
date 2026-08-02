@@ -69,6 +69,22 @@
   and admin password resets notify the affected user.
 - Verified with `node --check` and a DOM/onclick audit; deployed @83.
 
+### Phase 4 — Enterprise Features, Tranche C: Workflow Engine (deployment @84)
+- **Approval workflow engine:** new `Workflow.js` server module backed by a hidden
+  `Approvals` sheet. Defines `WORKFLOW_TYPES` (currently `RECORD_REVIEW`) and
+  `APPROVAL_STATUS` (PENDING / APPROVED / REJECTED).
+- **Submit for review:** editors can now request formal review from the record
+  detail dialog. This creates a pending approval request that routes to all
+  APPROVER-group members and admins.
+- **Review actions:** approvers/admins see pending requests in the new Approvals
+  tab and can approve or reject with an optional comment. Approving a
+  `RECORD_REVIEW` automatically marks the record's review-date cell as done
+  and writes an audit entry; rejecting notifies the submitter.
+- **Hooks:** record add/update/delete and review-done notify staff (ADMIN/EDITOR
+  + APPROVER group); new submissions notify approvers; account creation and
+  password changes notify the affected user.
+- Verified with `node --check` and a DOM/onclick audit; deployed @84.
+
 ### Phase 4 — Enterprise Features, Tranche A: User & Role Management (deployment @82)
 - **Granular RBAC permission matrix:** new `MODULES` / `MODULE_ACTIONS` /
   `PERMISSIONS` in `Settings.js` with View/Create/Edit/Delete/Export/Approve per

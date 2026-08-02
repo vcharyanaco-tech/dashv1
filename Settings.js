@@ -47,6 +47,9 @@ const CONFIG = Object.freeze({
   WORKFLOW: {
     APPROVALS_SHEET_NAME: 'Approvals'
   },
+  TASKS: {
+    SHEET_NAME: 'Tasks'
+  },
   LOCK: {
     WAIT_TIME: 30000
   },
