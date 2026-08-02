@@ -243,6 +243,19 @@ Major refresh and stabilization of the India Post Dashboard for Circle Office, H
 - Removed the obsolete "Application settings" card; settings tab now covers
   password change and user management only.
 
+### Security patch — Password reset hardening
+- **Reset tokens hashed:** `requestPasswordReset` now stores a SHA-256 hash of
+  the token in the `Users` sheet instead of plaintext. `resetPasswordWithToken`
+  hashes the submitted token before comparison.
+- **Base URL reliability:** reset links are built server-side using
+  `ScriptApp.getService().getUrl()` instead of the client-provided
+  `window.location.href`, eliminating broken links from test/old/preview
+  deployments.
+- **Mail diagnostics:** `MailApp.sendEmail` failures are now logged to the audit
+  trail with the full error message.
+- **Token cleanup on password change:** `changePassword` and `adminResetPassword`
+  now clear any pending `resetToken` / `resetExpires`.
+
 ---
 
 ## 3.1 — Legacy refresh (previous release)
