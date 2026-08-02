@@ -69,17 +69,20 @@ function exportToSpreadsheet(token) {
   requireLogin_(token);
   const report = getPrintableReport();
   const ss = SpreadsheetApp.create('India Post Dashboard Report ' + Utilities.formatDate(new Date(), Session.getScriptTimeZone(), 'yyyy-MM-dd HH:mm'));
-  const sheet = ss.getSheets()[0];
-  sheet.setName('Report');
-  sheet.appendRow(['ID', 'Sector', 'Description', 'Entry Date', 'Action', 'Responsibility', 'Review Date', 'Flagged']);
-  report.items.forEach(row => {
-    sheet.appendRow([row.id, row.sector, row.description, row.entryDate, row.action, row.responsibility, row.reviewDate, row.flagged ? 'YES' : 'NO']);
-  });
-  const blob = ss.getAs('application/vnd.openxmlformats-officedocument.spreadsheetml.sheet');
-  const filename = 'IndiaPostDashboard_Report_' + Utilities.formatDate(new Date(), Session.getScriptTimeZone(), 'yyyyMMdd_HHmm') + '.xlsx';
-  blob.setName(filename);
-  const file = DriveApp.createFile(blob);
-  return { url: file.getUrl(), id: file.getId(), downloadUrl: file.getDownloadUrl(), filename: filename };
+  try {
+    const sheet = ss.getSheets()[0];
+    sheet.setName('Report');
+    sheet.appendRow(['ID', 'Sector', 'Description', 'Entry Date', 'Action', 'Responsibility', 'Review Date', 'Flagged']);
+    report.items.forEach(row => {
+      sheet.appendRow([row.id, row.sector, row.description, row.entryDate, row.action, row.responsibility, row.reviewDate, row.flagged ? 'YES' : 'NO']);
+    });
+    const blob = ss.getAs('application/vnd.openxmlformats-officedocument.spreadsheetml.sheet');
+    const filename = 'IndiaPostDashboard_Report_' + Utilities.formatDate(new Date(), Session.getScriptTimeZone(), 'yyyyMMdd_HHmm') + '.xlsx';
+    blob.setName(filename);
+    return { filename: filename, base64: Utilities.base64Encode(blob.getBytes()) };
+  } finally {
+    try { DriveApp.getFileById(ss.getId()).setTrashed(true); } catch (err) {}
+  }
 }
 
 function createPdfReport(token) {
@@ -89,6 +92,5 @@ function createPdfReport(token) {
   const html = template.evaluate().getContent();
   const blob = Utilities.newBlob(html, 'text/html', 'report.html');
   const pdf = blob.getAs('application/pdf').setName('IndiaPostDashboard_Report_' + Utilities.formatDate(new Date(), Session.getScriptTimeZone(), 'yyyyMMdd_HHmm') + '.pdf');
-  const file = DriveApp.createFile(pdf);
-  return { url: file.getUrl(), id: file.getId(), downloadUrl: file.getDownloadUrl(), filename: pdf.getName() };
+  return { filename: pdf.getName(), base64: Utilities.base64Encode(pdf.getBytes()) };
 }

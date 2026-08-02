@@ -231,6 +231,31 @@
       </div>
     </div>
 
+    <div id="editModal" class="modal-backdrop hidden">
+      <div class="modal-card">
+        <div class="modal-header">
+          <h3>Edit record</h3>
+          <button class="btn btn-secondary btn-small" onclick="closeEditModal()" type="button">Close</button>
+        </div>
+        <form id="editForm" class="settings-form" onsubmit="saveEditModal(event)">
+          <input id="editRow" type="hidden">
+          <label>ID<input id="editId" type="text" readonly></label>
+          <label>Sector<input id="editSector" type="text"></label>
+          <label>Description<textarea id="editDescription" rows="3"></textarea></label>
+          <label>Entry date<input id="editEntryDate" type="text" placeholder="dd.mm.yyyy"></label>
+          <label>Action to be taken<textarea id="editAction" rows="3"></textarea></label>
+          <label>Responsibility<input id="editResponsibility" type="text"></label>
+          <label>Review date<input id="editReviewDate" type="text" placeholder="dd.mm.yyyy"></label>
+          <label class="checkbox-row"><input id="editFlagged" type="checkbox"> Flagged / review due</label>
+          <div class="settings-row">
+            <button class="btn btn-primary" type="submit">Save changes</button>
+            <button class="btn btn-secondary" type="button" onclick="closeEditModal()">Cancel</button>
+            <span id="editStatus" class="settings-status"></span>
+          </div>
+        </form>
+      </div>
+    </div>
+
     <div id="overlay" class="overlay hidden"><div class="spinner"></div><div class="overlay-text">Working...</div></div>
     <div id="toast" class="toast"></div>
   </div>

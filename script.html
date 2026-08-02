@@ -11,7 +11,8 @@ const appState = {
   isEditor: false,
   isViewer: false,
   darkMode: false,
-  mustChange: false
+  mustChange: false,
+  editMode: 'edit'
 };
 
 function getAuthToken() {
@@ -305,7 +306,7 @@ function renderDashboard() {
         <div class="card-footer">
           <div class="actions">
             ${appState.isEditor ? `<button class="btn btn-secondary" onclick="editItem('${item.row}')">Edit</button>` : ''}
-            ${appState.isAdmin ? `<button class="btn btn-danger" onclick="deleteItem('${item.row}')">Delete</button>` : ''}
+            ${appState.isEditor ? `<button class="btn btn-danger" onclick="deleteItem('${item.row}')">Delete</button>` : ''}
           </div>
         </div>
       </article>
@@ -487,10 +488,67 @@ function refreshData() {
 
 function addNewItem() {
   if (!appState.isEditor) { displayToast('Admin/editor access required'); return; }
-  const payload = { sector: '', description: '', entryDate: '', action: '', responsibility: '', reviewDate: '' };
+  appState.editMode = 'add';
+  document.getElementById('editRow').value = '';
+  document.getElementById('editId').value = '';
+  document.getElementById('editSector').value = '';
+  document.getElementById('editDescription').value = '';
+  document.getElementById('editEntryDate').value = '';
+  document.getElementById('editAction').value = '';
+  document.getElementById('editResponsibility').value = '';
+  document.getElementById('editReviewDate').value = '';
+  document.getElementById('editFlagged').checked = false;
+  document.getElementById('editStatus').textContent = '';
+  document.getElementById('editModal').classList.remove('hidden');
+}
+
+function editItem(row) {
+  const item = appState.items.find(i => String(i.row) === String(row));
+  if (!item) return;
+  appState.editMode = 'edit';
+  document.getElementById('editRow').value = item.row;
+  document.getElementById('editId').value = item.id || '';
+  document.getElementById('editSector').value = item.sector || '';
+  document.getElementById('editDescription').value = item.description || '';
+  document.getElementById('editEntryDate').value = item.entryDate || '';
+  document.getElementById('editAction').value = item.action || '';
+  document.getElementById('editResponsibility').value = item.responsibility || '';
+  document.getElementById('editReviewDate').value = item.reviewDate || '';
+  document.getElementById('editFlagged').checked = !!item.flagged;
+  document.getElementById('editStatus').textContent = '';
+  document.getElementById('editModal').classList.remove('hidden');
+}
+
+function closeEditModal() {
+  document.getElementById('editModal').classList.add('hidden');
+}
+
+function saveEditModal(e) {
+  e.preventDefault();
+  if (!appState.isEditor) { displayToast('Admin/editor access required'); return; }
+  const item = {
+    row: Number(document.getElementById('editRow').value || 0),
+    id: document.getElementById('editId').value,
+    sector: document.getElementById('editSector').value.trim(),
+    description: document.getElementById('editDescription').value,
+    entryDate: document.getElementById('editEntryDate').value.trim(),
+    action: document.getElementById('editAction').value,
+    responsibility: document.getElementById('editResponsibility').value.trim(),
+    reviewDate: document.getElementById('editReviewDate').value.trim(),
+    flagged: document.getElementById('editFlagged').checked
+  };
+  if (appState.editMode === 'add') {
+    submitNewItem(item);
+  } else if (item.row) {
+    saveItem(item);
+  }
+}
+
+function submitNewItem(item) {
   showOverlay('Adding record...');
   google.script.run.withSuccessHandler(data => {
     hideOverlay();
+    closeEditModal();
     appState.items = data.items || [];
     appState.summary = data.summary || {};
     populateFilters();
@@ -500,16 +558,7 @@ function addNewItem() {
     hideOverlay();
     if (handleServerFailure(err)) return;
     displayToast('Add failed: ' + (err.message || err));
-  }).addItem(payload, getAuthToken());
-}
-
-function editItem(row) {
-  const item = appState.items.find(i => String(i.row) === String(row));
-  if (!item) return;
-  const newDescription = prompt('Update description', item.description || '');
-  if (newDescription === null) return;
-  item.description = newDescription;
-  saveItem(item);
+  }).addItem(item, getAuthToken());
 }
 
 function saveItem(item) {
@@ -517,6 +566,7 @@ function saveItem(item) {
   showOverlay('Saving record...');
   google.script.run.withSuccessHandler(data => {
     hideOverlay();
+    closeEditModal();
     appState.items = data.items || [];
     appState.summary = data.summary || {};
     renderDashboard();
@@ -529,7 +579,7 @@ function saveItem(item) {
 }
 
 function deleteItem(row) {
-  if (!appState.isAdmin) { displayToast('Admin access required'); return; }
+  if (!appState.isEditor) { displayToast('Admin/editor access required'); return; }
   if (!confirm('Delete this record permanently?')) return;
   showOverlay('Deleting record...');
   google.script.run.withSuccessHandler(data => {
@@ -545,17 +595,27 @@ function deleteItem(row) {
   }).deleteItem(row, getAuthToken());
 }
 
+function downloadFromBase64(base64, filename, mimeType) {
+  const binary = atob(base64);
+  const bytes = new Uint8Array(binary.length);
+  for (let i = 0; i < binary.length; i++) bytes[i] = binary.charCodeAt(i);
+  const blob = new Blob([bytes], { type: mimeType || 'application/octet-stream' });
+  const url = URL.createObjectURL(blob);
+  const link = document.createElement('a');
+  link.href = url;
+  link.download = filename || 'IndiaPostDashboard_Report';
+  document.body.appendChild(link);
+  link.click();
+  document.body.removeChild(link);
+  setTimeout(() => URL.revokeObjectURL(url), 4000);
+}
+
 function exportSpreadsheet() {
   showOverlay('Exporting Excel file...');
   google.script.run.withSuccessHandler(result => {
     hideOverlay();
-    if (result && result.downloadUrl) {
-      const link = document.createElement('a');
-      link.href = result.downloadUrl;
-      link.download = result.filename || 'IndiaPostDashboard_Report.xlsx';
-      document.body.appendChild(link);
-      link.click();
-      document.body.removeChild(link);
+    if (result && result.base64) {
+      downloadFromBase64(result.base64, result.filename || 'IndiaPostDashboard_Report.xlsx', 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet');
       displayToast('Excel file downloaded');
     } else {
       displayToast('Excel export failed');
@@ -571,13 +631,8 @@ function downloadPdf() {
   showOverlay('Generating PDF...');
   google.script.run.withSuccessHandler(result => {
     hideOverlay();
-    if (result && result.downloadUrl) {
-      const link = document.createElement('a');
-      link.href = result.downloadUrl;
-      link.download = result.filename || 'IndiaPostDashboard_Report.pdf';
-      document.body.appendChild(link);
-      link.click();
-      document.body.removeChild(link);
+    if (result && result.base64) {
+      downloadFromBase64(result.base64, result.filename || 'IndiaPostDashboard_Report.pdf', 'application/pdf');
       displayToast('PDF downloaded');
     } else {
       displayToast('PDF export failed');

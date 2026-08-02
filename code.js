@@ -418,7 +418,7 @@ function addItem(item, token) {
 function deleteItem(row, token) {
   return withLock_(function(){
     try {
-      requireAdmin_(token);
+      requireEditor_(token);
       const sheet = getSheet_();
       sheet.deleteRow(row);
       dataRenumber_();
