@@ -256,6 +256,28 @@
       </div>
     </div>
 
+    <div id="submissionsModal" class="modal-backdrop hidden">
+      <div class="modal-card">
+        <div class="modal-header">
+          <h3>Submissions</h3>
+          <button class="btn btn-secondary btn-small" onclick="closeSubmissionsModal()" type="button">Close</button>
+        </div>
+        <div class="submissions-compose">
+          <textarea id="submissionText" rows="3" placeholder="Write your update for this record..."></textarea>
+          <div class="settings-row">
+            <button id="submitSubmissionBtn" class="btn btn-primary" onclick="submitSubmission()" type="button">Submit update</button>
+            <button id="cancelSubmissionBtn" class="btn btn-secondary hidden" onclick="cancelSubmissionEdit()" type="button">Cancel edit</button>
+            <span id="submissionStatus" class="settings-status"></span>
+          </div>
+        </div>
+        <div class="submissions-toolbar">
+          <label class="checkbox-row"><input id="submissionsOnlyMine" type="checkbox" onchange="renderSubmissionList()"> Show only my submissions</label>
+          <span id="submissionsCount" class="settings-status"></span>
+        </div>
+        <div id="submissionsList" class="submissions-list"></div>
+      </div>
+    </div>
+
     <div id="overlay" class="overlay hidden"><div class="spinner"></div><div class="overlay-text">Working...</div></div>
     <div id="toast" class="toast"></div>
   </div>

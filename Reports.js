@@ -79,7 +79,28 @@ function exportToSpreadsheet(token) {
 
     const xlsxMime = 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet';
     let blob = null;
-    try { blob = DriveApp.getFileById(ss.getId()).getAs(xlsxMime); } catch (err) { blob = null; }
+
+    // Preferred: Google Drive REST export endpoint. This is the only path that
+    // reliably produces a real .xlsx from a Google Sheets file.
+    try {
+      const exportUrl = 'https://www.googleapis.com/drive/v3/files/' + encodeURIComponent(ss.getId()) + '/export?mimeType=' + encodeURIComponent(xlsxMime);
+      const response = UrlFetchApp.fetch(exportUrl, {
+        headers: { Authorization: 'Bearer ' + ScriptApp.getOAuthToken() },
+        muteHttpExceptions: true
+      });
+      if (response.getResponseCode() === 200) {
+        blob = Utilities.newBlob(response.getContent(), xlsxMime, 'report.xlsx');
+      } else {
+        console.log('Drive export failed: ' + response.getResponseCode() + ' ' + response.getContentText());
+      }
+    } catch (err) {
+      console.log('Drive export error: ' + (err && err.message ? err.message : err));
+      blob = null;
+    }
+
+    if (!blob) {
+      try { blob = DriveApp.getFileById(ss.getId()).getAs(xlsxMime); } catch (err) { blob = null; }
+    }
     if (!blob) {
       try { blob = ss.getAs(xlsxMime); } catch (err) { blob = null; }
     }

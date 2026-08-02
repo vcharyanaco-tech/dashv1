@@ -34,6 +34,10 @@ const CONFIG = Object.freeze({
     MAX_LOGIN_ATTEMPTS: 5,
     LOCK_MINUTES: 15
   },
+  SUBMISSIONS: {
+    SHEET_NAME: 'Submissions',
+    MAX_TEXT_LENGTH: 5000
+  },
   LOCK: {
     WAIT_TIME: 30000
   },
