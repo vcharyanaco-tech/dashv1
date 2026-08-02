@@ -1,286 +1,564 @@
 <!DOCTYPE html>
-<html>
+<html lang="en">
 
 <head>
   <base target="_top">
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <title>India Post Dashboard</title>
-  <link rel="icon" href="data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAk0AAAFTCAMAAAATEMgcAAABRFBMVEWvKCTt7e3+/v7////95wD9/f3w8PD6+vrz8/OvKCKsKCP29vagJiOpIx60V1K1W1bbmpfz2djhpKGeHRn47ezXiYT96uinJyXPgHzzy8nus7CPJiP25OTNiIb74uH/5RHPkI2gLCn///nw0M////OoKBe7YV/u7uj/3xq+bmypOzj/9vXXnpzOnpz//+novbv//9GpMxGzTkz3ySG/YBX//9v/2CKvRBD08MHw7962UhLTiBvPqafz8MzzvCXakx3fr6726nT27p/177L25Cr350PlpiDIcxf052L151L//8f16n/375H+/LCbOje+eniaAACUQT/snZnMZmSiVlStdXONGhS8iIX9+ov//qX72Eb53JL348q3dUTgvEqzTkHxvmHMiHLVlljZrlnhd0rhlD3xq0H0zrHv3rL+vz" />
+  <meta name="description" content="Operations and compliance tracker for Circle Office Haryana.">
+  <link rel="icon" href="data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAk0AAAFTCAMAAAATEMgcAAABRFBMVEWvKCTt7e3+/v7////95wD9/f3w8PD6+vrz8/OvKCKsKCP29vagJiOpIx60V1K1W1bbmpfz2djhpKGeHRn47ezXiYT96uinJyXPgHzzy8nus7CPJiP25OTNiIb74uH/5RHPkI2gLCn///nw0M////OoKBe7YV/u7uj/3xq+bmypOzj/9vXXnpzOnpz//+novbv//9GpMxGzTkz3ySG/YBX//9v/2CKvRBD08MHw7962UhLTiBvPqafz8MzzvCXakx3fr6726nT27p/177L25Cr350PlpiDIcxf052L151L//8f16n/375H+/LCbOje+eniaAACUQT/snZnMZmSiVlStdXONGhS8iIX9+ov//qX72Eb53JL348q3dUTgvEqzTkHxvmMHiHLVlljZrlnhd0rhlD3xq0H0zrHv3rL+vz" />
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&display=swap" rel="stylesheet">
   <?!= include('styles'); ?>
 </head>
 
 <body>
-  <div class="app-shell">
-    <header class="app-header">
-      <div class="brand-block">
+
+  <!-- Splash / loading screen -->
+  <div id="splashScreen" class="splash" aria-live="polite" aria-label="Loading">
+    <div class="splash-inner">
+      <div class="splash-mark">✉</div>
+      <div class="splash-title">India Post Dashboard</div>
+      <div class="splash-caption">Circle Office Haryana</div>
+      <div class="splash-loader" aria-hidden="true"><span></span><span></span><span></span></div>
+    </div>
+  </div>
+
+  <div class="app-shell" id="appShell">
+    <!-- ============================ SIDEBAR ============================ -->
+    <aside class="sidebar" id="sidebar" aria-label="Sidebar">
+      <div class="sidebar-brand">
         <div class="brand-mark" aria-label="India Post logo">
-          <img src="data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAk0AAAFTCAMAAAATEMgcAAABRFBMVEWvKCTt7e3+/v7////95wD9/f3w8PD6+vrz8/OvKCKsKCP29vagJiOpIx60V1K1W1bbmpfz2djhpKGeHRn47ezXiYT96uinJyXPgHzzy8nus7CPJiP25OTNiIb74uH/5RHPkI2gLCn///nw0M////OoKBe7YV/u7uj/3xq+bmypOzj/9vXXnpzOnpz//+novbv//9GpMxGzTkz3ySG/YBX//9v/2CKvRBD08MHw7962UhLTiBvPqafz8MzzvCXakx3fr6726nT27p/177L25Cr350PlpiDIcxf052L151L//8f16n/375H+/LCbOje+eniaAACUQT/snZnMZmSiVlStdXONGhS8iIX9+ov//qX72Eb53JL348q3dUTgvEqzTkHxvmHMiHLVlljZrhlD3xq0H0zrHv3rL+vz" alt="India Post logo" style="width:100%;height:100%;object-fit:contain;border-radius:12px;" onerror="this.style.display='none'; this.nextElementSibling.style.display='inline-flex';">
+          <img src="data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAk0AAAFTCAMAAAATEMgcAAABRFBMVEWvKCTt7e3+/v7////95wD9/f3w8PD6+vrz8/OvKCKsKCP29vagJiOpIx60V1K1W1bbmpfz2djhpKGeHRn47ezXiYT96uinJyXPgHzzy8nus7CPJiP25OTNiIb74uH/5RHPkI2gLCn///nw0M////OoKBe7YV/u7uj/3xq+bmypOzj/9vXXnpzOnpz//+novbv//9GpMxGzTkz3ySG/YBX//9v/2CKvRBD08MHw7962UhLTiBvPqafz8MzzvCXakx3fr6726nT27p/177L25Cr350PlpiDIcxf052L151L//8f16n/375H+/LCbOje+eniaAACUQT/snZnMZmSiVlStdXONGhS8iIX9+ov//qX72Eb53JL348q3dUTgvEqzTkHxvmMHiHLVlljZrlnhd0rhlD3xq0H0zrHv3rL+vz" alt="India Post logo" onerror="this.style.display='none'; this.nextElementSibling.style.display='inline-flex';">
+          <span class="brand-mark-fallback">✉</span>
+        </div>
+        <div class="brand-text">
+          <div class="brand-name">India Post</div>
+          <div class="brand-subtitle">Dashboard</div>
+        </div>
+        <button id="sidebarCollapse" class="icon-btn sidebar-collapse" type="button" onclick="toggleSidebar()" aria-label="Collapse sidebar" title="Collapse sidebar">
+          <svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="15 18 9 12 15 6"></polyline></svg>
+        </button>
+      </div>
+
+      <div class="sidebar-section-label">Menu</div>
+      <nav class="sidebar-nav" aria-label="Main navigation">
+        <button class="nav-item active" data-tab="dashboard" onclick="openTab('dashboard')" aria-current="page">
+          <svg viewBox="0 0 24 24" width="20" height="20" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="3" width="7" height="9"></rect><rect x="14" y="3" width="7" height="5"></rect><rect x="14" y="12" width="7" height="9"></rect><rect x="3" y="16" width="7" height="5"></rect></svg>
+          <span>Dashboard</span>
+        </button>
+        <button class="nav-item" data-tab="analytics" onclick="openTab('analytics')">
+          <svg viewBox="0 0 24 24" width="20" height="20" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><line x1="18" y1="20" x2="18" y2="10"></line><line x1="12" y1="20" x2="12" y2="4"></line><line x1="6" y1="20" x2="6" y2="14"></line></svg>
+          <span>Analytics</span>
+        </button>
+        <button class="nav-item" data-tab="audit" onclick="openTab('audit')">
+          <svg viewBox="0 0 24 24" width="20" height="20" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M13 2L3 14h9l-1 8 10-12h-9l1-8z"></path></svg>
+          <span>Audit Log</span>
+        </button>
+        <button class="nav-item" data-tab="reports" onclick="openTab('reports')">
+          <svg viewBox="0 0 24 24" width="20" height="20" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"></path><polyline points="14 2 14 8 20 8"></polyline></svg>
+          <span>Reports</span>
+        </button>
+        <button class="nav-item" data-tab="settings" onclick="openTab('settings')">
+          <svg viewBox="0 0 24 24" width="20" height="20" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="3"></circle><path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 0 1 0 2.83 2 2 0 0 1-2.83 0l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-2 2 2 2 0 0 1-2-2v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 0 1-2.83 0 2 2 0 0 1 0-2.83l.06-.06a1.65 1.65 0 0 0 .33-1.82 1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1-2-2 2 2 0 0 1 2-2h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 0 1 0-2.83 2 2 0 0 1 2.83 0l.06.06a1.65 1.65 0 0 0 1.82.33H9a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 2-2 2 2 0 0 1 2 2v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 0 1 2.83 0 2 2 0 0 1 0 2.83l-.06.06a1.65 1.65 0 0 0-.33 1.82V9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 2 2 2 2 0 0 1-2 2h-.09a1.65 1.65 0 0 0-1.51 1z"></path></svg>
+          <span>Settings</span>
+        </button>
+      </nav>
+
+      <div class="sidebar-footer">
+        <div class="version-chip" id="versionChip" title="App version">v3.2.0</div>
+      </div>
+    </aside>
+
+    <div id="sidebarBackdrop" class="sidebar-backdrop" onclick="toggleSidebar()" aria-hidden="true"></div>
+
+    <!-- ============================ MAIN ============================ -->
+    <div class="app-main">
+      <header class="topbar">
+        <div class="topbar-left">
+          <button id="sidebarToggle" class="icon-btn" type="button" onclick="toggleSidebar()" aria-label="Toggle sidebar" title="Toggle sidebar">
+            <svg viewBox="0 0 24 24" width="20" height="20" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><line x1="3" y1="12" x2="21" y2="12"></line><line x1="3" y1="6" x2="21" y2="6"></line><line x1="3" y1="18" x2="21" y2="18"></line></svg>
+          </button>
+          <div class="topbar-search">
+            <svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="11" cy="11" r="8"></circle><line x1="21" y1="21" x2="16.65" y2="16.65"></line></svg>
+            <input id="searchInput" type="search" placeholder="Search records..." aria-label="Global search" autocomplete="off">
+            <kbd class="search-kbd" aria-hidden="true">Ctrl K</kbd>
+          </div>
+        </div>
+
+        <div class="topbar-actions">
+          <button id="themeToggle" class="icon-btn" type="button" onclick="toggleDarkMode()" aria-label="Toggle dark mode" title="Toggle dark mode">
+            <svg id="iconMoon" viewBox="0 0 24 24" width="20" height="20" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 12.79A9 9 0 1 1 11.21 3 7 7 0 0 0 21 12.79z"></path></svg>
+            <svg id="iconSun" viewBox="0 0 24 24" width="20" height="20" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" class="hidden"><circle cx="12" cy="12" r="5"></circle><line x1="12" y1="1" x2="12" y2="3"></line><line x1="12" y1="21" x2="12" y2="23"></line><line x1="4.22" y1="4.22" x2="5.64" y2="5.64"></line><line x1="18.36" y1="18.36" x2="19.78" y2="19.78"></line><line x1="1" y1="12" x2="3" y2="12"></line><line x1="21" y1="12" x2="23" y2="12"></line><line x1="4.22" y1="19.78" x2="5.64" y2="18.36"></line><line x1="18.36" y1="5.64" x2="19.78" y2="4.22"></line></svg>
+          </button>
+
+          <div class="profile-menu" id="profileMenu">
+            <button id="profileTrigger" class="profile-trigger" type="button" onclick="toggleProfileMenu()" aria-haspopup="menu" aria-expanded="false" aria-label="Account menu">
+              <span class="avatar" id="profileAvatar" aria-hidden="true">?</span>
+              <span class="profile-info">
+                <span class="profile-name" id="profileName">Signing in…</span>
+                <span class="profile-role" id="profileRole">—</span>
+              </span>
+              <svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><polyline points="6 9 12 15 18 9"></polyline></svg>
+            </button>
+            <div class="profile-dropdown" id="profileDropdown" role="menu">
+              <div class="profile-dropdown-head">
+                <span class="profile-dropdown-email" id="profileEmail">Not signed in</span>
+                <span class="badge" id="profileRoleBadge" data-tone="muted">Guest</span>
+              </div>
+              <button class="profile-item" type="button" role="menuitem" onclick="openAbout()">
+                <svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="10"></circle><line x1="12" y1="16" x2="12" y2="12"></line><line x1="12" y1="8" x2="12.01" y2="8"></line></svg>
+                About
+              </button>
+              <button class="profile-item" type="button" role="menuitem" onclick="logout()">
+                <svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M9 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h4"></path><polyline points="16 17 21 12 16 7"></polyline><line x1="21" y1="12" x2="9" y2="12"></line></svg>
+                Log out
+              </button>
+            </div>
+          </div>
+        </div>
+      </header>
+
+      <main class="main-content" id="mainContent">
+        <div id="offlineBanner" class="banner banner-warning hidden" role="alert">
+          <svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M10.29 3.86L1.82 18a2 2 0 0 0 1.71 3h16.94a2 2 0 0 0 1.71-3L13.71 3.86a2 2 0 0 0-3.42 0z"></path><line x1="12" y1="9" x2="12" y2="13"></line><line x1="12" y1="17" x2="12.01" y2="17"></line></svg>
+          You appear to be offline. Some actions may not work until your connection returns.
+        </div>
+        <div id="messagePanel" class="banner banner-danger hidden"></div>
+
+        <!-- ============================ DASHBOARD ============================ -->
+        <section id="dashboard" class="tab-panel active" aria-labelledby="dashboardTitle">
+          <div class="section-header">
+            <div>
+              <h2 class="text-heading" id="dashboardTitle">Live Dashboard</h2>
+              <p class="section-copy">View live items, search across sectors, and update records if you have access.</p>
+            </div>
+            <div class="section-actions">
+              <button id="addButton" class="btn btn-primary" type="button" onclick="addNewItem()">
+                <svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><line x1="12" y1="5" x2="12" y2="19"></line><line x1="5" y1="12" x2="19" y2="12"></line></svg>
+                Add item
+              </button>
+              <button class="btn btn-secondary" type="button" onclick="refreshData()" data-tip="Reload data from the spreadsheet">
+                <svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="23 4 23 10 17 10"></polyline><polyline points="1 20 1 14 7 14"></polyline><path d="M3.51 9a9 9 0 0 1 14.85-3.36L23 10M1 14l4.64 4.36A9 9 0 0 0 20.49 15"></path></svg>
+                Refresh
+              </button>
+            </div>
+          </div>
+
+          <div class="kpi-grid" id="summaryCards">
+            <div class="kpi-card kpi-skeleton" aria-hidden="true"><div class="skeleton-bar" style="width:40%"></div><div class="skeleton-bar" style="width:60%;height:30px"></div></div>
+            <div class="kpi-card kpi-skeleton" aria-hidden="true"><div class="skeleton-bar" style="width:40%"></div><div class="skeleton-bar" style="width:60%;height:30px"></div></div>
+            <div class="kpi-card kpi-skeleton" aria-hidden="true"><div class="skeleton-bar" style="width:40%"></div><div class="skeleton-bar" style="width:60%;height:30px"></div></div>
+          </div>
+
+          <div class="filters-row">
+            <div class="filter-chips" id="filterChips" aria-live="polite"></div>
+            <div class="filters-controls">
+              <button id="resetFiltersBtn" class="btn btn-ghost btn-small hidden" type="button" onclick="resetFilters()">Clear filters</button>
+              <select id="sectorFilter" class="select" aria-label="Filter by sector" onchange="handleSectorFilterChange()">
+                <option value="">All sectors</option>
+              </select>
+            </div>
+          </div>
+
+          <div id="dashboardCards" class="cards-grid"></div>
+
+          <div class="pagination" id="paginationBar" aria-label="Pagination"></div>
+        </section>
+
+        <!-- ============================ ANALYTICS ============================ -->
+        <section id="analytics" class="tab-panel hidden" aria-labelledby="analyticsTitle">
+          <div class="section-header">
+            <div>
+              <h2 class="text-heading" id="analyticsTitle">Analytics</h2>
+              <p class="section-copy">Key metrics and trends for the operations team.</p>
+            </div>
+          </div>
+          <div class="analytics-grid" id="analyticsCards"></div>
+          <div class="analytics-report" id="analyticsReport"></div>
+        </section>
+
+        <!-- ============================ AUDIT ============================ -->
+        <section id="audit" class="tab-panel hidden" aria-labelledby="auditTitle">
+          <div class="section-header">
+            <div>
+              <h2 class="text-heading" id="auditTitle">Audit Log</h2>
+              <p class="section-copy">User actions and changes are tracked here.</p>
+            </div>
+            <div class="section-actions">
+              <button class="btn btn-secondary" type="button" onclick="copyAudit()" data-tip="Copy audit log to clipboard">
+                <svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="9" y="9" width="13" height="13" rx="2" ry="2"></rect><path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"></path></svg>
+                Copy
+              </button>
+              <button class="btn btn-secondary" type="button" onclick="downloadAuditCsv()" data-tip="Download audit log as CSV">
+                <svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"></path><polyline points="7 10 12 15 17 10"></polyline><line x1="12" y1="15" x2="12" y2="3"></line></svg>
+                CSV
+              </button>
+              <button class="btn btn-secondary" type="button" onclick="printAudit()" data-tip="Print audit log">
+                <svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="6 9 6 2 18 2 18 9"></polyline><path d="M6 18H4a2 2 0 0 1-2-2v-5a2 2 0 0 1 2-2h16a2 2 0 0 1 2 2v5a2 2 0 0 1-2 2h-2"></path><rect x="6" y="14" width="12" height="8"></rect></svg>
+                Print
+              </button>
+            </div>
+          </div>
+          <div class="table-card">
+            <div class="table-scroll" tabindex="0" aria-label="Audit log table">
+              <table class="data-table" id="auditTable">
+                <thead><tr>
+                  <th data-sort="timestamp" aria-sort="descending">Time</th>
+                  <th data-sort="user">User</th>
+                  <th data-sort="action">Action</th>
+                  <th data-sort="recordId">Record</th>
+                  <th data-sort="details">Details</th>
+                </tr></thead>
+                <tbody></tbody>
+              </table>
+            </div>
+            <div class="table-footer">
+              <span class="table-summary" id="auditSummary"></span>
+            </div>
+          </div>
+        </section>
+
+        <!-- ============================ REPORTS ============================ -->
+        <section id="reports" class="tab-panel hidden" aria-labelledby="reportsTitle">
+          <div class="section-header">
+            <div>
+              <h2 class="text-heading" id="reportsTitle">Reports</h2>
+              <p class="section-copy">Export summaries, print reports, or create a Google Sheets report.</p>
+            </div>
+          </div>
+          <div class="report-actions">
+            <button class="btn btn-primary" type="button" onclick="printReport()" data-tip="Print the report">
+              <svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="6 9 6 2 18 2 18 9"></polyline><path d="M6 18H4a2 2 0 0 1-2-2v-5a2 2 0 0 1 2-2h16a2 2 0 0 1 2 2v5a2 2 0 0 1-2 2h-2"></path><rect x="6" y="14" width="12" height="8"></rect></svg>
+              Print report
+            </button>
+            <button class="btn btn-secondary" type="button" onclick="exportSpreadsheet()">
+              <svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"></path><polyline points="7 10 12 15 17 10"></polyline><line x1="12" y1="15" x2="12" y2="3"></line></svg>
+              Export to Excel
+            </button>
+            <button class="btn btn-secondary" type="button" onclick="downloadPdf()">
+              <svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"></path><polyline points="14 2 14 8 20 8"></polyline></svg>
+              Download PDF
+            </button>
+            <button class="btn btn-secondary" type="button" onclick="downloadReportCsv()">
+              <svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><line x1="12" y1="1" x2="12" y2="23"></line><path d="M17 5H9.5a3.5 3.5 0 0 0 0 7h5a3.5 3.5 0 0 1 0 7H6"></path></svg>
+              CSV
+            </button>
+          </div>
+          <div class="report-preview" id="reportPreview"></div>
+        </section>
+
+        <!-- ============================ SETTINGS ============================ -->
+        <section id="settings" class="tab-panel hidden" aria-labelledby="settingsTitle">
+          <div class="section-header">
+            <div>
+              <h2 class="text-heading" id="settingsTitle">Settings</h2>
+              <p class="section-copy">App-level settings and admin controls.</p>
+            </div>
+          </div>
+
+          <div id="mustChangeBanner" class="banner banner-warning hidden">You must set a new password before continuing.</div>
+
+          <div class="settings-grid">
+            <div class="settings-card">
+              <div class="settings-card-head">
+                <h3 class="text-subheading">Application</h3>
+                <p class="section-copy">Configure the dashboard name and data source.</p>
+              </div>
+              <form id="settingsForm" class="form" novalidate onsubmit="saveSettings(event)">
+                <div class="field">
+                  <label for="settingAppName">Application title</label>
+                  <input id="settingAppName" type="text" class="input">
+                  <span class="field-error" data-for="settingAppName"></span>
+                </div>
+                <div class="field">
+                  <label for="settingSheetName">Default sheet name</label>
+                  <input id="settingSheetName" type="text" class="input">
+                </div>
+                <div class="field">
+                  <label for="settingStartRow">Start row for data</label>
+                  <input id="settingStartRow" type="number" class="input" min="1">
+                </div>
+                <div class="form-row">
+                  <button class="btn btn-primary" type="submit">Save settings</button>
+                  <span id="settingsStatus" class="form-status" aria-live="polite"></span>
+                </div>
+              </form>
+            </div>
+
+            <div class="settings-card">
+              <div class="settings-card-head">
+                <h3 class="text-subheading">Change password</h3>
+                <p class="section-copy">Update the password you use to sign in.</p>
+              </div>
+              <form id="changePasswordForm" class="form" novalidate onsubmit="handleChangePassword(event)">
+                <div class="field">
+                  <label for="changeCurrentPassword">Current password</label>
+                  <input id="changeCurrentPassword" type="password" class="input" autocomplete="current-password">
+                  <span class="field-error" data-for="changeCurrentPassword"></span>
+                </div>
+                <div class="field">
+                  <label for="changeNewPassword">New password</label>
+                  <input id="changeNewPassword" type="password" class="input" autocomplete="new-password">
+                  <span class="field-error" data-for="changeNewPassword"></span>
+                </div>
+                <div class="field">
+                  <label for="changeConfirmPassword">Confirm new password</label>
+                  <input id="changeConfirmPassword" type="password" class="input" autocomplete="new-password">
+                  <span class="field-error" data-for="changeConfirmPassword"></span>
+                </div>
+                <div class="form-row">
+                  <button class="btn btn-primary" type="submit">Update password</button>
+                  <span id="changePasswordStatus" class="form-status" aria-live="polite"></span>
+                </div>
+              </form>
+            </div>
+          </div>
+
+          <div id="usersAdmin" class="settings-card hidden">
+            <div class="settings-card-head">
+              <h3 class="text-subheading">Manage users</h3>
+              <p class="section-copy">Add, remove or reset passwords for dashboard users.</p>
+            </div>
+            <form id="addUserForm" class="form form-inline" novalidate onsubmit="handleAddUser(event)">
+              <div class="field">
+                <label for="newUserEmail">Email</label>
+                <input id="newUserEmail" type="email" class="input">
+                <span class="field-error" data-for="newUserEmail"></span>
+              </div>
+              <div class="field">
+                <label for="newUserRole">Role</label>
+                <select id="newUserRole" class="select">
+                  <option value="VIEWER">Viewer</option>
+                  <option value="EDITOR">Editor</option>
+                  <option value="ADMIN">Admin</option>
+                </select>
+              </div>
+              <div class="field">
+                <label for="newUserPassword">Initial password</label>
+                <input id="newUserPassword" type="password" class="input">
+                <span class="field-error" data-for="newUserPassword"></span>
+              </div>
+              <div class="form-row field-row">
+                <button class="btn btn-primary" type="submit">Add user</button>
+                <span id="addUserStatus" class="form-status" aria-live="polite"></span>
+              </div>
+            </form>
+            <div class="table-card">
+              <div class="table-scroll" tabindex="0" aria-label="Users table">
+                <table class="data-table" id="usersTable">
+                  <thead><tr><th>Email</th><th>Role</th><th>Created</th><th></th><th></th></tr></thead>
+                  <tbody></tbody>
+                </table>
+              </div>
+            </div>
+          </div>
+        </section>
+      </main>
+
+      <footer class="app-footer">
+        <span>India Post Dashboard</span>
+        <span class="footer-dot" aria-hidden="true">•</span>
+        <span>Circle Office Haryana</span>
+        <span class="footer-dot" aria-hidden="true">•</span>
+        <span class="footer-version" id="footerVersion">v3.2.0</span>
+      </footer>
+    </div>
+  </div>
+
+  <!-- ============================ AUTH ============================ -->
+  <div id="loginScreen" class="auth-screen hidden">
+    <div class="auth-card">
+      <div class="auth-brand">
+        <div class="brand-mark auth-mark" aria-label="India Post logo">
           <span class="brand-mark-fallback">✉</span>
         </div>
         <div>
-          <div class="brand-name">India Post Dashboard</div>
-          <div class="brand-subtitle">Operations and compliance tracker for Circle Office Haryana</div>
+          <div class="brand-name auth-name">India Post Dashboard</div>
+          <div class="auth-subtitle">Sign in to continue</div>
         </div>
       </div>
-
-      <div class="header-actions">
-        <button id="themeToggle" class="btn btn-secondary" onclick="toggleDarkMode()">Dark mode</button>
-        <button id="logoutButton" class="btn btn-secondary hidden" onclick="logout()">Log out</button>
-        <div class="user-chip" id="userChip">Signing in...</div>
-      </div>
-    </header>
-
-    <nav class="app-nav" id="appNav">
-      <button class="nav-item active" data-tab="dashboard" onclick="openTab('dashboard')">Dashboard</button>
-      <button class="nav-item" data-tab="analytics" onclick="openTab('analytics')">Analytics</button>
-      <button class="nav-item" data-tab="audit" onclick="openTab('audit')">Audit Log</button>
-      <button class="nav-item" data-tab="reports" onclick="openTab('reports')">Reports</button>
-      <button class="nav-item" data-tab="settings" onclick="openTab('settings')">Settings</button>
-    </nav>
-
-    <main class="main-content">
-      <section id="messagePanel" class="message-panel hidden"></section>
-
-      <section id="dashboard" class="tab-panel active">
-        <div class="section-header">
-          <div>
-            <h2>Live Dashboard</h2>
-            <p class="section-copy">View live items, search across sectors, and update records if you have access.</p>
-          </div>
-          <div class="section-actions">
-            <button id="addButton" class="btn btn-primary" onclick="addNewItem()">+ Add item</button>
-            <button class="btn btn-secondary" onclick="refreshData()">Refresh</button>
-          </div>
+      <div id="loginMessage" class="banner banner-danger hidden"></div>
+      <form id="loginForm" class="form" novalidate onsubmit="handleLogin(event)">
+        <div class="field">
+          <label for="loginEmail">Email</label>
+          <input id="loginEmail" type="email" class="input" autocomplete="username">
+          <span class="field-error" data-for="loginEmail"></span>
         </div>
-
-        <div class="filters-row">
-          <input id="searchInput" type="search" placeholder="Search sector, description, action, responsibility..." oninput="renderDashboard()">
-          <select id="sectorFilter" onchange="renderDashboard()">
-            <option value="">All sectors</option>
-          </select>
+        <div class="field">
+          <label for="loginPassword">Password</label>
+          <input id="loginPassword" type="password" class="input" autocomplete="current-password">
+          <span class="field-error" data-for="loginPassword"></span>
         </div>
-
-        <div class="dashboard-summary" id="summaryCards"></div>
-        <div id="dashboardCards" class="cards-grid"></div>
-      </section>
-
-      <section id="analytics" class="tab-panel hidden">
-        <div class="section-header">
-          <div>
-            <h2>Analytics</h2>
-            <p class="section-copy">Key metrics and trends for the operations team.</p>
-          </div>
-        </div>
-        <div class="analytics-grid" id="analyticsCards"></div>
-        <div class="analytics-report" id="analyticsReport"></div>
-      </section>
-
-      <section id="audit" class="tab-panel hidden">
-        <div class="section-header">
-          <div>
-            <h2>Audit Log</h2>
-            <p class="section-copy">User actions and changes are tracked here.</p>
-          </div>
-        </div>
-        <div class="table-wrapper"><table class="audit-table" id="auditTable"><thead><tr><th>Time</th><th>User</th><th>Action</th><th>Record</th><th>Details</th></tr></thead><tbody></tbody></table></div>
-      </section>
-
-      <section id="reports" class="tab-panel hidden">
-        <div class="section-header">
-          <div>
-            <h2>Reports</h2>
-            <p class="section-copy">Export summaries, print reports, or create a Google Sheets report.</p>
-          </div>
-        </div>
-        <div class="report-actions">
-          <button class="btn btn-primary" onclick="printReport()">Print report</button>
-          <button class="btn btn-secondary" onclick="exportSpreadsheet()">Export to Excel</button>
-          <button class="btn btn-secondary" onclick="downloadPdf()">Download PDF</button>
-        </div>
-        <div class="report-preview" id="reportPreview"></div>
-      </section>
-
-      <section id="settings" class="tab-panel hidden">
-        <div class="section-header">
-          <div>
-            <h2>Settings</h2>
-            <p class="section-copy">App-level settings and admin controls.</p>
-          </div>
-        </div>
-
-        <div id="mustChangeBanner" class="message-panel hidden">You must set a new password before continuing.</div>
-
-        <form id="settingsForm" class="settings-form" onsubmit="saveSettings(event)">
-          <label>Application title<input id="settingAppName" type="text" /></label>
-          <label>Default sheet name<input id="settingSheetName" type="text" /></label>
-          <label>Start row for data<input id="settingStartRow" type="number" min="1" /></label>
-          <div class="settings-row">
-            <button class="btn btn-primary" type="submit">Save settings</button>
-            <span id="settingsStatus" class="settings-status"></span>
-          </div>
-        </form>
-
-        <div class="settings-section">
-          <div class="section-header">
-            <div>
-              <h3>Change password</h3>
-              <p class="section-copy">Update the password you use to sign in.</p>
-            </div>
-          </div>
-          <form id="changePasswordForm" class="settings-form" onsubmit="handleChangePassword(event)">
-            <label>Current password<input id="changeCurrentPassword" type="password" required autocomplete="current-password"></label>
-            <label>New password<input id="changeNewPassword" type="password" required autocomplete="new-password"></label>
-            <label>Confirm new password<input id="changeConfirmPassword" type="password" required autocomplete="new-password"></label>
-            <div class="settings-row">
-              <button class="btn btn-primary" type="submit">Update password</button>
-              <span id="changePasswordStatus" class="settings-status"></span>
-            </div>
-          </form>
-        </div>
-
-        <div id="usersAdmin" class="settings-section hidden">
-          <div class="section-header">
-            <div>
-              <h3>Manage users</h3>
-              <p class="section-copy">Add, remove or reset passwords for dashboard users.</p>
-            </div>
-          </div>
-          <form id="addUserForm" class="settings-form" onsubmit="handleAddUser(event)">
-            <label>Email<input id="newUserEmail" type="email" required></label>
-            <label>Role
-              <select id="newUserRole">
-                <option value="VIEWER">Viewer</option>
-                <option value="EDITOR">Editor</option>
-                <option value="ADMIN">Admin</option>
-              </select>
-            </label>
-            <label>Initial password<input id="newUserPassword" type="password" required></label>
-            <div class="settings-row">
-              <button class="btn btn-primary" type="submit">Add user</button>
-              <span id="addUserStatus" class="settings-status"></span>
-            </div>
-          </form>
-          <div class="table-wrapper">
-            <table class="audit-table" id="usersTable">
-              <thead><tr><th>Email</th><th>Role</th><th>Created</th><th></th><th></th></tr></thead>
-              <tbody></tbody>
-            </table>
-          </div>
-        </div>
-      </section>
-    </main>
-
-    <footer class="app-footer">
-      <span>India Post Dashboard</span>
-      <span>Circle Office Haryana</span>
-    </footer>
-
-    <div id="loginScreen" class="auth-screen hidden">
-      <div class="auth-card">
-        <div class="auth-brand">
-          <div class="brand-mark" aria-label="India Post logo">
-            <span class="brand-mark-fallback">✉</span>
-          </div>
-          <div>
-            <div class="brand-name">India Post Dashboard</div>
-            <div class="auth-subtitle">Sign in to continue</div>
-          </div>
-        </div>
-        <div id="loginMessage" class="message-panel hidden"></div>
-        <form id="loginForm" class="auth-form" onsubmit="handleLogin(event)">
-          <label>Email<input id="loginEmail" type="email" required autocomplete="username"></label>
-          <label>Password<input id="loginPassword" type="password" required autocomplete="current-password"></label>
-          <button class="btn btn-primary auth-submit" type="submit">Log in</button>
-        </form>
-        <div class="auth-links">
-          <button class="btn btn-secondary" onclick="showForgotPassword()">Forgot password?</button>
-        </div>
+        <button class="btn btn-primary btn-block" type="submit">Log in</button>
+      </form>
+      <div class="auth-links">
+        <button class="btn-link" type="button" onclick="showForgotPassword()">Forgot password?</button>
       </div>
     </div>
-
-    <div id="forgotScreen" class="auth-screen hidden">
-      <div class="auth-card">
-        <h3>Reset password</h3>
-        <p class="section-copy">We'll email you a link to set a new password.</p>
-        <div id="forgotMessage" class="message-panel hidden"></div>
-        <form id="forgotForm" class="auth-form" onsubmit="handleForgotPassword(event)">
-          <label>Email<input id="forgotEmail" type="email" required autocomplete="username"></label>
-          <button class="btn btn-primary auth-submit" type="submit">Send reset link</button>
-        </form>
-        <div class="auth-links">
-          <button class="btn btn-secondary" onclick="showLogin()">Back to login</button>
-        </div>
-      </div>
-    </div>
-
-    <div id="resetScreen" class="auth-screen hidden">
-      <div class="auth-card">
-        <h3>Set a new password</h3>
-        <p class="section-copy">Choose a password of at least 8 characters.</p>
-        <div id="resetMessage" class="message-panel hidden"></div>
-        <form id="resetForm" class="auth-form" onsubmit="handleResetPassword(event)">
-          <label>Email<input id="resetEmail" type="email" required autocomplete="username"></label>
-          <label>New password<input id="resetNewPassword" type="password" required autocomplete="new-password"></label>
-          <label>Confirm new password<input id="resetConfirmPassword" type="password" required autocomplete="new-password"></label>
-          <button class="btn btn-primary auth-submit" type="submit">Set password</button>
-        </form>
-        <div class="auth-links">
-          <button class="btn btn-secondary" onclick="showLogin()">Back to login</button>
-        </div>
-      </div>
-    </div>
-
-    <div id="editModal" class="modal-backdrop hidden">
-      <div class="modal-card">
-        <div class="modal-header">
-          <h3>Edit record</h3>
-          <button class="btn btn-secondary btn-small" onclick="closeEditModal()" type="button">Close</button>
-        </div>
-        <form id="editForm" class="settings-form" onsubmit="saveEditModal(event)">
-          <input id="editRow" type="hidden">
-          <label>ID<input id="editId" type="text" readonly></label>
-          <label>Sector<input id="editSector" type="text"></label>
-          <label>Description<textarea id="editDescription" rows="3"></textarea></label>
-          <label>Entry date<input id="editEntryDate" type="text" placeholder="dd.mm.yyyy"></label>
-          <label>Action to be taken<textarea id="editAction" rows="3"></textarea></label>
-          <label>Responsibility<input id="editResponsibility" type="text"></label>
-          <label>Review date<input id="editReviewDate" type="text" placeholder="dd.mm.yyyy"></label>
-          <label class="checkbox-row"><input id="editFlagged" type="checkbox"> Flagged / review due</label>
-          <div class="settings-row">
-            <button class="btn btn-primary" type="submit">Save changes</button>
-            <button class="btn btn-secondary" type="button" onclick="closeEditModal()">Cancel</button>
-            <span id="editStatus" class="settings-status"></span>
-          </div>
-        </form>
-      </div>
-    </div>
-
-    <div id="submissionsModal" class="modal-backdrop hidden">
-      <div class="modal-card">
-        <div class="modal-header">
-          <h3>Submissions</h3>
-          <button class="btn btn-secondary btn-small" onclick="closeSubmissionsModal()" type="button">Close</button>
-        </div>
-        <div class="submissions-compose">
-          <textarea id="submissionText" rows="3" placeholder="Write your update for this record..."></textarea>
-          <div class="settings-row">
-            <button id="submitSubmissionBtn" class="btn btn-primary" onclick="submitSubmission()" type="button">Submit update</button>
-            <button id="cancelSubmissionBtn" class="btn btn-secondary hidden" onclick="cancelSubmissionEdit()" type="button">Cancel edit</button>
-            <span id="submissionStatus" class="settings-status"></span>
-          </div>
-        </div>
-        <div class="submissions-toolbar">
-          <label class="checkbox-row"><input id="submissionsOnlyMine" type="checkbox" onchange="renderSubmissionList()"> Show only my submissions</label>
-          <span id="submissionsCount" class="settings-status"></span>
-        </div>
-        <div id="submissionsList" class="submissions-list"></div>
-      </div>
-    </div>
-
-    <div id="overlay" class="overlay hidden"><div class="spinner"></div><div class="overlay-text">Working...</div></div>
-    <div id="toast" class="toast"></div>
   </div>
+
+  <div id="forgotScreen" class="auth-screen hidden">
+    <div class="auth-card">
+      <h3 class="text-heading">Reset password</h3>
+      <p class="section-copy">We'll email you a link to set a new password.</p>
+      <div id="forgotMessage" class="banner banner-danger hidden"></div>
+      <form id="forgotForm" class="form" novalidate onsubmit="handleForgotPassword(event)">
+        <div class="field">
+          <label for="forgotEmail">Email</label>
+          <input id="forgotEmail" type="email" class="input" autocomplete="username">
+          <span class="field-error" data-for="forgotEmail"></span>
+        </div>
+        <button class="btn btn-primary btn-block" type="submit">Send reset link</button>
+      </form>
+      <div class="auth-links">
+        <button class="btn-link" type="button" onclick="showLogin()">Back to login</button>
+      </div>
+    </div>
+  </div>
+
+  <div id="resetScreen" class="auth-screen hidden">
+    <div class="auth-card">
+      <h3 class="text-heading">Set a new password</h3>
+      <p class="section-copy">Choose a password of at least 8 characters.</p>
+      <div id="resetMessage" class="banner banner-danger hidden"></div>
+      <form id="resetForm" class="form" novalidate onsubmit="handleResetPassword(event)">
+        <div class="field">
+          <label for="resetEmail">Email</label>
+          <input id="resetEmail" type="email" class="input" autocomplete="username">
+          <span class="field-error" data-for="resetEmail"></span>
+        </div>
+        <div class="field">
+          <label for="resetNewPassword">New password</label>
+          <input id="resetNewPassword" type="password" class="input" autocomplete="new-password">
+          <span class="field-error" data-for="resetNewPassword"></span>
+        </div>
+        <div class="field">
+          <label for="resetConfirmPassword">Confirm new password</label>
+          <input id="resetConfirmPassword" type="password" class="input" autocomplete="new-password">
+          <span class="field-error" data-for="resetConfirmPassword"></span>
+        </div>
+        <button class="btn btn-primary btn-block" type="submit">Set password</button>
+      </form>
+      <div class="auth-links">
+        <button class="btn-link" type="button" onclick="showLogin()">Back to login</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- ============================ EDIT MODAL ============================ -->
+  <div id="editModal" class="modal-backdrop hidden" role="dialog" aria-modal="true" aria-labelledby="editModalTitle">
+    <div class="modal-card">
+      <div class="modal-header">
+        <h3 class="text-subheading" id="editModalTitle">Edit record</h3>
+        <button class="icon-btn" type="button" onclick="closeEditModal()" aria-label="Close dialog">
+          <svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><line x1="18" y1="6" x2="6" y2="18"></line><line x1="6" y1="6" x2="18" y2="18"></line></svg>
+        </button>
+      </div>
+      <form id="editForm" class="form" novalidate onsubmit="saveEditModal(event)">
+        <input id="editRow" type="hidden">
+        <div class="field">
+          <label for="editId">ID</label>
+          <input id="editId" type="text" class="input" readonly>
+        </div>
+        <div class="field">
+          <label for="editSector">Sector</label>
+          <input id="editSector" type="text" class="input">
+          <span class="field-error" data-for="editSector"></span>
+        </div>
+        <div class="field">
+          <label for="editDescription">Description</label>
+          <textarea id="editDescription" class="textarea" rows="3"></textarea>
+        </div>
+        <div class="field-row">
+          <div class="field">
+            <label for="editEntryDate">Entry date</label>
+            <input id="editEntryDate" type="text" class="input" placeholder="dd.mm.yyyy">
+          </div>
+          <div class="field">
+            <label for="editReviewDate">Review date</label>
+            <input id="editReviewDate" type="text" class="input" placeholder="dd.mm.yyyy">
+          </div>
+        </div>
+        <div class="field">
+          <label for="editAction">Action to be taken</label>
+          <textarea id="editAction" class="textarea" rows="3"></textarea>
+        </div>
+        <div class="field">
+          <label for="editResponsibility">Responsibility</label>
+          <input id="editResponsibility" type="text" class="input">
+        </div>
+        <div class="field">
+          <label class="checkbox"><input id="editFlagged" type="checkbox"> Flagged / review due</label>
+        </div>
+        <div class="form-row">
+          <button class="btn btn-primary" type="submit">Save changes</button>
+          <button class="btn btn-secondary" type="button" onclick="closeEditModal()">Cancel</button>
+          <span id="editStatus" class="form-status" aria-live="polite"></span>
+        </div>
+      </form>
+    </div>
+  </div>
+
+  <!-- ============================ SUBMISSIONS MODAL ============================ -->
+  <div id="submissionsModal" class="modal-backdrop hidden" role="dialog" aria-modal="true" aria-labelledby="submissionsModalTitle">
+    <div class="modal-card">
+      <div class="modal-header">
+        <h3 class="text-subheading" id="submissionsModalTitle">Submissions</h3>
+        <button class="icon-btn" type="button" onclick="closeSubmissionsModal()" aria-label="Close dialog">
+          <svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><line x1="18" y1="6" x2="6" y2="18"></line><line x1="6" y1="6" x2="18" y2="18"></line></svg>
+        </button>
+      </div>
+      <div class="submissions-compose">
+        <div class="field">
+          <label for="submissionText">Your update</label>
+          <textarea id="submissionText" class="textarea" rows="3" placeholder="Write your update for this record..."></textarea>
+        </div>
+        <div class="form-row">
+          <button id="submitSubmissionBtn" class="btn btn-primary" type="button" onclick="submitSubmission()">Submit update</button>
+          <button id="cancelSubmissionBtn" class="btn btn-secondary hidden" type="button" onclick="cancelSubmissionEdit()">Cancel edit</button>
+          <span id="submissionStatus" class="form-status" aria-live="polite"></span>
+        </div>
+      </div>
+      <div class="submissions-toolbar">
+        <label class="checkbox"><input id="submissionsOnlyMine" type="checkbox" onchange="renderSubmissionList()"> Show only my submissions</label>
+        <span id="submissionsCount" class="form-status"></span>
+      </div>
+      <div id="submissionsList" class="submissions-list"></div>
+    </div>
+  </div>
+
+  <!-- ============================ ABOUT DIALOG ============================ -->
+  <div id="aboutModal" class="modal-backdrop hidden" role="dialog" aria-modal="true" aria-labelledby="aboutModalTitle">
+    <div class="modal-card modal-card-sm">
+      <div class="modal-header">
+        <h3 class="text-subheading" id="aboutModalTitle">About</h3>
+        <button class="icon-btn" type="button" onclick="closeAbout()" aria-label="Close dialog">
+          <svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><line x1="18" y1="6" x2="6" y2="18"></line><line x1="6" y1="6" x2="18" y2="18"></line></svg>
+        </button>
+      </div>
+      <div class="about-body">
+        <div class="brand-mark about-mark" aria-hidden="true"><span class="brand-mark-fallback">✉</span></div>
+        <div class="about-title">India Post Dashboard</div>
+        <div class="about-subtitle">Circle Office Haryana — Operations &amp; Compliance Tracker</div>
+        <div class="about-rows">
+          <div class="about-row"><span>Version</span><strong id="aboutVersion">3.2.0</strong></div>
+          <div class="about-row"><span>Build</span><strong id="aboutBuild">—</strong></div>
+          <div class="about-row"><span>Runtime</span><strong>Google Apps Script · V8</strong></div>
+        </div>
+        <p class="about-note">Built for the Department of Posts, Government of India.</p>
+      </div>
+    </div>
+  </div>
+
+  <!-- ============================ OVERLAY + TOASTS ============================ -->
+  <div id="overlay" class="overlay hidden" role="status" aria-live="polite">
+    <div class="spinner" aria-hidden="true"></div>
+    <div class="overlay-text">Working…</div>
+  </div>
+  <div id="toastContainer" class="toast-container" aria-live="polite" aria-atomic="false"></div>
 
   <?!= include('script'); ?>
 </body>

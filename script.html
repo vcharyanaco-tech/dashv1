@@ -1,4 +1,19 @@
 <script>
+'use strict';
+
+/* ==========================================================================
+   India Post Dashboard — Client (script.html)
+   Renders against the enterprise design system in styles.html. All inline
+   onclick handlers referenced by index.html are defined here.
+   ========================================================================== */
+
+const APP_VERSION = '3.2.0';
+const APP_BUILD = '2026.08.02';
+const PAGE_SIZE = 10;
+const STORAGE_THEME = 'indiaPostDarkMode';
+const STORAGE_SIDEBAR = 'indiaPostSidebarCollapsed';
+const STORAGE_TOKEN = 'indiaPostAuthToken';
+
 const appState = {
   items: [],
   filtered: [],
@@ -9,8 +24,6 @@ const appState = {
   settings: {},
   isAdmin: false,
   isEditor: false,
-  isViewer: false,
-  darkMode: false,
   mustChange: false,
   editMode: 'edit',
   submissions: [],
@@ -19,29 +32,41 @@ const appState = {
   submissionEditingId: '',
   submissionCounts: {},
   submissionFlash: {},
-  displayedSubmissions: []
+  displayedSubmissions: [],
+  searchQuery: '',
+  sector: '',
+  page: 1,
+  auditSortKey: 'timestamp',
+  auditSortDir: 'desc'
 };
 
-function getAuthToken() {
-  return window.localStorage.getItem('indiaPostAuthToken') || '';
+/* ---------------------------------- Helpers ---------------------------------- */
+
+function getEl(id) { return document.getElementById(id); }
+
+function escapeHtml(value) {
+  if (value === undefined || value === null) return '';
+  return String(value)
+    .replace(/&/g, '&amp;')
+    .replace(/</g, '&lt;')
+    .replace(/>/g, '&gt;')
+    .replace(/"/g, '&quot;')
+    .replace(/'/g, '&#39;');
 }
 
-function setAuthToken(token) {
-  if (token) window.localStorage.setItem('indiaPostAuthToken', token);
-  else window.localStorage.removeItem('indiaPostAuthToken');
+function escAttr(value) {
+  return escapeHtml(value);
 }
 
-function showScreen(screen) {
-  ['login', 'forgot', 'reset'].forEach(name => {
-    document.getElementById(name + 'Screen').classList.add('hidden');
-  });
-  document.getElementById(screen + 'Screen').classList.remove('hidden');
-}
-
-function showAuthMessage(elementId, message) {
-  const el = document.getElementById(elementId);
-  el.textContent = message || '';
-  el.classList.toggle('hidden', !message);
+function renderLinkableText(value) {
+  const text = value == null ? '' : String(value);
+  if (!text) return '';
+  const normalized = text.trim();
+  if (!normalized) return '';
+  const isUrl = /^(https?:\/\/|mailto:|ftp:\/\/|www\.)/i.test(normalized) || /(?:\.[a-z]{2,})(?:\/|$)/i.test(normalized);
+  if (!isUrl) return escapeHtml(text);
+  const href = /^www\./i.test(normalized) ? 'https://' + normalized : normalized;
+  return `<a href="${escAttr(href)}" target="_blank" rel="noopener noreferrer">${escapeHtml(text)}</a>`;
 }
 
 function parseQueryParams() {
@@ -54,6 +79,85 @@ function parseQueryParams() {
     if (key) params[key] = decodeURIComponent(parts[1] || '');
   });
   return params;
+}
+
+function debounce(fn, ms) {
+  let timer = null;
+  return function () {
+    const args = arguments;
+    const ctx = this;
+    clearTimeout(timer);
+    timer = setTimeout(function () { fn.apply(ctx, args); }, ms || 200);
+  };
+}
+
+function svgIcon(name) {
+  const paths = {
+    database: '<ellipse cx="12" cy="5" rx="9" ry="3"></ellipse><path d="M21 12c0 1.66-4 3-9 3s-9-1.34-9-3"></path><path d="M3 5v14c0 1.66 4 3 9 3s9-1.34 9-3V5"></path>',
+    flag: '<path d="M4 15s1-1 4-1 5 2 8 2 4-1 4-1V3s-1 1-4 1-5-2-8-2-4 1-4 1z"></path><line x1="4" y1="22" x2="4" y2="15"></line>',
+    layers: '<polygon points="12 2 2 7 12 12 22 7 12 2"></polygon><polyline points="2 17 12 22 22 17"></polyline><polyline points="2 12 12 17 22 12"></polyline>',
+    search: '<circle cx="11" cy="11" r="8"></circle><line x1="21" y1="21" x2="16.65" y2="16.65"></line>',
+    inbox: '<polyline points="22 12 16 12 14 15 10 15 8 12 2 12"></polyline><path d="M5.45 5.11L2 12v6a2 2 0 0 0 2 2h16a2 2 0 0 0 2-2v-6l-3.45-6.89A2 2 0 0 0 16.76 4H7.24a2 2 0 0 0-1.79 1.11z"></path>',
+    check: '<polyline points="20 6 9 17 4 12"></polyline>',
+    alert: '<path d="M10.29 3.86L1.82 18a2 2 0 0 0 1.71 3h16.94a2 2 0 0 0 1.71-3L13.71 3.86a2 2 0 0 0-3.42 0z"></path><line x1="12" y1="9" x2="12" y2="13"></line><line x1="12" y1="17" x2="12.01" y2="17"></line>',
+    info: '<circle cx="12" cy="12" r="10"></circle><line x1="12" y1="16" x2="12" y2="12"></line><line x1="12" y1="8" x2="12.01" y2="8"></line>'
+  };
+  const body = paths[name] || paths.info;
+  return `<svg viewBox="0 0 24 24" width="20" height="20" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">${body}</svg>`;
+}
+
+/* ---------------------------------- Toasts ---------------------------------- */
+
+function showToast(message, type) {
+  const container = getEl('toastContainer');
+  if (!container) return;
+  const kind = type || 'success';
+  const icons = {
+    success: svgIcon('check'),
+    warning: svgIcon('alert'),
+    error: svgIcon('alert'),
+    info: svgIcon('info')
+  };
+  const toast = document.createElement('div');
+  toast.className = 'toast toast-' + kind;
+  toast.setAttribute('role', kind === 'error' ? 'alert' : 'status');
+  toast.innerHTML = icons[kind] + '<span>' + escapeHtml(message) + '</span>';
+  container.appendChild(toast);
+  setTimeout(function () {
+    toast.classList.add('out');
+    setTimeout(function () { if (toast.parentNode) toast.parentNode.removeChild(toast); }, 320);
+  }, 3600);
+}
+
+/* ---------------------------------- Overlay ---------------------------------- */
+
+function showOverlay(message) {
+  const overlay = getEl('overlay');
+  const text = overlay.querySelector('.overlay-text');
+  if (text) text.textContent = message || 'Working…';
+  overlay.classList.remove('hidden');
+}
+
+function hideOverlay() {
+  getEl('overlay').classList.add('hidden');
+}
+
+/* ---------------------------------- Splash ---------------------------------- */
+
+function hideSplash() {
+  const splash = getEl('splashScreen');
+  if (splash) splash.classList.add('hide');
+}
+
+/* ---------------------------------- Auth token ---------------------------------- */
+
+function getAuthToken() {
+  return window.localStorage.getItem(STORAGE_TOKEN) || '';
+}
+
+function setAuthToken(token) {
+  if (token) window.localStorage.setItem(STORAGE_TOKEN, token);
+  else window.localStorage.removeItem(STORAGE_TOKEN);
 }
 
 function isAuthError(message) {
@@ -69,73 +173,141 @@ function handleServerFailure(err) {
   if (isAuthError(msg)) {
     setAuthToken('');
     showScreen('login');
+    showToast('Session expired. Please log in again.', 'warning');
     return true;
   }
   return false;
 }
 
-function displayToast(message) {
-  const toast = document.getElementById('toast');
-  toast.textContent = message;
-  toast.classList.add('show');
-  setTimeout(() => toast.classList.remove('show'), 3000);
+/* ---------------------------------- Screens ---------------------------------- */
+
+function showScreen(screen) {
+  ['login', 'forgot', 'reset'].forEach(name => {
+    const el = getEl(name + 'Screen');
+    if (el) el.classList.add('hidden');
+  });
+  const target = getEl(screen + 'Screen');
+  if (target) target.classList.remove('hidden');
 }
 
-function renderLinkableText(value) {
-  const text = value == null ? '' : String(value);
-  if (!text) return '';
-  const normalized = text.trim();
-  if (!normalized) return '';
-  const isUrl = /^(https?:\/\/|mailto:|ftp:\/\/|www\.)/i.test(normalized) || /(?:\.[a-z]{2,})(?:\/|$)/i.test(normalized);
-  if (!isUrl) return escapeHtml(text);
-  const href = /^www\./i.test(normalized) ? 'https://' + normalized : normalized;
-  return `<a href="${escapeHtml(href)}" target="_blank" rel="noopener noreferrer">${escapeHtml(text)}</a>`;
+function showAuthMessage(elementId, message) {
+  const el = getEl(elementId);
+  if (!el) return;
+  el.textContent = message || '';
+  el.classList.toggle('hidden', !message);
 }
 
-function showOverlay(message) {
-  const overlay = document.getElementById('overlay');
-  overlay.querySelector('.overlay-text').textContent = message || 'Working...';
-  overlay.classList.remove('hidden');
+/* ---------------------------------- Theme ---------------------------------- */
+
+function applyTheme() {
+  appState.darkMode = window.localStorage.getItem(STORAGE_THEME) === 'true';
+  document.body.classList.toggle('dark-mode', appState.darkMode);
+  const moon = getEl('iconMoon');
+  const sun = getEl('iconSun');
+  if (moon && sun) {
+    moon.classList.toggle('hidden', appState.darkMode);
+    sun.classList.toggle('hidden', !appState.darkMode);
+  }
 }
 
-function hideOverlay() {
-  document.getElementById('overlay').classList.add('hidden');
+function toggleDarkMode() {
+  appState.darkMode = !appState.darkMode;
+  window.localStorage.setItem(STORAGE_THEME, String(appState.darkMode));
+  applyTheme();
 }
+
+/* ---------------------------------- Sidebar ---------------------------------- */
+
+function applySidebarPref() {
+  const collapsed = window.localStorage.getItem(STORAGE_SIDEBAR) === '1';
+  document.body.classList.toggle('sidebar-collapsed', collapsed);
+}
+
+function toggleSidebar() {
+  const mobile = window.matchMedia('(max-width: 900px)').matches;
+  if (mobile) {
+    const open = document.body.classList.toggle('sidebar-open');
+    const backdrop = getEl('sidebarBackdrop');
+    if (backdrop) backdrop.classList.toggle('hidden', !open);
+  } else {
+    const collapsed = document.body.classList.toggle('sidebar-collapsed');
+    window.localStorage.setItem(STORAGE_SIDEBAR, collapsed ? '1' : '0');
+  }
+}
+
+/* ---------------------------------- Profile menu ---------------------------------- */
+
+function toggleProfileMenu() {
+  const dropdown = getEl('profileDropdown');
+  const trigger = getEl('profileTrigger');
+  const open = dropdown.classList.toggle('open');
+  if (trigger) trigger.setAttribute('aria-expanded', String(open));
+}
+
+function renderProfile() {
+  const user = appState.user || {};
+  const email = user.email || '';
+  const role = user.role || 'VIEWER';
+  const name = email ? email.split('@')[0] : 'Guest';
+  const initial = email ? email.charAt(0).toUpperCase() : '?';
+  const tone = role === 'ADMIN' ? 'danger' : (role === 'EDITOR' ? 'accent' : 'muted');
+
+  const avatar = getEl('profileAvatar');
+  if (avatar) avatar.textContent = initial;
+  const nameEl = getEl('profileName');
+  if (nameEl) nameEl.textContent = user.loggedIn ? name : 'Not signed in';
+  const roleEl = getEl('profileRole');
+  if (roleEl) roleEl.textContent = user.loggedIn ? role : '—';
+  const emailEl = getEl('profileEmail');
+  if (emailEl) emailEl.textContent = user.loggedIn ? email : 'Not signed in';
+  const badge = getEl('profileRoleBadge');
+  if (badge) {
+    badge.textContent = user.loggedIn ? role : 'Guest';
+    badge.setAttribute('data-tone', tone);
+  }
+
+  const addButton = getEl('addButton');
+  if (addButton) addButton.style.display = appState.isEditor ? 'inline-flex' : 'none';
+}
+
+/* ---------------------------------- Tabs ---------------------------------- */
 
 function openTab(tabId) {
   document.querySelectorAll('.tab-panel').forEach(panel => panel.classList.add('hidden'));
-  document.querySelectorAll('.nav-item').forEach(btn => btn.classList.remove('active'));
-  document.getElementById(tabId).classList.remove('hidden');
-  document.querySelector(`.nav-item[data-tab="${tabId}"]`).classList.add('active');
+  document.querySelectorAll('.nav-item').forEach(function (btn) {
+    btn.classList.remove('active');
+    btn.removeAttribute('aria-current');
+  });
+  const panel = getEl(tabId);
+  if (panel) panel.classList.remove('hidden');
+  const nav = document.querySelector('.nav-item[data-tab="' + tabId + '"]');
+  if (nav) {
+    nav.classList.add('active');
+    nav.setAttribute('aria-current', 'page');
+  }
   if (tabId === 'analytics') renderAnalytics();
   if (tabId === 'audit') renderAudit();
   if (tabId === 'reports') renderReportPreview();
   if (tabId === 'settings') renderSettings();
+  if (tabId === 'dashboard') renderDashboard();
 }
 
-function setUserStatus(user) {
-  const chip = document.getElementById('userChip');
-  chip.textContent = user.loggedIn ? `${user.email} • ${user.role}` : 'Viewer mode';
-  appState.user = user;
-  appState.isAdmin = user.role === 'ADMIN';
-  appState.isEditor = user.role === 'ADMIN' || user.role === 'EDITOR';
-  appState.isViewer = ['ADMIN','EDITOR','VIEWER'].includes(user.role);
-  document.getElementById('addButton').style.display = appState.isEditor ? 'inline-flex' : 'none';
-  document.getElementById('logoutButton').classList.toggle('hidden', !user.loggedIn);
-}
+/* ---------------------------------- Auth flows ---------------------------------- */
 
 function initApp() {
   const params = parseQueryParams();
   const token = getAuthToken();
 
   if (params.resetToken && params.email) {
-    document.getElementById('resetEmail').value = params.email;
+    getEl('resetEmail').value = params.email;
     showScreen('reset');
+    hideSplash();
     return;
   }
 
   if (!token) {
     showScreen('login');
+    hideSplash();
     return;
   }
 
@@ -143,15 +315,436 @@ function initApp() {
 }
 
 function loadApp() {
-  showOverlay('Loading app...');
-  google.script.run.withSuccessHandler(data => {
+  showOverlay('Loading app…');
+  google.script.run.withSuccessHandler(function (data) {
     hideOverlay();
-    if (!data || !data.user) {
+    hideSplash();
+    if (!data || !data.user || !data.user.loggedIn) {
       setAuthToken('');
       showScreen('login');
       return;
     }
-    setUserStatus(data.user);
+    appState.user = data.user || {};
+    appState.isAdmin = data.user.role === 'ADMIN';
+    appState.isEditor = data.user.role === 'ADMIN' || data.user.role === 'EDITOR';
+    appState.mustChange = !!data.mustChange;
+    appState.items = data.items || [];
+    appState.summary = data.summary || {};
+    appState.analytics = data.analytics || {};
+    appState.audit = data.audit || [];
+    appState.settings = data.settings || {};
+    appState.submissionCounts = data.submissionCounts || {};
+    appState.submissionFlash = data.submissionFlash || {};
+    appState.displayedSubmissions = data.displayedSubmissions || [];
+
+    populateFilters();
+    renderProfile();
+    applyTheme();
+    applySidebarPref();
+    showScreen('login');
+    getEl('loginScreen').classList.add('hidden');
+    getEl('forgotScreen').classList.add('hidden');
+    getEl('resetScreen').classList.add('hidden');
+    renderDashboard();
+    updateOfflineBanner();
+
+    if (appState.mustChange) {
+      getEl('mustChangeBanner').classList.remove('hidden');
+      openTab('settings');
+      showToast('Please set a new password to continue.', 'warning');
+    }
+  }).withFailureHandler(function (err) {
+    hideOverlay();
+    hideSplash();
+    if (handleServerFailure(err)) return;
+    const message = err && err.message ? err.message : String(err || 'Unknown error');
+    const panel = getEl('messagePanel');
+    panel.classList.remove('hidden');
+    panel.textContent = 'Error loading app: ' + message;
+    console.error('App load failed', err);
+  }).getAppData(getAuthToken());
+}
+
+function handleLogin(e) {
+  e.preventDefault();
+  const emailEl = getEl('loginEmail');
+  const passEl = getEl('loginPassword');
+  const email = emailEl.value.trim();
+  const password = passEl.value;
+  let valid = true;
+  valid = setFieldInvalid(emailEl, email ? '' : 'Enter your email address.') && valid;
+  valid = setFieldInvalid(passEl, password ? '' : 'Enter your password.') && valid;
+  if (!valid) return;
+
+  showOverlay('Logging in…');
+  google.script.run.withSuccessHandler(function (res) {
+    hideOverlay();
+    if (!res || !res.success) {
+      showAuthMessage('loginMessage', (res && res.message) || 'Login failed.');
+      return;
+    }
+    setAuthToken(res.token);
+    appState.mustChange = !!res.mustChange;
+    showAuthMessage('loginMessage', '');
+    loadApp();
+  }).withFailureHandler(function (err) {
+    hideOverlay();
+    showAuthMessage('loginMessage', err && err.message ? err.message : 'Login failed.');
+  }).login(email, password);
+}
+
+function showForgotPassword() {
+  showAuthMessage('forgotMessage', '');
+  const loginEmail = getEl('loginEmail').value || '';
+  getEl('forgotEmail').value = loginEmail;
+  showScreen('forgot');
+}
+
+function showLogin() {
+  ['loginMessage', 'forgotMessage', 'resetMessage'].forEach(id => showAuthMessage(id, ''));
+  showScreen('login');
+}
+
+function handleForgotPassword(e) {
+  e.preventDefault();
+  const email = getEl('forgotEmail').value.trim();
+  if (!setFieldInvalid(getEl('forgotEmail'), email ? '' : 'Enter your email address.')) return;
+  showOverlay('Sending reset link…');
+  google.script.run.withSuccessHandler(function (res) {
+    hideOverlay();
+    showAuthMessage('forgotMessage', (res && res.message) || 'Reset link sent.');
+    showToast((res && res.message) || 'Reset link sent.', 'success');
+  }).withFailureHandler(function (err) {
+    hideOverlay();
+    showAuthMessage('forgotMessage', err && err.message ? err.message : 'Could not send reset link.');
+  }).requestPasswordReset(email, window.location.href);
+}
+
+function handleResetPassword(e) {
+  e.preventDefault();
+  const email = getEl('resetEmail').value.trim();
+  const np = getEl('resetNewPassword').value;
+  const cp = getEl('resetConfirmPassword').value;
+  const params = parseQueryParams();
+
+  let valid = true;
+  valid = setFieldInvalid(getEl('resetEmail'), email ? '' : 'Enter your email address.') && valid;
+  valid = setFieldInvalid(getEl('resetNewPassword'), np.length >= 8 ? '' : 'Password must be at least 8 characters.') && valid;
+  if (np !== cp) {
+    setFieldInvalid(getEl('resetConfirmPassword'), 'Passwords do not match.');
+    valid = false;
+  } else {
+    setFieldInvalid(getEl('resetConfirmPassword'), '');
+  }
+  if (!valid) return;
+
+  showOverlay('Setting new password…');
+  google.script.run.withSuccessHandler(function (res) {
+    hideOverlay();
+    if (!res || !res.success) {
+      showAuthMessage('resetMessage', (res && res.message) || 'Could not reset password.');
+      return;
+    }
+    setAuthToken(res.token);
+    appState.mustChange = false;
+    showAuthMessage('resetMessage', '');
+    loadApp();
+  }).withFailureHandler(function (err) {
+    hideOverlay();
+    showAuthMessage('resetMessage', err && err.message ? err.message : 'Could not reset password.');
+  }).resetPasswordWithToken(email, params.resetToken, np);
+}
+
+function logout() {
+  google.script.run.withSuccessHandler(function () {
+    setAuthToken('');
+    window.location.href = window.location.href.split('?')[0];
+  }).withFailureHandler(function () {
+    setAuthToken('');
+    window.location.reload();
+  }).logout(getAuthToken());
+}
+
+/* ---------------------------------- Form validation ---------------------------------- */
+
+function setFieldInvalid(inputEl, message) {
+  if (!inputEl) return !message;
+  const field = inputEl.closest('.field');
+  if (!field) return !message;
+  const err = field.querySelector('.field-error');
+  if (err) err.textContent = message || '';
+  field.classList.toggle('invalid', !!message);
+  return !message;
+}
+
+function wireFieldClearing(container) {
+  (container || document).querySelectorAll('input, select, textarea').forEach(function (input) {
+    input.addEventListener('input', function () {
+      setFieldInvalid(input, '');
+    });
+  });
+}
+
+/* ---------------------------------- Dashboard: filters ---------------------------------- */
+
+function populateFilters() {
+  const filter = getEl('sectorFilter');
+  if (!filter) return;
+  const selected = filter.value;
+  const sectors = [...new Set(appState.items.map(function (item) { return item.sector; }).filter(Boolean))].sort();
+  filter.innerHTML = '<option value="">All sectors</option>' + sectors.map(function (s) {
+    return `<option value="${escAttr(s)}">${escapeHtml(s)}</option>`;
+  }).join('');
+  filter.value = selected;
+}
+
+function applyFilters() {
+  const query = appState.searchQuery.toLowerCase();
+  const sector = appState.sector;
+  appState.filtered = appState.items.filter(function (item) {
+    const haystack = [item.sector, item.id, item.description, item.action, item.responsibility, item.reviewDate]
+      .join(' ').toLowerCase();
+    return (!query || haystack.indexOf(query) !== -1) && (!sector || item.sector === sector);
+  });
+  appState.page = 1;
+}
+
+function handleSectorFilterChange() {
+  appState.sector = getEl('sectorFilter').value;
+  updateFilterChips();
+  renderDashboard();
+}
+
+function resetFilters() {
+  appState.searchQuery = '';
+  appState.sector = '';
+  const search = getEl('searchInput');
+  if (search) search.value = '';
+  const filter = getEl('sectorFilter');
+  if (filter) filter.value = '';
+  updateFilterChips();
+  renderDashboard();
+}
+
+function updateFilterChips() {
+  const chips = getEl('filterChips');
+  if (!chips) return;
+  const parts = [];
+  if (appState.searchQuery) {
+    parts.push(`<span class="filter-chip">Search: ${escapeHtml(appState.searchQuery)} <button type="button" aria-label="Remove search filter" onclick="removeChip('search')">✕</button></span>`);
+  }
+  if (appState.sector) {
+    parts.push(`<span class="filter-chip">Sector: ${escapeHtml(appState.sector)} <button type="button" aria-label="Remove sector filter" onclick="removeChip('sector')">✕</button></span>`);
+  }
+  chips.innerHTML = parts.join('');
+  const resetBtn = getEl('resetFiltersBtn');
+  if (resetBtn) resetBtn.classList.toggle('hidden', parts.length === 0);
+}
+
+function removeChip(kind) {
+  if (kind === 'search') appState.searchQuery = '';
+  if (kind === 'sector') appState.sector = '';
+  const search = getEl('searchInput');
+  if (search) search.value = appState.searchQuery;
+  const filter = getEl('sectorFilter');
+  if (filter) filter.value = appState.sector;
+  updateFilterChips();
+  renderDashboard();
+}
+
+/* ---------------------------------- Dashboard: KPI cards ---------------------------------- */
+
+function monthlyTrendArray() {
+  const trend = (appState.analytics && appState.analytics.trend) || {};
+  return Object.keys(trend).sort().map(function (key) { return { key: key, value: trend[key] }; });
+}
+
+function trendPill() {
+  const points = monthlyTrendArray();
+  if (points.length < 2) return '';
+  const last = points[points.length - 1].value;
+  const prev = points[points.length - 2].value;
+  const diff = last - prev;
+  const cls = diff > 0 ? 'up' : (diff < 0 ? 'down' : 'flat');
+  const arrow = diff > 0 ? '↑' : (diff < 0 ? '↓' : '—');
+  const label = diff !== 0 ? `${arrow} ${Math.abs(diff)} this month` : 'Flat this month';
+  return `<span class="kpi-trend ${cls}">${label}</span>`;
+}
+
+function sparklineSvg() {
+  const points = monthlyTrendArray().slice(-12).map(function (p) { return p.value; });
+  if (points.length < 2) return '';
+  const max = Math.max.apply(null, points);
+  const min = Math.min.apply(null, points);
+  const span = (max - min) || 1;
+  const coords = points.map(function (v, i) {
+    const x = points.length === 1 ? 0 : (i / (points.length - 1)) * 100;
+    const y = 40 - 4 - ((v - min) / span) * 32;
+    return x.toFixed(1) + ',' + y.toFixed(1);
+  }).join(' ');
+  return `<div class="kpi-sparkline"><svg viewBox="0 0 100 40" preserveAspectRatio="none" aria-hidden="true"><polyline fill="none" stroke="var(--secondary)" stroke-width="2" points="${coords}"></polyline></svg></div>`;
+}
+
+function renderKpiCards() {
+  const grid = getEl('summaryCards');
+  if (!grid) return;
+  const summary = appState.summary || {};
+  const sectorCount = Object.keys(summary.sectors || {}).length;
+  const total = summary.total || 0;
+  const flagged = summary.flagged || 0;
+  const trend = trendPill();
+  const spark = sparklineSvg();
+
+  grid.innerHTML =
+    `<div class="kpi-card">
+      <div class="kpi-top">
+        <span class="kpi-icon tone-secondary">${svgIcon('database')}</span>
+        ${trend}
+      </div>
+      <div class="kpi-label">Total records</div>
+      <div class="kpi-value">${total}</div>
+      <div class="kpi-subtitle">Across ${sectorCount} sector${sectorCount === 1 ? '' : 's'}</div>
+      ${spark}
+    </div>
+    <div class="kpi-card">
+      <div class="kpi-top">
+        <span class="kpi-icon tone-warning">${svgIcon('flag')}</span>
+      </div>
+      <div class="kpi-label">Review due</div>
+      <div class="kpi-value">${flagged}</div>
+      <div class="kpi-subtitle">Flagged for follow-up</div>
+    </div>
+    <div class="kpi-card">
+      <div class="kpi-top">
+        <span class="kpi-icon tone-success">${svgIcon('layers')}</span>
+      </div>
+      <div class="kpi-label">Open sectors</div>
+      <div class="kpi-value">${sectorCount}</div>
+      <div class="kpi-subtitle">Active operations</div>
+    </div>`;
+}
+
+/* ---------------------------------- Dashboard: cards ---------------------------------- */
+
+function buildCardHtml(item) {
+  const fieldsHtml = (item.displayFields || []).filter(function (field) {
+    const label = String(field && field.label || '').trim().toLowerCase();
+    return label !== '#' && label !== 'id' && label !== 'sr no';
+  }).map(function (field) {
+    const isHeaderRowValue = field && field.label && String(field.label).trim() !== '';
+    const valueHtml = field.html
+      ? `<div class="field-value preserve-whitespace field-html">${field.html}</div>`
+      : `<div class="field-value preserve-whitespace">${escapeHtml(field.value)}</div>`;
+    return `
+      <div class="card-field ${isHeaderRowValue ? 'card-field-highlight' : ''}">
+        <span class="field-label ${isHeaderRowValue ? 'field-label-highlight' : ''}">${escapeHtml(field.label || 'Value')}</span>
+        ${valueHtml}
+      </div>`;
+  }).join('');
+
+  const subCount = (appState.submissionCounts || {})[item.row] || 0;
+  const subFlash = !!(appState.submissionFlash || {})[item.row];
+
+  const updateFieldsHtml = (appState.displayedSubmissions || [])
+    .filter(function (s) { return Number(s.cardRow) === Number(item.row); })
+    .map(function (s) {
+      return `
+        <div class="card-field submission-display">
+          <span class="field-label submission-display-label">Update by ${escapeHtml(s.email)} <span class="submission-display-time">${escapeHtml(s.createdAt || '')}</span></span>
+          <div class="field-value preserve-whitespace">${escapeHtml(s.text || '')}</div>
+        </div>`;
+    }).join('');
+
+  const reviewBadgeHtml = item.reviewStatus === 'due'
+    ? `<span class="review-badge review-due">Review due${appState.isAdmin ? `
+        <span class="review-dropdown">
+          <button type="button" class="review-dropdown-toggle" aria-label="Review actions" onclick="event.stopPropagation(); toggleReviewDropdown(this);">&#9662;</button>
+          <span class="review-dropdown-menu">
+            <button type="button" class="review-dropdown-item" onclick="event.stopPropagation(); markReviewDone('${escAttr(item.row)}');">Mark as review done</button>
+          </span>
+        </span>` : ''}</span>`
+    : item.reviewStatus === 'done'
+      ? `<span class="review-badge review-done">Review done</span>`
+      : '';
+
+  const actionsHtml = `
+    <div class="submit-update-wrap">
+      <button class="btn btn-secondary btn-small" onclick="openSubmissionsModal('${escAttr(item.row)}','${escAttr(item.id)}')">Submit update</button>
+      ${subCount > 0 ? `<span class="submission-badge${subFlash ? ' flash' : ''}">${subCount}</span>` : ''}
+    </div>
+    ${appState.isEditor ? `<button class="btn btn-secondary btn-small" onclick="editItem('${escAttr(item.row)}')">Edit</button>` : ''}
+    ${appState.isEditor ? `<button class="btn btn-danger btn-small" onclick="deleteItem('${escAttr(item.row)}')">Delete</button>` : ''}`;
+
+  return `
+    <article class="card ${item.reviewStatus === 'due' ? 'review-due' : ''}">
+      ${reviewBadgeHtml}
+      <div class="card-title preserve-whitespace"><span class="id-badge">#${escapeHtml(item.id)}</span></div>
+      <div class="card-fields">${fieldsHtml || '<div class="card-field"><span class="field-label">Details</span><div class="field-value preserve-whitespace">No details available</div></div>'}${updateFieldsHtml}</div>
+      <div class="card-footer"><div class="actions">${actionsHtml}</div></div>
+    </article>`;
+}
+
+function emptyStateHtml() {
+  return `
+    <div class="empty-state">
+      <div class="empty-state-icon">${svgIcon('search')}</div>
+      <div class="empty-state-title">No records found</div>
+      <div class="empty-state-subtitle">Try adjusting your search or clearing the active filters.</div>
+    </div>`;
+}
+
+function renderDashboardCards() {
+  const grid = getEl('dashboardCards');
+  if (!grid) return;
+  const start = (appState.page - 1) * PAGE_SIZE;
+  const pageItems = appState.filtered.slice(start, start + PAGE_SIZE);
+  grid.innerHTML = pageItems.length
+    ? pageItems.map(buildCardHtml).join('')
+    : emptyStateHtml();
+}
+
+function renderPagination() {
+  const bar = getEl('paginationBar');
+  if (!bar) return;
+  const total = appState.filtered.length;
+  const pages = Math.max(1, Math.ceil(total / PAGE_SIZE));
+  if (appState.page > pages) appState.page = pages;
+  if (total <= PAGE_SIZE) {
+    bar.innerHTML = '';
+    return;
+  }
+  let html = `<button class="page-btn" type="button" onclick="setPage(${appState.page - 1})" ${appState.page <= 1 ? 'disabled' : ''} aria-label="Previous page">‹</button>`;
+  const start = Math.max(1, appState.page - 2);
+  const end = Math.min(pages, start + 4);
+  for (let p = start; p <= end; p++) {
+    html += `<button class="page-btn ${p === appState.page ? 'active' : ''}" type="button" onclick="setPage(${p})" ${p === appState.page ? 'aria-current="page"' : ''}>${p}</button>`;
+  }
+  html += `<button class="page-btn" type="button" onclick="setPage(${appState.page + 1})" ${appState.page >= pages ? 'disabled' : ''} aria-label="Next page">›</button>`;
+  html += `<span class="page-info">${total} record${total === 1 ? '' : 's'}</span>`;
+  bar.innerHTML = html;
+}
+
+function setPage(page) {
+  const pages = Math.max(1, Math.ceil(appState.filtered.length / PAGE_SIZE));
+  appState.page = Math.min(Math.max(1, page), pages);
+  renderDashboardCards();
+  renderPagination();
+  const grid = getEl('dashboardCards');
+  if (grid) grid.scrollIntoView({ behavior: 'smooth', block: 'start' });
+}
+
+function renderDashboard() {
+  applyFilters();
+  renderKpiCards();
+  updateFilterChips();
+  renderDashboardCards();
+  renderPagination();
+}
+
+function refreshData() {
+  showOverlay('Refreshing data…');
+  google.script.run.withSuccessHandler(function (data) {
+    hideOverlay();
     appState.items = data.items || [];
     appState.summary = data.summary || {};
     appState.analytics = data.analytics || {};
@@ -162,707 +755,217 @@ function loadApp() {
     appState.displayedSubmissions = data.displayedSubmissions || [];
     populateFilters();
     renderDashboard();
-    applyTheme();
-    showScreen('login');
-    document.getElementById('loginScreen').classList.add('hidden');
-    document.getElementById('forgotScreen').classList.add('hidden');
-    document.getElementById('resetScreen').classList.add('hidden');
-    if (appState.mustChange) {
-      document.getElementById('mustChangeBanner').classList.remove('hidden');
-      openTab('settings');
-      displayToast('Please set a new password to continue.');
-    }
-  }).withFailureHandler(err => {
+    showToast('Dashboard refreshed', 'success');
+  }).withFailureHandler(function (err) {
     hideOverlay();
     if (handleServerFailure(err)) return;
-    const message = err && err.message ? err.message : String(err || 'Unknown error');
-    document.getElementById('messagePanel').classList.remove('hidden');
-    document.getElementById('messagePanel').textContent = 'Error loading app: ' + message;
-    console.error('App load failed', err);
+    showToast('Refresh failed: ' + (err.message || err), 'error');
   }).getAppData(getAuthToken());
 }
 
-function handleLogin(e) {
-  e.preventDefault();
-  const email = document.getElementById('loginEmail').value.trim();
-  const password = document.getElementById('loginPassword').value;
-  showOverlay('Logging in...');
-  google.script.run.withSuccessHandler(res => {
-    hideOverlay();
-    if (!res || !res.success) {
-      showAuthMessage('loginMessage', (res && res.message) || 'Login failed.');
-      return;
-    }
-    setAuthToken(res.token);
-    appState.mustChange = !!res.mustChange;
-    showAuthMessage('loginMessage', '');
-    loadApp();
-  }).withFailureHandler(err => {
-    hideOverlay();
-    showAuthMessage('loginMessage', err && err.message ? err.message : 'Login failed.');
-  }).login(email, password);
-}
-
-function handleForgotPassword(e) {
-  e.preventDefault();
-  const email = document.getElementById('forgotEmail').value.trim();
-  showOverlay('Sending reset link...');
-  google.script.run.withSuccessHandler(res => {
-    hideOverlay();
-    showAuthMessage('forgotMessage', (res && res.message) || 'Reset link sent.');
-  }).withFailureHandler(err => {
-    hideOverlay();
-    showAuthMessage('forgotMessage', err && err.message ? err.message : 'Could not send reset link.');
-  }).requestPasswordReset(email, window.location.href);
-}
-
-function handleResetPassword(e) {
-  e.preventDefault();
-  const email = document.getElementById('resetEmail').value.trim();
-  const np = document.getElementById('resetNewPassword').value;
-  const cp = document.getElementById('resetConfirmPassword').value;
-  const params = parseQueryParams();
-  if (np !== cp) {
-    showAuthMessage('resetMessage', 'Passwords do not match.');
-    return;
-  }
-  showOverlay('Setting new password...');
-  google.script.run.withSuccessHandler(res => {
-    hideOverlay();
-    if (!res || !res.success) {
-      showAuthMessage('resetMessage', (res && res.message) || 'Could not reset password.');
-      return;
-    }
-    setAuthToken(res.token);
-    appState.mustChange = false;
-    showAuthMessage('resetMessage', '');
-    loadApp();
-  }).withFailureHandler(err => {
-    hideOverlay();
-    showAuthMessage('resetMessage', err && err.message ? err.message : 'Could not reset password.');
-  }).resetPasswordWithToken(email, params.resetToken, np);
-}
-
-function showForgotPassword() {
-  showAuthMessage('forgotMessage', '');
-  document.getElementById('forgotEmail').value = document.getElementById('loginEmail').value || '';
-  showScreen('forgot');
-}
-
-function showLogin() {
-  ['loginMessage', 'forgotMessage', 'resetMessage'].forEach(id => showAuthMessage(id, ''));
-  showScreen('login');
-}
-
-function logout() {
-  google.script.run.withSuccessHandler(() => {
-    setAuthToken('');
-    window.location.href = window.location.href.split('?')[0];
-  }).withFailureHandler(() => {
-    setAuthToken('');
-    window.location.reload();
-  }).logout(getAuthToken());
-}
-
-function applyTheme() {
-  appState.darkMode = window.localStorage.getItem('indiaPostDarkMode') === 'true';
-  document.body.classList.toggle('dark-mode', appState.darkMode);
-  document.getElementById('themeToggle').textContent = appState.darkMode ? 'Light mode' : 'Dark mode';
-}
-
-function toggleDarkMode() {
-  appState.darkMode = !appState.darkMode;
-  window.localStorage.setItem('indiaPostDarkMode', String(appState.darkMode));
-  applyTheme();
-}
-
-function populateFilters() {
-  const filter = document.getElementById('sectorFilter');
-  const selected = filter.value;
-  const sectors = [...new Set(appState.items.map(item => item.sector).filter(Boolean))].sort();
-  filter.innerHTML = `<option value="">All sectors</option>` + sectors.map(s => `<option value="${s}">${s}</option>`).join('');
-  filter.value = selected;
-}
-
-function applyFilters() {
-  const query = document.getElementById('searchInput').value.toLowerCase();
-  const sector = document.getElementById('sectorFilter').value;
-  appState.filtered = appState.items.filter(item => {
-    const text = `${item.sector} ${item.description} ${item.action} ${item.responsibility}`.toLowerCase();
-    return (!query || text.includes(query)) && (!sector || item.sector === sector);
-  });
-}
-
-function renderDashboard() {
-  applyFilters();
-    const cards = appState.filtered.slice(0, 100).map(item => {
-      const fieldsHtml = (item.displayFields || []).filter(field => {
-        const label = String(field && field.label || '').trim().toLowerCase();
-        return label !== '#' && label !== 'id' && label !== 'sr no';
-      }).map(field => {
-      const isHeaderRowValue = field && field.label && String(field.label).trim() !== '';
-      const valueHtml = field.html
-        ? `<div class="field-value preserve-whitespace field-html">${field.html}</div>`
-        : `<div class="field-value preserve-whitespace">${escapeHtml(field.value)}</div>`;
-      return `
-        <div class="card-field ${isHeaderRowValue ? 'card-field-highlight' : ''}">
-          <span class="field-label ${isHeaderRowValue ? 'field-label-highlight' : ''}">${escapeHtml(field.label || 'Value')}</span>
-          ${valueHtml}
-        </div>
-      `;
-    }).join('');
-
-    const subCount = (appState.submissionCounts || {})[item.row] || 0;
-    const subFlash = !!(appState.submissionFlash || {})[item.row];
-    const updateFieldsHtml = (appState.displayedSubmissions || [])
-      .filter(s => Number(s.cardRow) === Number(item.row))
-      .map(s => `
-        <div class="card-field submission-display">
-          <span class="field-label submission-display-label">Update by ${escapeHtml(s.email)} <span class="submission-display-time">${escapeHtml(s.createdAt || '')}</span></span>
-          <div class="field-value preserve-whitespace">${escapeHtml(s.text || '')}</div>
-        </div>
-      `).join('');
-
-    const reviewBadgeHtml = item.reviewStatus === 'due'
-      ? `<span class="review-badge review-due">Review due${appState.isAdmin ? `
-          <span class="review-dropdown">
-            <button type="button" class="review-dropdown-toggle" aria-label="Review actions" onclick="event.stopPropagation(); toggleReviewDropdown(this);">&#9662;</button>
-            <span class="review-dropdown-menu">
-              <button type="button" class="review-dropdown-item" onclick="event.stopPropagation(); markReviewDone('${item.row}');">Mark as review done</button>
-            </span>
-          </span>` : ''}</span>`
-      : item.reviewStatus === 'done'
-        ? `<span class="review-badge review-done">Review done</span>`
-        : '';
-
-    return `
-      <article class="card ${item.reviewStatus === 'due' ? 'review-due' : ''}">
-        ${reviewBadgeHtml}
-        <div class="card-title preserve-whitespace"><span class="id-badge">#${escapeHtml(item.id)}</span></div>
-        <div class="card-fields">${fieldsHtml || '<div class="card-field"><span class="field-label">Details</span><div class="field-value preserve-whitespace">No details available</div></div>'}${updateFieldsHtml}</div>
-        <div class="card-footer">
-          <div class="actions">
-            <div class="submit-update-wrap">
-              <button class="btn btn-secondary btn-small" onclick="openSubmissionsModal('${item.row}','${escapeHtml(item.id)}')">Submit update</button>
-              ${subCount > 0 ? `<span class="submission-badge${subFlash ? ' flash' : ''}">${subCount}</span>` : ''}
-            </div>
-            ${appState.isEditor ? `<button class="btn btn-secondary btn-small" onclick="editItem('${item.row}')">Edit</button>` : ''}
-            ${appState.isEditor ? `<button class="btn btn-danger btn-small" onclick="deleteItem('${item.row}')">Delete</button>` : ''}
-          </div>
-        </div>
-      </article>
-    `;
-  }).join('');
-  document.getElementById('dashboardCards').innerHTML = cards || '<div class="message-panel">No records found.</div>';
-  document.getElementById('summaryCards').innerHTML = `
-    <div class="stat-card stat-total"><span class="stat-label">Total records</span><span class="stat-value">${appState.summary.total || 0}</span></div>
-    <div class="stat-card stat-review"><span class="stat-label">Review due</span><span class="stat-value">${appState.summary.flagged || 0}</span></div>
-    <div class="stat-card stat-sectors"><span class="stat-label">Open sectors</span><span class="stat-value">${Object.keys(appState.summary.sectors || {}).length || 0}</span></div>
-  `;
-}
+/* ---------------------------------- Analytics ---------------------------------- */
 
 function renderAnalytics() {
+  const summary = appState.summary || {};
   const cards = [
-    { title: 'Total records', value: appState.summary.total || 0 },
-    { title: 'Review due', value: appState.summary.flagged || 0 },
-    { title: 'Normal items', value: appState.summary.normal || 0 }
-  ].map(item => `<div class="analytics-card"><h3>${item.title}</h3><p>${item.value}</p></div>`).join('');
-  document.getElementById('analyticsCards').innerHTML = cards;
-  const sectors = Object.entries(appState.summary.sectors || {}).map(([sector, count]) => `<li>${escapeHtml(sector)}: ${count}</li>`).join('');
-  document.getElementById('analyticsReport').innerHTML = `<div class="card"><h3>Records by sector</h3><ul>${sectors || '<li>No sector data</li>'}</ul></div>`;
+    { title: 'Total records', value: summary.total || 0 },
+    { title: 'Review due', value: summary.flagged || 0 },
+    { title: 'Normal items', value: summary.normal || 0 }
+  ].map(function (item) {
+    return `<div class="analytics-card"><h3>${item.title}</h3><p>${item.value}</p></div>`;
+  }).join('');
+  getEl('analyticsCards').innerHTML = cards;
+
+  const sectors = (appState.analytics && appState.analytics.sectors) || [];
+  const flagged = (appState.analytics && appState.analytics.flaggedItems) || [];
+  const trend = monthlyTrendArray();
+
+  let reportHtml = `
+    <div class="card">
+      <h3>Records by sector</h3>
+      <ul>${sectors.length ? sectors.map(function (s) {
+        return `<li>${escapeHtml(s.sector)}: ${s.total}</li>`;
+      }).join('') : '<li>No sector data</li>'}</ul>
+    </div>`;
+
+  if (trend.length) {
+    reportHtml += `
+    <div class="card">
+      <h3>New records by month</h3>
+      <ul>${trend.slice(-12).map(function (t) {
+        return `<li>${escapeHtml(t.key)}: ${t.value}</li>`;
+      }).join('')}</ul>
+    </div>`;
+  }
+
+  reportHtml += `
+    <div class="card">
+      <h3>Flagged items (review due)</h3>
+      <ul>${flagged.length ? flagged.slice(0, 50).map(function (item) {
+        return `<li>#${escapeHtml(item.id)} — ${escapeHtml(item.sector)}${item.reviewDate ? ' · due ' + escapeHtml(item.reviewDate) : ''}</li>`;
+      }).join('') : '<li>No flagged items</li>'}</ul>
+    </div>`;
+
+  getEl('analyticsReport').innerHTML = reportHtml;
+}
+
+/* ---------------------------------- Audit ---------------------------------- */
+
+function auditValue(row, key) {
+  return row[key] == null ? '' : String(row[key]);
 }
 
 function renderAudit() {
-  const tbody = document.querySelector('#auditTable tbody');
-  tbody.innerHTML = appState.audit.slice(0, 80).map(row => `
-    <tr>
-      <td class="preserve-whitespace">${escapeHtml(row.timestamp)}</td>
-      <td class="preserve-whitespace">${escapeHtml(row.user)}</td>
-      <td class="preserve-whitespace">${renderLinkableText(row.action)}</td>
-      <td class="preserve-whitespace">${renderLinkableText(row.recordId)}</td>
-      <td class="details-cell preserve-whitespace">${renderLinkableText(row.details)}</td>
-    </tr>
-  `).join('');
-}
+  const table = getEl('auditTable');
+  if (!table) return;
+  const key = appState.auditSortKey;
+  const dir = appState.auditSortDir;
+  const rows = appState.audit.slice().sort(function (a, b) {
+    const av = auditValue(a, key).toLowerCase();
+    const bv = auditValue(b, key).toLowerCase();
+    if (av < bv) return dir === 'asc' ? -1 : 1;
+    if (av > bv) return dir === 'asc' ? 1 : -1;
+    return 0;
+  });
 
-function renderReportPreview() {
-  const itemsHtml = (appState.items || []).map(item => `
-    <tr><td class="preserve-whitespace">${escapeHtml(item.id)}</td><td class="preserve-whitespace">${renderLinkableText(item.sector)}</td><td class="preserve-whitespace">${renderLinkableText(item.description)}</td><td class="preserve-whitespace">${item.actionHtml || renderLinkableText(item.action)}</td><td class="preserve-whitespace">${renderLinkableText(item.responsibility)}</td><td class="preserve-whitespace">${renderLinkableText(item.reviewDate)}</td></tr>`).join('');
-  document.getElementById('reportPreview').innerHTML = `
-    <div class="report-preview">
-      <h3>Report preview</h3>
-      <div class="report-preview-scroll">
-        <table class="audit-table"><thead><tr><th>#</th><th>Sector</th><th>Description</th><th>Action</th><th>Responsibility</th><th>Review</th></tr></thead><tbody>${itemsHtml}</tbody></table>
-      </div>
-    </div>
-  `;
-}
-
-function renderSettings() {
-  document.getElementById('settingAppName').value = appState.settings.appName || 'India Post Dashboard';
-  document.getElementById('settingSheetName').value = appState.settings.sheetName || 'Sheet1';
-  document.getElementById('settingStartRow').value = appState.settings.startRow || 4;
-  document.getElementById('mustChangeBanner').classList.toggle('hidden', !appState.mustChange);
-  const usersAdmin = document.getElementById('usersAdmin');
-  if (appState.isAdmin) {
-    usersAdmin.classList.remove('hidden');
-    loadUsers();
-  } else {
-    usersAdmin.classList.add('hidden');
-  }
-}
-
-function loadUsers() {
-  google.script.run.withSuccessHandler(users => {
-    renderUsersTable(users || []);
-  }).withFailureHandler(err => {
-    if (handleServerFailure(err)) return;
-    displayToast('Could not load users: ' + (err.message || err));
-  }).adminGetUsers(getAuthToken());
-}
-
-function renderUsersTable(users) {
-  const tbody = document.querySelector('#usersTable tbody');
-  tbody.dataset.users = JSON.stringify(users);
-  tbody.innerHTML = users.map((u, i) => `
-    <tr>
-      <td class="preserve-whitespace">${escapeHtml(u.email)}${u.mustChange ? ' <em>(must change)</em>' : ''}</td>
-      <td>${escapeHtml(u.role)}</td>
-      <td class="preserve-whitespace">${escapeHtml(u.createdAt || '')}</td>
-      <td><button class="btn btn-secondary btn-small" data-action="reset" data-index="${i}">Reset password</button></td>
-      <td><button class="btn btn-danger btn-small" data-action="delete" data-index="${i}">Delete</button></td>
-    </tr>
-  `).join('');
-}
-
-function handleAddUser(e) {
-  e.preventDefault();
-  if (!appState.isAdmin) { displayToast('Admin access required'); return; }
-  const email = document.getElementById('newUserEmail').value.trim();
-  const role = document.getElementById('newUserRole').value;
-  const password = document.getElementById('newUserPassword').value;
-  showOverlay('Adding user...');
-  google.script.run.withSuccessHandler(users => {
-    hideOverlay();
-    document.getElementById('newUserEmail').value = '';
-    document.getElementById('newUserPassword').value = '';
-    document.getElementById('addUserStatus').textContent = 'User added';
-    setTimeout(() => document.getElementById('addUserStatus').textContent = '', 3000);
-    renderUsersTable(users || []);
-  }).withFailureHandler(err => {
-    hideOverlay();
-    if (handleServerFailure(err)) return;
-    document.getElementById('addUserStatus').textContent = err.message || 'Could not add user';
-  }).adminAddUser(email, role, password, getAuthToken());
-}
-
-function deleteUser(email) {
-  if (!confirm('Delete user ' + email + '?')) return;
-  google.script.run.withSuccessHandler(users => {
-    displayToast('User deleted');
-    renderUsersTable(users || []);
-  }).withFailureHandler(err => {
-    if (handleServerFailure(err)) return;
-    displayToast('Delete failed: ' + (err.message || err));
-  }).adminDeleteUser(email, getAuthToken());
-}
-
-function resetUserPassword(email) {
-  const newPassword = prompt('New password for ' + email + ' (min 8 characters):');
-  if (!newPassword) return;
-  google.script.run.withSuccessHandler(users => {
-    displayToast('Password reset for ' + email);
-    renderUsersTable(users || []);
-  }).withFailureHandler(err => {
-    if (handleServerFailure(err)) return;
-    displayToast('Reset failed: ' + (err.message || err));
-  }).adminResetPassword(email, newPassword, getAuthToken());
-}
-
-function handleChangePassword(e) {
-  e.preventDefault();
-  const current = document.getElementById('changeCurrentPassword').value;
-  const np = document.getElementById('changeNewPassword').value;
-  const cp = document.getElementById('changeConfirmPassword').value;
-  if (np !== cp) {
-    document.getElementById('changePasswordStatus').textContent = 'Passwords do not match';
-    return;
-  }
-  showOverlay('Updating password...');
-  google.script.run.withSuccessHandler(res => {
-    hideOverlay();
-    const status = document.getElementById('changePasswordStatus');
-    status.textContent = (res && res.message) || 'Password updated';
-    setTimeout(() => status.textContent = '', 3000);
-    if (res && res.success) {
-      document.getElementById('changeCurrentPassword').value = '';
-      document.getElementById('changeNewPassword').value = '';
-      document.getElementById('changeConfirmPassword').value = '';
-      appState.mustChange = false;
-      document.getElementById('mustChangeBanner').classList.add('hidden');
-      displayToast('Password updated');
+  table.querySelectorAll('thead th[data-sort]').forEach(function (th) {
+    const sortKey = th.getAttribute('data-sort');
+    if (sortKey === key) {
+      th.setAttribute('aria-sort', dir === 'asc' ? 'ascending' : 'descending');
+    } else {
+      th.removeAttribute('aria-sort');
     }
-  }).withFailureHandler(err => {
-    hideOverlay();
-    if (handleServerFailure(err)) return;
-    document.getElementById('changePasswordStatus').textContent = err.message || 'Could not update password';
-  }).changePassword(current, np, getAuthToken());
+  });
+
+  const tbody = table.querySelector('tbody');
+  tbody.innerHTML = rows.length ? rows.map(function (row) {
+    return `
+      <tr>
+        <td class="preserve-whitespace">${escapeHtml(row.timestamp)}</td>
+        <td class="preserve-whitespace">${escapeHtml(row.user)}</td>
+        <td class="preserve-whitespace">${renderLinkableText(row.action)}</td>
+        <td class="preserve-whitespace">${renderLinkableText(row.recordId)}</td>
+        <td class="details-cell preserve-whitespace">${renderLinkableText(row.details)}</td>
+      </tr>`;
+  }).join('') : '<tr><td colspan="5">No audit entries yet.</td></tr>';
+
+  const summaryEl = getEl('auditSummary');
+  if (summaryEl) summaryEl.textContent = rows.length + ' of ' + appState.audit.length + ' entries';
 }
 
-function refreshData() {
-  showOverlay('Refreshing data...');
-  google.script.run.withSuccessHandler(data => {
-    hideOverlay();
-    appState.items = data.items || [];
-    appState.summary = data.summary || {};
-    appState.analytics = data.analytics || {};
-    appState.audit = data.audit || [];
-    appState.submissionCounts = data.submissionCounts || {};
-    appState.submissionFlash = data.submissionFlash || {};
-    appState.displayedSubmissions = data.displayedSubmissions || [];
-    populateFilters();
-    renderDashboard();
-    displayToast('Dashboard refreshed');
-  }).withFailureHandler(err => {
-    hideOverlay();
-    if (handleServerFailure(err)) return;
-    displayToast('Refresh failed: ' + (err.message || err));
-  }).getAppData(getAuthToken());
-}
-
-function addNewItem() {
-  if (!appState.isEditor) { displayToast('Admin/editor access required'); return; }
-  appState.editMode = 'add';
-  document.getElementById('editRow').value = '';
-  document.getElementById('editId').value = '';
-  document.getElementById('editSector').value = '';
-  document.getElementById('editDescription').value = '';
-  document.getElementById('editEntryDate').value = '';
-  document.getElementById('editAction').value = '';
-  document.getElementById('editResponsibility').value = '';
-  document.getElementById('editReviewDate').value = '';
-  document.getElementById('editFlagged').checked = false;
-  document.getElementById('editStatus').textContent = '';
-  document.getElementById('editModal').classList.remove('hidden');
-}
-
-function editItem(row) {
-  const item = appState.items.find(i => String(i.row) === String(row));
-  if (!item) return;
-  appState.editMode = 'edit';
-  document.getElementById('editRow').value = item.row;
-  document.getElementById('editId').value = item.id || '';
-  document.getElementById('editSector').value = item.sector || '';
-  document.getElementById('editDescription').value = item.description || '';
-  document.getElementById('editEntryDate').value = item.entryDate || '';
-  document.getElementById('editAction').value = item.action || '';
-  document.getElementById('editResponsibility').value = item.responsibility || '';
-  document.getElementById('editReviewDate').value = item.reviewDate || '';
-  document.getElementById('editFlagged').checked = !!item.flagged;
-  document.getElementById('editStatus').textContent = '';
-  document.getElementById('editModal').classList.remove('hidden');
-}
-
-function closeEditModal() {
-  document.getElementById('editModal').classList.add('hidden');
-}
-
-function saveEditModal(e) {
-  e.preventDefault();
-  if (!appState.isEditor) { displayToast('Admin/editor access required'); return; }
-  const item = {
-    row: Number(document.getElementById('editRow').value || 0),
-    id: document.getElementById('editId').value,
-    sector: document.getElementById('editSector').value.trim(),
-    description: document.getElementById('editDescription').value,
-    entryDate: document.getElementById('editEntryDate').value.trim(),
-    action: document.getElementById('editAction').value,
-    responsibility: document.getElementById('editResponsibility').value.trim(),
-    reviewDate: document.getElementById('editReviewDate').value.trim(),
-    flagged: document.getElementById('editFlagged').checked
-  };
-  if (appState.editMode === 'add') {
-    submitNewItem(item);
-  } else if (item.row) {
-    saveItem(item);
+function setAuditSort(key) {
+  if (key === appState.auditSortKey) {
+    appState.auditSortDir = appState.auditSortDir === 'asc' ? 'desc' : 'asc';
+  } else {
+    appState.auditSortKey = key;
+    appState.auditSortDir = key === 'timestamp' ? 'desc' : 'asc';
   }
+  renderAudit();
 }
 
-function submitNewItem(item) {
-  showOverlay('Adding record...');
-  google.script.run.withSuccessHandler(data => {
-    hideOverlay();
-    closeEditModal();
-    appState.items = data.items || [];
-    appState.summary = data.summary || {};
-    populateFilters();
-    renderDashboard();
-    displayToast('New item created');
-  }).withFailureHandler(err => {
-    hideOverlay();
-    if (handleServerFailure(err)) return;
-    displayToast('Add failed: ' + (err.message || err));
-  }).addItem(item, getAuthToken());
+function copyText(text) {
+  if (navigator.clipboard && navigator.clipboard.writeText) {
+    return navigator.clipboard.writeText(text).catch(function () { fallbackCopy(text); });
+  }
+  fallbackCopy(text);
+  return Promise.resolve();
 }
 
-function saveItem(item) {
-  if (!appState.isEditor) { displayToast('Admin/editor access required'); return; }
-  showOverlay('Saving record...');
-  google.script.run.withSuccessHandler(data => {
-    hideOverlay();
-    closeEditModal();
-    appState.items = data.items || [];
-    appState.summary = data.summary || {};
-    renderDashboard();
-    displayToast('Record saved');
-  }).withFailureHandler(err => {
-    hideOverlay();
-    if (handleServerFailure(err)) return;
-    displayToast('Save failed: ' + (err.message || err));
-  }).updateItem(item, getAuthToken());
+function fallbackCopy(text) {
+  const ta = document.createElement('textarea');
+  ta.value = text;
+  ta.style.position = 'fixed';
+  ta.style.opacity = '0';
+  document.body.appendChild(ta);
+  ta.select();
+  try { document.execCommand('copy'); } catch (err) {}
+  document.body.removeChild(ta);
 }
 
-function toggleReviewDropdown(btn) {
-  const menu = btn.parentElement.querySelector('.review-dropdown-menu');
-  const isOpen = menu.classList.toggle('open');
-  document.querySelectorAll('.review-dropdown-menu.open').forEach(m => {
-    if (m !== menu) m.classList.remove('open');
+function auditAsText() {
+  return appState.audit.map(function (row) {
+    return [row.timestamp, row.user, row.action, row.recordId, row.details].join('\t');
+  }).join('\n');
+}
+
+function copyAudit() {
+  copyText(auditAsText()).then(function () {
+    showToast('Audit log copied to clipboard', 'success');
+  }, function () {
+    showToast('Could not copy audit log', 'error');
   });
 }
 
-function markReviewDone(row) {
-  if (!appState.isAdmin) { displayToast('Admin access required'); return; }
-  if (!confirm('Mark this record as review done?')) return;
-  showOverlay('Marking review as done...');
-  google.script.run.withSuccessHandler(data => {
-    hideOverlay();
-    appState.items = data.items || [];
-    appState.summary = data.summary || {};
-    renderDashboard();
-    displayToast('Marked review as done');
-  }).withFailureHandler(err => {
-    hideOverlay();
-    if (handleServerFailure(err)) return;
-    displayToast('Failed: ' + (err.message || err));
-  }).markReviewDone(row, getAuthToken());
+function toCsv(rows) {
+  return rows.map(function (row) {
+    return row.map(function (cell) {
+      return '"' + String(cell == null ? '' : cell).replace(/"/g, '""') + '"';
+    }).join(',');
+  }).join('\r\n');
 }
 
-function deleteItem(row) {
-  if (!appState.isEditor) { displayToast('Admin/editor access required'); return; }
-  if (!confirm('Delete this record permanently?')) return;
-  showOverlay('Deleting record...');
-  google.script.run.withSuccessHandler(data => {
-    hideOverlay();
-    appState.items = data.items || [];
-    appState.summary = data.summary || {};
-    renderDashboard();
-    displayToast('Record deleted');
-  }).withFailureHandler(err => {
-    hideOverlay();
-    if (handleServerFailure(err)) return;
-    displayToast('Delete failed: ' + (err.message || err));
-  }).deleteItem(row, getAuthToken());
+function downloadTextFile(filename, text, mimeType) {
+  const blob = new Blob([text], { type: mimeType || 'text/plain;charset=utf-8' });
+  const url = URL.createObjectURL(blob);
+  const link = document.createElement('a');
+  link.href = url;
+  link.download = filename;
+  document.body.appendChild(link);
+  link.click();
+  document.body.removeChild(link);
+  setTimeout(function () { URL.revokeObjectURL(url); }, 4000);
 }
 
-function openSubmissionsModal(row, cardId, onlyMine) {
-  appState.submissionCardRow = row;
-  appState.submissionCardId = cardId;
-  appState.submissionEditingId = '';
-  document.getElementById('submissionText').value = '';
-  resetSubmissionCompose();
-  document.getElementById('submissionStatus').textContent = '';
-  document.getElementById('submissionsOnlyMine').checked = !!onlyMine;
-  document.getElementById('submissionText').placeholder = 'Write your update for record #' + cardId + '...';
-  document.getElementById('submissionsModal').classList.remove('hidden');
-  loadSubmissions();
+function downloadAuditCsv() {
+  const headers = ['Time', 'User', 'Action', 'Record', 'Details'];
+  const rows = appState.audit.map(function (row) {
+    return [row.timestamp, row.user, row.action, row.recordId, row.details];
+  });
+  downloadTextFile('IndiaPostDashboard_Audit_' + new Date().toISOString().slice(0, 10) + '.csv', toCsv([headers].concat(rows)), 'text/csv;charset=utf-8');
+  showToast('Audit CSV downloaded', 'success');
 }
 
-function closeSubmissionsModal() {
-  document.getElementById('submissionsModal').classList.add('hidden');
+function printAudit() {
+  window.print();
 }
 
-function resetSubmissionCompose() {
-  document.getElementById('submitSubmissionBtn').textContent = 'Submit update';
-  document.getElementById('cancelSubmissionBtn').classList.add('hidden');
+/* ---------------------------------- Reports ---------------------------------- */
+
+function renderReportPreview() {
+  const wrap = getEl('reportPreview');
+  if (!wrap) return;
+  const itemsHtml = (appState.items || []).map(function (item) {
+    return `
+      <tr>
+        <td class="preserve-whitespace">${escapeHtml(item.id)}</td>
+        <td class="preserve-whitespace">${renderLinkableText(item.sector)}</td>
+        <td class="preserve-whitespace">${renderLinkableText(item.description)}</td>
+        <td class="preserve-whitespace">${item.actionHtml || renderLinkableText(item.action)}</td>
+        <td class="preserve-whitespace">${renderLinkableText(item.responsibility)}</td>
+        <td class="preserve-whitespace">${renderLinkableText(item.reviewDate)}</td>
+      </tr>`;
+  }).join('');
+  wrap.innerHTML = `
+    <h3>Report preview</h3>
+    <div class="report-preview-scroll">
+      <table class="data-table">
+        <thead><tr><th>#</th><th>Sector</th><th>Description</th><th>Action</th><th>Responsibility</th><th>Review</th></tr></thead>
+        <tbody>${itemsHtml || '<tr><td colspan="6">No records to report.</td></tr>'}</tbody>
+      </table>
+    </div>`;
 }
 
-function loadSubmissions() {
-  google.script.run.withSuccessHandler(list => {
-    appState.submissions = list || [];
-    renderSubmissionList();
-  }).withFailureHandler(err => {
-    if (handleServerFailure(err)) return;
-    displayToast('Could not load submissions: ' + (err.message || err));
-  }).getSubmissions(getAuthToken(), Number(appState.submissionCardRow));
+function downloadReportCsv() {
+  const headers = ['#', 'Sector', 'Description', 'Entry Date', 'Action', 'Responsibility', 'Review Date', 'Flagged'];
+  const rows = (appState.items || []).map(function (item) {
+    return [item.id, item.sector, item.description, item.entryDate, item.action, item.responsibility, item.reviewDate, item.flagged ? 'YES' : 'NO'];
+  });
+  downloadTextFile('IndiaPostDashboard_Report_' + new Date().toISOString().slice(0, 10) + '.csv', toCsv([headers].concat(rows)), 'text/csv;charset=utf-8');
+  showToast('Report CSV downloaded', 'success');
 }
 
-function renderSubmissionList() {
-  const onlyMine = document.getElementById('submissionsOnlyMine').checked;
-  const all = appState.submissions || [];
-  const list = all.filter(s => !onlyMine || s.isOwner);
-  document.getElementById('submissionsCount').textContent = list.length + ' shown / ' + all.length + ' total';
-  document.getElementById('submissionsList').innerHTML = list.length
-    ? list.map(s => renderSubmissionCard(s)).join('')
-    : '<div class="message-panel">No submissions for this record yet.</div>';
-}
-
-function renderSubmissionCard(s) {
-  const lockedBadge = s.locked ? '<span class="badge-locked">Locked</span>' : '';
-  const displayedBadge = s.displayed ? '<span class="badge-displayed">On card</span>' : '';
-  const ownerTag = s.isOwner ? ' <em>(you)</em>' : '';
-  const editBtn = s.editable
-    ? `<button class="btn btn-secondary btn-small" onclick="editSubmission('${escapeHtml(s.id)}')">Edit</button>`
-    : '';
-  let lockBtn = '';
-  if (s.canUnlock) {
-    lockBtn = `<button class="btn btn-secondary btn-small" onclick="unlockSubmission('${escapeHtml(s.id)}')">Unlock</button>`;
-  } else if (s.canLock) {
-    lockBtn = `<button class="btn btn-secondary btn-small" onclick="lockSubmission('${escapeHtml(s.id)}')">Lock</button>`;
-  }
-  const deleteBtn = appState.isAdmin
-    ? `<button class="btn btn-danger btn-small" onclick="deleteSubmission('${escapeHtml(s.id)}')">Delete</button>`
-    : '';
-  const displayBtn = appState.isAdmin
-    ? `<button class="btn btn-secondary btn-small" onclick="toggleDisplaySubmission('${escapeHtml(s.id)}')">${s.displayed ? 'Hide from card' : 'Display on card'}</button>`
-    : '';
-  const lockRoleTag = s.lockRole ? ` (${escapeHtml(s.lockRole.toLowerCase())})` : '';
-  const lockNote = s.lockedBy
-    ? `<span class="submission-note">Locked by ${escapeHtml(s.lockedBy)}${lockRoleTag}${s.lockedAt ? ' on ' + escapeHtml(s.lockedAt) : ''}</span>`
-    : '';
-  return `
-    <div class="submission-card">
-      <div class="submission-meta">
-        <span>${escapeHtml(s.email)}${ownerTag} ${lockedBadge} ${displayedBadge}</span>
-        <span>${escapeHtml(s.createdAt || '')}</span>
-      </div>
-      <div class="submission-text preserve-whitespace">${escapeHtml(s.text || '')}</div>
-      <div class="submission-actions">${editBtn}${lockBtn}${deleteBtn}${displayBtn}${lockNote}</div>
-    </div>
-  `;
-}
-
-function editSubmission(id) {
-  const s = (appState.submissions || []).find(x => String(x.id) === String(id));
-  if (!s) return;
-  appState.submissionEditingId = s.id;
-  document.getElementById('submissionText').value = s.text;
-  document.getElementById('submitSubmissionBtn').textContent = 'Save changes';
-  document.getElementById('cancelSubmissionBtn').classList.remove('hidden');
-  document.getElementById('submissionStatus').textContent = 'Editing your submission';
-}
-
-function cancelSubmissionEdit() {
-  appState.submissionEditingId = '';
-  document.getElementById('submissionText').value = '';
-  document.getElementById('submissionStatus').textContent = '';
-  resetSubmissionCompose();
-}
-
-function submitSubmission() {
-  const text = document.getElementById('submissionText').value;
-  if (!text || !text.trim()) {
-    document.getElementById('submissionStatus').textContent = 'Write your update before submitting.';
-    return;
-  }
-  const editingId = appState.submissionEditingId;
-  if (editingId) {
-    showOverlay('Saving submission...');
-    google.script.run.withSuccessHandler(list => {
-      hideOverlay();
-      appState.submissions = list || [];
-      appState.submissionEditingId = '';
-      document.getElementById('submissionText').value = '';
-      resetSubmissionCompose();
-      document.getElementById('submissionStatus').textContent = '';
-      renderSubmissionList();
-      displayToast('Submission updated');
-    }).withFailureHandler(err => {
-      hideOverlay();
-      if (handleServerFailure(err)) return;
-      document.getElementById('submissionStatus').textContent = err.message || 'Could not save submission';
-    }).updateSubmission(editingId, text, getAuthToken());
-  } else {
-    showOverlay('Submitting update...');
-    google.script.run.withSuccessHandler(list => {
-      hideOverlay();
-      appState.submissions = list || [];
-      appState.submissionCounts[Number(appState.submissionCardRow)] = (list || []).length;
-      appState.submissionFlash[Number(appState.submissionCardRow)] = true;
-      document.getElementById('submissionText').value = '';
-      resetSubmissionCompose();
-      document.getElementById('submissionStatus').textContent = '';
-      renderSubmissionList();
-      renderDashboard();
-      displayToast('Update submitted');
-    }).withFailureHandler(err => {
-      hideOverlay();
-      if (handleServerFailure(err)) return;
-      document.getElementById('submissionStatus').textContent = err.message || 'Could not submit update';
-    }).addSubmission(Number(appState.submissionCardRow), appState.submissionCardId, text, getAuthToken());
-  }
-}
-
-function lockSubmission(id) {
-  if (!appState.isEditor) { displayToast('Editor access required'); return; }
-  showOverlay('Locking submission...');
-  google.script.run.withSuccessHandler(list => {
-    hideOverlay();
-    appState.submissions = list || [];
-    renderSubmissionList();
-    displayToast('Submission locked');
-  }).withFailureHandler(err => {
-    hideOverlay();
-    if (handleServerFailure(err)) return;
-    displayToast('Could not lock submission: ' + (err.message || err));
-  }).lockSubmission(id, getAuthToken());
-}
-
-function unlockSubmission(id) {
-  if (!appState.isEditor) { displayToast('Editor access required'); return; }
-  showOverlay('Unlocking submission...');
-  google.script.run.withSuccessHandler(list => {
-    hideOverlay();
-    appState.submissions = list || [];
-    renderSubmissionList();
-    displayToast('Submission unlocked');
-  }).withFailureHandler(err => {
-    hideOverlay();
-    if (handleServerFailure(err)) return;
-    displayToast('Could not unlock submission: ' + (err.message || err));
-  }).unlockSubmission(id, getAuthToken());
-}
-
-function deleteSubmission(id) {
-  if (!appState.isAdmin) { displayToast('Admin access required'); return; }
-  if (!confirm('Delete this submission permanently?')) return;
-  showOverlay('Deleting submission...');
-  google.script.run.withSuccessHandler(list => {
-    hideOverlay();
-    appState.submissions = list || [];
-    renderSubmissionList();
-    displayToast('Submission deleted');
-    refreshData();
-  }).withFailureHandler(err => {
-    hideOverlay();
-    if (handleServerFailure(err)) return;
-    displayToast('Could not delete submission: ' + (err.message || err));
-  }).deleteSubmission(id, getAuthToken());
-}
-
-function toggleDisplaySubmission(id) {
-  if (!appState.isAdmin) { displayToast('Admin access required'); return; }
-  showOverlay('Updating display...');
-  google.script.run.withSuccessHandler(list => {
-    hideOverlay();
-    appState.submissions = list || [];
-    renderSubmissionList();
-    displayToast('Display updated');
-    refreshData();
-  }).withFailureHandler(err => {
-    hideOverlay();
-    if (handleServerFailure(err)) return;
-    displayToast('Could not update display: ' + (err.message || err));
-  }).toggleSubmissionDisplay(id, getAuthToken());
+function printReport() {
+  window.print();
 }
 
 function downloadFromBase64(base64, filename, mimeType) {
@@ -877,88 +980,731 @@ function downloadFromBase64(base64, filename, mimeType) {
   document.body.appendChild(link);
   link.click();
   document.body.removeChild(link);
-  setTimeout(() => URL.revokeObjectURL(url), 4000);
+  setTimeout(function () { URL.revokeObjectURL(url); }, 4000);
 }
 
 function exportSpreadsheet() {
-  showOverlay('Exporting Excel file...');
-  google.script.run.withSuccessHandler(result => {
+  showOverlay('Exporting Excel file…');
+  google.script.run.withSuccessHandler(function (result) {
     hideOverlay();
     if (result && result.base64) {
       downloadFromBase64(result.base64, result.filename || 'IndiaPostDashboard_Report.xlsx', 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet');
-      displayToast('Excel file downloaded');
+      showToast('Excel file downloaded', 'success');
     } else {
-      displayToast('Excel export failed');
+      showToast('Excel export failed', 'error');
     }
-  }).withFailureHandler(err => {
+  }).withFailureHandler(function (err) {
     hideOverlay();
     if (handleServerFailure(err)) return;
-    displayToast('Excel export failed: ' + (err.message || err));
+    showToast('Excel export failed: ' + (err.message || err), 'error');
   }).exportToSpreadsheet(getAuthToken());
 }
 
 function downloadPdf() {
-  showOverlay('Generating PDF...');
-  google.script.run.withSuccessHandler(result => {
+  showOverlay('Generating PDF…');
+  google.script.run.withSuccessHandler(function (result) {
     hideOverlay();
     if (result && result.base64) {
       downloadFromBase64(result.base64, result.filename || 'IndiaPostDashboard_Report.pdf', 'application/pdf');
-      displayToast('PDF downloaded');
+      showToast('PDF downloaded', 'success');
     } else {
-      displayToast('PDF export failed');
+      showToast('PDF export failed', 'error');
     }
-  }).withFailureHandler(err => {
+  }).withFailureHandler(function (err) {
     hideOverlay();
     if (handleServerFailure(err)) return;
-    displayToast('PDF export failed: ' + (err.message || err));
+    showToast('PDF export failed: ' + (err.message || err), 'error');
   }).createPdfReport(getAuthToken());
 }
 
-function printReport() {
-  window.print();
+/* ---------------------------------- Settings ---------------------------------- */
+
+function renderSettings() {
+  getEl('settingAppName').value = appState.settings.appName || 'India Post Dashboard';
+  getEl('settingSheetName').value = appState.settings.sheetName || 'Sheet1';
+  getEl('settingStartRow').value = appState.settings.startRow || 4;
+  getEl('mustChangeBanner').classList.toggle('hidden', !appState.mustChange);
+
+  const usersAdmin = getEl('usersAdmin');
+  if (appState.isAdmin) {
+    usersAdmin.classList.remove('hidden');
+    loadUsers();
+  } else {
+    usersAdmin.classList.add('hidden');
+  }
 }
 
 function saveSettings(e) {
   e.preventDefault();
-  if (!appState.isAdmin) { displayToast('Admin access required'); return; }
+  if (!appState.isAdmin) { showToast('Admin access required', 'error'); return; }
+  const appNameEl = getEl('settingAppName');
+  const sheetNameEl = getEl('settingSheetName');
+  const startRowEl = getEl('settingStartRow');
+  const startRow = Number(startRowEl.value);
+
+  let valid = true;
+  valid = setFieldInvalid(appNameEl, appNameEl.value.trim() ? '' : 'App title is required.') && valid;
+  valid = setFieldInvalid(sheetNameEl, sheetNameEl.value.trim() ? '' : 'Sheet name is required.') && valid;
+  valid = setFieldInvalid(startRowEl, startRow >= 1 ? '' : 'Start row must be at least 1.') && valid;
+  if (!valid) return;
+
   const settings = {
-    appName: document.getElementById('settingAppName').value || 'India Post Dashboard',
-    sheetName: document.getElementById('settingSheetName').value || 'Sheet1',
-    startRow: Number(document.getElementById('settingStartRow').value) || 4
+    appName: appNameEl.value.trim(),
+    sheetName: sheetNameEl.value.trim(),
+    startRow: startRow
   };
-  showOverlay('Saving settings...');
-  google.script.run.withSuccessHandler(result => {
+  showOverlay('Saving settings…');
+  google.script.run.withSuccessHandler(function () {
     hideOverlay();
-    document.getElementById('settingsStatus').textContent = 'Saved successfully';
-    setTimeout(() => document.getElementById('settingsStatus').textContent = '', 3000);
-    displayToast('Settings saved');
-  }).withFailureHandler(err => {
+    const status = getEl('settingsStatus');
+    status.textContent = 'Saved successfully';
+    status.classList.add('success');
+    setTimeout(function () {
+      status.textContent = '';
+      status.classList.remove('success');
+    }, 3000);
+    showToast('Settings saved', 'success');
+  }).withFailureHandler(function (err) {
     hideOverlay();
     if (handleServerFailure(err)) return;
-    displayToast('Could not save settings: ' + (err.message || err));
+    showToast('Could not save settings: ' + (err.message || err), 'error');
   }).saveAppSettings(settings, getAuthToken());
 }
 
-function escapeHtml(value) {
-  if (value === undefined || value === null) return '';
-  return String(value).replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
+function handleChangePassword(e) {
+  e.preventDefault();
+  const currentEl = getEl('changeCurrentPassword');
+  const newEl = getEl('changeNewPassword');
+  const confirmEl = getEl('changeConfirmPassword');
+  const current = currentEl.value;
+  const np = newEl.value;
+  const cp = confirmEl.value;
+
+  let valid = true;
+  valid = setFieldInvalid(currentEl, current ? '' : 'Enter your current password.') && valid;
+  valid = setFieldInvalid(newEl, np.length >= 8 ? '' : 'Password must be at least 8 characters.') && valid;
+  if (np !== cp) {
+    setFieldInvalid(confirmEl, 'Passwords do not match.');
+    valid = false;
+  } else {
+    setFieldInvalid(confirmEl, '');
+  }
+  if (!valid) return;
+
+  showOverlay('Updating password…');
+  google.script.run.withSuccessHandler(function (res) {
+    hideOverlay();
+    const status = getEl('changePasswordStatus');
+    if (res && res.success) {
+      currentEl.value = '';
+      newEl.value = '';
+      confirmEl.value = '';
+      appState.mustChange = false;
+      getEl('mustChangeBanner').classList.add('hidden');
+      status.textContent = (res && res.message) || 'Password updated';
+      status.classList.add('success');
+      showToast('Password updated', 'success');
+    } else {
+      status.textContent = (res && res.message) || 'Could not update password';
+      status.classList.add('error');
+    }
+    setTimeout(function () {
+      status.textContent = '';
+      status.classList.remove('success');
+      status.classList.remove('error');
+    }, 3500);
+  }).withFailureHandler(function (err) {
+    hideOverlay();
+    if (handleServerFailure(err)) return;
+    const status = getEl('changePasswordStatus');
+    status.textContent = err.message || 'Could not update password';
+    status.classList.add('error');
+  }).changePassword(current, np, getAuthToken());
 }
 
-document.addEventListener('click', function (event) {
-  document.querySelectorAll('.review-dropdown-menu.open').forEach(menu => {
-    if (!menu.parentElement.contains(event.target)) menu.classList.remove('open');
+function loadUsers() {
+  google.script.run.withSuccessHandler(function (users) {
+    renderUsersTable(users || []);
+  }).withFailureHandler(function (err) {
+    if (handleServerFailure(err)) return;
+    showToast('Could not load users: ' + (err.message || err), 'error');
+  }).adminGetUsers(getAuthToken());
+}
+
+function renderUsersTable(users) {
+  const tbody = getEl('usersTable').querySelector('tbody');
+  tbody.dataset.users = JSON.stringify(users);
+  tbody.innerHTML = users.length ? users.map(function (u, i) {
+    return `
+      <tr>
+        <td class="preserve-whitespace">${escapeHtml(u.email)}${u.mustChange ? ' <em>(must change)</em>' : ''}</td>
+        <td>${escapeHtml(u.role)}</td>
+        <td class="preserve-whitespace">${escapeHtml(u.createdAt || '')}</td>
+        <td><button class="btn btn-secondary btn-small" type="button" data-action="reset" data-index="${i}">Reset password</button></td>
+        <td><button class="btn btn-danger btn-small" type="button" data-action="delete" data-index="${i}">Delete</button></td>
+      </tr>`;
+  }).join('') : '<tr><td colspan="5">No users found.</td></tr>';
+}
+
+function handleAddUser(e) {
+  e.preventDefault();
+  if (!appState.isAdmin) { showToast('Admin access required', 'error'); return; }
+  const emailEl = getEl('newUserEmail');
+  const roleEl = getEl('newUserRole');
+  const passwordEl = getEl('newUserPassword');
+  const email = emailEl.value.trim();
+  const role = roleEl.value;
+  const password = passwordEl.value;
+
+  let valid = true;
+  valid = setFieldInvalid(emailEl, /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email) ? '' : 'Enter a valid email address.') && valid;
+  valid = setFieldInvalid(passwordEl, password.length >= 8 ? '' : 'Password must be at least 8 characters.') && valid;
+  if (!valid) return;
+
+  showOverlay('Adding user…');
+  google.script.run.withSuccessHandler(function (users) {
+    hideOverlay();
+    emailEl.value = '';
+    passwordEl.value = '';
+    const status = getEl('addUserStatus');
+    status.textContent = 'User added';
+    status.classList.add('success');
+    setTimeout(function () {
+      status.textContent = '';
+      status.classList.remove('success');
+    }, 3000);
+    renderUsersTable(users || []);
+    showToast('User added', 'success');
+  }).withFailureHandler(function (err) {
+    hideOverlay();
+    if (handleServerFailure(err)) return;
+    const status = getEl('addUserStatus');
+    status.textContent = err.message || 'Could not add user';
+    status.classList.add('error');
+  }).adminAddUser(email, role, password, getAuthToken());
+}
+
+function deleteUser(email) {
+  if (!confirm('Delete user ' + email + '?')) return;
+  showOverlay('Deleting user…');
+  google.script.run.withSuccessHandler(function (users) {
+    hideOverlay();
+    renderUsersTable(users || []);
+    showToast('User deleted', 'success');
+  }).withFailureHandler(function (err) {
+    hideOverlay();
+    if (handleServerFailure(err)) return;
+    showToast('Delete failed: ' + (err.message || err), 'error');
+  }).adminDeleteUser(email, getAuthToken());
+}
+
+function resetUserPassword(email) {
+  const newPassword = prompt('New password for ' + email + ' (min 8 characters):');
+  if (!newPassword) return;
+  showOverlay('Resetting password…');
+  google.script.run.withSuccessHandler(function (users) {
+    hideOverlay();
+    renderUsersTable(users || []);
+    showToast('Password reset for ' + email, 'success');
+  }).withFailureHandler(function (err) {
+    hideOverlay();
+    if (handleServerFailure(err)) return;
+    showToast('Reset failed: ' + (err.message || err), 'error');
+  }).adminResetPassword(email, newPassword, getAuthToken());
+}
+
+/* ---------------------------------- Edit modal ---------------------------------- */
+
+function openEditModal() {
+  const modal = getEl('editModal');
+  modal.classList.remove('hidden');
+  const firstInput = modal.querySelector('input:not([type=hidden]):not([readonly])');
+  if (firstInput) firstInput.focus();
+}
+
+function closeEditModal() {
+  getEl('editModal').classList.add('hidden');
+}
+
+function resetEditForm() {
+  getEl('editRow').value = '';
+  getEl('editId').value = '';
+  getEl('editSector').value = '';
+  getEl('editDescription').value = '';
+  getEl('editEntryDate').value = '';
+  getEl('editAction').value = '';
+  getEl('editResponsibility').value = '';
+  getEl('editReviewDate').value = '';
+  getEl('editFlagged').checked = false;
+  const status = getEl('editStatus');
+  if (status) { status.textContent = ''; status.classList.remove('success', 'error'); }
+  ['editSector', 'editDescription'].forEach(function (id) {
+    const el = getEl(id);
+    if (el) setFieldInvalid(el, '');
   });
-});
+}
 
-document.getElementById('usersTable').addEventListener('click', function (e) {
-  const btn = e.target.closest('button[data-action]');
-  if (!btn) return;
-  const users = JSON.parse(document.getElementById('usersTable').dataset.users || '[]');
-  const user = users[Number(btn.dataset.index)];
-  if (!user) return;
-  if (btn.dataset.action === 'delete') deleteUser(user.email);
-  else if (btn.dataset.action === 'reset') resetUserPassword(user.email);
-});
+function addNewItem() {
+  if (!appState.isEditor) { showToast('Admin/editor access required', 'warning'); return; }
+  appState.editMode = 'add';
+  resetEditForm();
+  openEditModal();
+}
 
+function editItem(row) {
+  const item = appState.items.find(function (i) { return String(i.row) === String(row); });
+  if (!item) return;
+  appState.editMode = 'edit';
+  getEl('editRow').value = item.row;
+  getEl('editId').value = item.id || '';
+  getEl('editSector').value = item.sector || '';
+  getEl('editDescription').value = item.description || '';
+  getEl('editEntryDate').value = item.entryDate || '';
+  getEl('editAction').value = item.action || '';
+  getEl('editResponsibility').value = item.responsibility || '';
+  getEl('editReviewDate').value = item.reviewDate || '';
+  getEl('editFlagged').checked = !!item.flagged;
+  const status = getEl('editStatus');
+  if (status) { status.textContent = ''; status.classList.remove('success', 'error'); }
+  ['editSector', 'editDescription'].forEach(function (id) {
+    const el = getEl(id);
+    if (el) setFieldInvalid(el, '');
+  });
+  openEditModal();
+}
+
+function saveEditModal(e) {
+  e.preventDefault();
+  if (!appState.isEditor) { showToast('Admin/editor access required', 'warning'); return; }
+
+  const sectorEl = getEl('editSector');
+  const descEl = getEl('editDescription');
+  let valid = true;
+  valid = setFieldInvalid(sectorEl, sectorEl.value.trim() ? '' : 'Sector is required.') && valid;
+  valid = setFieldInvalid(descEl, descEl.value.trim() ? '' : 'Description is required.') && valid;
+  if (!valid) return;
+
+  const item = {
+    row: Number(getEl('editRow').value || 0),
+    id: getEl('editId').value,
+    sector: sectorEl.value.trim(),
+    description: descEl.value,
+    entryDate: getEl('editEntryDate').value.trim(),
+    action: getEl('editAction').value,
+    responsibility: getEl('editResponsibility').value.trim(),
+    reviewDate: getEl('editReviewDate').value.trim(),
+    flagged: getEl('editFlagged').checked
+  };
+
+  if (appState.editMode === 'add') {
+    submitNewItem(item);
+  } else if (item.row) {
+    saveItem(item);
+  }
+}
+
+function submitNewItem(item) {
+  showOverlay('Adding record…');
+  google.script.run.withSuccessHandler(function (data) {
+    hideOverlay();
+    closeEditModal();
+    appState.items = data.items || [];
+    appState.summary = data.summary || {};
+    appState.analytics = data.analytics || {};
+    populateFilters();
+    renderDashboard();
+    showToast('New item created', 'success');
+  }).withFailureHandler(function (err) {
+    hideOverlay();
+    if (handleServerFailure(err)) return;
+    showToast('Add failed: ' + (err.message || err), 'error');
+  }).addItem(item, getAuthToken());
+}
+
+function saveItem(item) {
+  showOverlay('Saving record…');
+  google.script.run.withSuccessHandler(function (data) {
+    hideOverlay();
+    closeEditModal();
+    appState.items = data.items || [];
+    appState.summary = data.summary || {};
+    appState.analytics = data.analytics || {};
+    renderDashboard();
+    showToast('Record saved', 'success');
+  }).withFailureHandler(function (err) {
+    hideOverlay();
+    if (handleServerFailure(err)) return;
+    showToast('Save failed: ' + (err.message || err), 'error');
+  }).updateItem(item, getAuthToken());
+}
+
+function deleteItem(row) {
+  if (!appState.isEditor) { showToast('Admin/editor access required', 'warning'); return; }
+  if (!confirm('Delete this record permanently?')) return;
+  showOverlay('Deleting record…');
+  google.script.run.withSuccessHandler(function (data) {
+    hideOverlay();
+    appState.items = data.items || [];
+    appState.summary = data.summary || {};
+    appState.analytics = data.analytics || {};
+    renderDashboard();
+    showToast('Record deleted', 'success');
+  }).withFailureHandler(function (err) {
+    hideOverlay();
+    if (handleServerFailure(err)) return;
+    showToast('Delete failed: ' + (err.message || err), 'error');
+  }).deleteItem(row, getAuthToken());
+}
+
+/* ---------------------------------- Review badge ---------------------------------- */
+
+function toggleReviewDropdown(btn) {
+  const menu = btn.parentElement.querySelector('.review-dropdown-menu');
+  if (!menu) return;
+  const isOpen = menu.classList.toggle('open');
+  document.querySelectorAll('.review-dropdown-menu.open').forEach(function (m) {
+    if (m !== menu) m.classList.remove('open');
+  });
+  return isOpen;
+}
+
+function markReviewDone(row) {
+  if (!appState.isAdmin) { showToast('Admin access required', 'warning'); return; }
+  if (!confirm('Mark this record as review done?')) return;
+  showOverlay('Marking review as done…');
+  google.script.run.withSuccessHandler(function (data) {
+    hideOverlay();
+    appState.items = data.items || [];
+    appState.summary = data.summary || {};
+    renderDashboard();
+    showToast('Marked review as done', 'success');
+  }).withFailureHandler(function (err) {
+    hideOverlay();
+    if (handleServerFailure(err)) return;
+    showToast('Failed: ' + (err.message || err), 'error');
+  }).markReviewDone(row, getAuthToken());
+}
+
+/* ---------------------------------- Submissions modal ---------------------------------- */
+
+function openSubmissionsModal(row, cardId, onlyMine) {
+  appState.submissionCardRow = row;
+  appState.submissionCardId = cardId;
+  appState.submissionEditingId = '';
+  getEl('submissionText').value = '';
+  resetSubmissionCompose();
+  getEl('submissionStatus').textContent = '';
+  getEl('submissionsOnlyMine').checked = !!onlyMine;
+  getEl('submissionText').placeholder = 'Write your update for record #' + cardId + '…';
+  getEl('submissionsModal').classList.remove('hidden');
+  loadSubmissions();
+}
+
+function closeSubmissionsModal() {
+  getEl('submissionsModal').classList.add('hidden');
+}
+
+function resetSubmissionCompose() {
+  getEl('submitSubmissionBtn').textContent = 'Submit update';
+  getEl('cancelSubmissionBtn').classList.add('hidden');
+}
+
+function loadSubmissions() {
+  google.script.run.withSuccessHandler(function (list) {
+    appState.submissions = list || [];
+    renderSubmissionList();
+  }).withFailureHandler(function (err) {
+    if (handleServerFailure(err)) return;
+    showToast('Could not load submissions: ' + (err.message || err), 'error');
+  }).getSubmissions(getAuthToken(), Number(appState.submissionCardRow));
+}
+
+function renderSubmissionList() {
+  const onlyMine = getEl('submissionsOnlyMine').checked;
+  const all = appState.submissions || [];
+  const list = all.filter(function (s) { return !onlyMine || s.isOwner; });
+  getEl('submissionsCount').textContent = list.length + ' shown / ' + all.length + ' total';
+  getEl('submissionsList').innerHTML = list.length
+    ? list.map(renderSubmissionCard).join('')
+    : '<div class="empty-state"><div class="empty-state-icon">' + svgIcon('inbox') + '</div><div class="empty-state-title">No submissions yet</div><div class="empty-state-subtitle">Submissions for this record will appear here.</div></div>';
+}
+
+function renderSubmissionCard(s) {
+  const lockedBadge = s.locked ? '<span class="badge badge-locked">Locked</span>' : '';
+  const displayedBadge = s.displayed ? '<span class="badge badge-displayed">On card</span>' : '';
+  const ownerTag = s.isOwner ? ' <em>(you)</em>' : '';
+  const editBtn = s.editable
+    ? `<button class="btn btn-secondary btn-small" type="button" onclick="editSubmission('${escAttr(s.id)}')">Edit</button>`
+    : '';
+  let lockBtn = '';
+  if (s.canUnlock) {
+    lockBtn = `<button class="btn btn-secondary btn-small" type="button" onclick="unlockSubmission('${escAttr(s.id)}')">Unlock</button>`;
+  } else if (s.canLock) {
+    lockBtn = `<button class="btn btn-secondary btn-small" type="button" onclick="lockSubmission('${escAttr(s.id)}')">Lock</button>`;
+  }
+  const deleteBtn = appState.isAdmin
+    ? `<button class="btn btn-danger btn-small" type="button" onclick="deleteSubmission('${escAttr(s.id)}')">Delete</button>`
+    : '';
+  const displayBtn = appState.isAdmin
+    ? `<button class="btn btn-secondary btn-small" type="button" onclick="toggleDisplaySubmission('${escAttr(s.id)}')">${s.displayed ? 'Hide from card' : 'Display on card'}</button>`
+    : '';
+  const lockRoleTag = s.lockRole ? ` (${escapeHtml(s.lockRole.toLowerCase())})` : '';
+  const lockNote = s.lockedBy
+    ? `<span class="submission-note">Locked by ${escapeHtml(s.lockedBy)}${lockRoleTag}${s.lockedAt ? ' on ' + escapeHtml(s.lockedAt) : ''}</span>`
+    : '';
+  return `
+    <div class="submission-card">
+      <div class="submission-meta">
+        <span>${escapeHtml(s.email)}${ownerTag} ${lockedBadge} ${displayedBadge}</span>
+        <span>${escapeHtml(s.createdAt || '')}</span>
+      </div>
+      <div class="submission-text preserve-whitespace">${escapeHtml(s.text || '')}</div>
+      <div class="submission-actions">${editBtn}${lockBtn}${deleteBtn}${displayBtn}${lockNote}</div>
+    </div>`;
+}
+
+function editSubmission(id) {
+  const s = (appState.submissions || []).find(function (x) { return String(x.id) === String(id); });
+  if (!s) return;
+  appState.submissionEditingId = s.id;
+  getEl('submissionText').value = s.text;
+  getEl('submitSubmissionBtn').textContent = 'Save changes';
+  getEl('cancelSubmissionBtn').classList.remove('hidden');
+  getEl('submissionStatus').textContent = 'Editing your submission';
+}
+
+function cancelSubmissionEdit() {
+  appState.submissionEditingId = '';
+  getEl('submissionText').value = '';
+  getEl('submissionStatus').textContent = '';
+  resetSubmissionCompose();
+}
+
+function submitSubmission() {
+  const text = getEl('submissionText').value;
+  if (!text || !text.trim()) {
+    getEl('submissionStatus').textContent = 'Write your update before submitting.';
+    return;
+  }
+  const editingId = appState.submissionEditingId;
+  if (editingId) {
+    showOverlay('Saving submission…');
+    google.script.run.withSuccessHandler(function (list) {
+      hideOverlay();
+      appState.submissions = list || [];
+      appState.submissionEditingId = '';
+      getEl('submissionText').value = '';
+      resetSubmissionCompose();
+      getEl('submissionStatus').textContent = '';
+      renderSubmissionList();
+      showToast('Submission updated', 'success');
+    }).withFailureHandler(function (err) {
+      hideOverlay();
+      if (handleServerFailure(err)) return;
+      getEl('submissionStatus').textContent = err.message || 'Could not save submission';
+    }).updateSubmission(editingId, text, getAuthToken());
+  } else {
+    showOverlay('Submitting update…');
+    google.script.run.withSuccessHandler(function (list) {
+      hideOverlay();
+      appState.submissions = list || [];
+      appState.submissionCounts[Number(appState.submissionCardRow)] = (list || []).length;
+      appState.submissionFlash[Number(appState.submissionCardRow)] = true;
+      getEl('submissionText').value = '';
+      resetSubmissionCompose();
+      getEl('submissionStatus').textContent = '';
+      renderSubmissionList();
+      renderDashboard();
+      showToast('Update submitted', 'success');
+    }).withFailureHandler(function (err) {
+      hideOverlay();
+      if (handleServerFailure(err)) return;
+      getEl('submissionStatus').textContent = err.message || 'Could not submit update';
+    }).addSubmission(Number(appState.submissionCardRow), appState.submissionCardId, text, getAuthToken());
+  }
+}
+
+function lockSubmission(id) {
+  if (!appState.isEditor) { showToast('Editor access required', 'warning'); return; }
+  showOverlay('Locking submission…');
+  google.script.run.withSuccessHandler(function (list) {
+    hideOverlay();
+    appState.submissions = list || [];
+    renderSubmissionList();
+    showToast('Submission locked', 'success');
+  }).withFailureHandler(function (err) {
+    hideOverlay();
+    if (handleServerFailure(err)) return;
+    showToast('Could not lock submission: ' + (err.message || err), 'error');
+  }).lockSubmission(id, getAuthToken());
+}
+
+function unlockSubmission(id) {
+  if (!appState.isEditor) { showToast('Editor access required', 'warning'); return; }
+  showOverlay('Unlocking submission…');
+  google.script.run.withSuccessHandler(function (list) {
+    hideOverlay();
+    appState.submissions = list || [];
+    renderSubmissionList();
+    showToast('Submission unlocked', 'success');
+  }).withFailureHandler(function (err) {
+    hideOverlay();
+    if (handleServerFailure(err)) return;
+    showToast('Could not unlock submission: ' + (err.message || err), 'error');
+  }).unlockSubmission(id, getAuthToken());
+}
+
+function deleteSubmission(id) {
+  if (!appState.isAdmin) { showToast('Admin access required', 'warning'); return; }
+  if (!confirm('Delete this submission permanently?')) return;
+  showOverlay('Deleting submission…');
+  google.script.run.withSuccessHandler(function (list) {
+    hideOverlay();
+    appState.submissions = list || [];
+    renderSubmissionList();
+    showToast('Submission deleted', 'success');
+    refreshData();
+  }).withFailureHandler(function (err) {
+    hideOverlay();
+    if (handleServerFailure(err)) return;
+    showToast('Could not delete submission: ' + (err.message || err), 'error');
+  }).deleteSubmission(id, getAuthToken());
+}
+
+function toggleDisplaySubmission(id) {
+  if (!appState.isAdmin) { showToast('Admin access required', 'warning'); return; }
+  showOverlay('Updating display…');
+  google.script.run.withSuccessHandler(function (list) {
+    hideOverlay();
+    appState.submissions = list || [];
+    renderSubmissionList();
+    showToast('Display updated', 'success');
+    refreshData();
+  }).withFailureHandler(function (err) {
+    hideOverlay();
+    if (handleServerFailure(err)) return;
+    showToast('Could not update display: ' + (err.message || err), 'error');
+  }).toggleSubmissionDisplay(id, getAuthToken());
+}
+
+/* ---------------------------------- About ---------------------------------- */
+
+function openAbout() {
+  getEl('aboutVersion').textContent = APP_VERSION;
+  getEl('aboutBuild').textContent = APP_BUILD;
+  getEl('aboutModal').classList.remove('hidden');
+  getEl('profileDropdown').classList.remove('open');
+}
+
+function closeAbout() {
+  getEl('aboutModal').classList.add('hidden');
+}
+
+/* ---------------------------------- Offline ---------------------------------- */
+
+function updateOfflineBanner() {
+  const banner = getEl('offlineBanner');
+  if (banner) banner.classList.toggle('hidden', navigator.onLine);
+}
+
+/* ---------------------------------- Event wiring ---------------------------------- */
+
+function wireGlobalEvents() {
+  const searchInput = getEl('searchInput');
+  if (searchInput) {
+    searchInput.addEventListener('input', debounce(function () {
+      appState.searchQuery = searchInput.value.trim();
+      updateFilterChips();
+      renderDashboard();
+    }, 180));
+  }
+
+  document.addEventListener('keydown', function (e) {
+    if ((e.ctrlKey || e.metaKey) && (e.key === 'k' || e.key === 'K')) {
+      e.preventDefault();
+      const input = getEl('searchInput');
+      if (input) {
+        input.focus();
+        input.select();
+      }
+    }
+    if (e.key === 'Escape') {
+      document.querySelectorAll('.review-dropdown-menu.open').forEach(function (menu) {
+        menu.classList.remove('open');
+      });
+      const profileDropdown = getEl('profileDropdown');
+      if (profileDropdown && profileDropdown.classList.contains('open')) {
+        profileDropdown.classList.remove('open');
+        const trigger = getEl('profileTrigger');
+        if (trigger) trigger.setAttribute('aria-expanded', 'false');
+      }
+      ['editModal', 'aboutModal', 'submissionsModal'].forEach(function (id) {
+        getEl(id).classList.add('hidden');
+      });
+      document.body.classList.remove('sidebar-open');
+      const backdrop = getEl('sidebarBackdrop');
+      if (backdrop) backdrop.classList.add('hidden');
+    }
+  });
+
+  document.addEventListener('click', function (event) {
+    document.querySelectorAll('.review-dropdown-menu.open').forEach(function (menu) {
+      if (!menu.parentElement.contains(event.target)) menu.classList.remove('open');
+    });
+    const profileDropdown = getEl('profileDropdown');
+    const profileMenu = getEl('profileMenu');
+    if (profileDropdown && profileMenu && profileDropdown.classList.contains('open') && !profileMenu.contains(event.target)) {
+      profileDropdown.classList.remove('open');
+      const trigger = getEl('profileTrigger');
+      if (trigger) trigger.setAttribute('aria-expanded', 'false');
+    }
+  });
+
+  document.querySelectorAll('.modal-backdrop').forEach(function (backdrop) {
+    backdrop.addEventListener('click', function (event) {
+      if (event.target === backdrop) {
+        if (backdrop.id === 'editModal') closeEditModal();
+        else if (backdrop.id === 'aboutModal') closeAbout();
+        else if (backdrop.id === 'submissionsModal') closeSubmissionsModal();
+      }
+    });
+  });
+
+  const auditTable = getEl('auditTable');
+  if (auditTable) {
+    auditTable.querySelectorAll('thead th[data-sort]').forEach(function (th) {
+      th.classList.add('sortable');
+      th.addEventListener('click', function () {
+        setAuditSort(th.getAttribute('data-sort'));
+      });
+    });
+  }
+
+  const usersTable = getEl('usersTable');
+  if (usersTable) {
+    usersTable.addEventListener('click', function (e) {
+      const btn = e.target.closest('button[data-action]');
+      if (!btn) return;
+      const users = JSON.parse(getEl('usersTable').dataset.users || '[]');
+      const user = users[Number(btn.dataset.index)];
+      if (!user) return;
+      if (btn.dataset.action === 'delete') deleteUser(user.email);
+      else if (btn.dataset.action === 'reset') resetUserPassword(user.email);
+    });
+  }
+
+  ['loginForm', 'forgotForm', 'resetForm', 'settingsForm', 'changePasswordForm', 'addUserForm', 'editForm'].forEach(function (id) {
+    const form = getEl(id);
+    if (form) wireFieldClearing(form);
+  });
+
+  window.addEventListener('offline', updateOfflineBanner);
+  window.addEventListener('online', function () {
+    updateOfflineBanner();
+    showToast('You are back online', 'info');
+  });
+}
+
+wireGlobalEvents();
 window.addEventListener('load', initApp);
 </script>
