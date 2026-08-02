@@ -137,6 +137,17 @@
   by role (editor-only actions hidden for viewers).
 - Verified with `node --check` and a DOM/onclick audit; deployed @91.
 
+### Phase 4 — Enterprise Features, Tranche I: Document Management (deployment @92)
+- **Document attachments:** new `Documents.js` server module backed by a hidden
+  `Documents` sheet. Each document stores Drive file ID, name, MIME type, size,
+  and uploader metadata.
+- **Record-linked uploads:** from the record detail dialog, users can upload
+  files (stored privately in Drive) and view a linked list of all documents for
+  that record.
+- **Delete:** documents can be removed (trashed in Drive and deleted from the
+  sheet).
+- Verified with `node --check` and a DOM/onclick audit; deployed @92.
+
 ### Phase 4 — Enterprise Features, Tranche A: User & Role Management (deployment @82)
 - **Granular RBAC permission matrix:** new `MODULES` / `MODULE_ACTIONS` /
   `PERMISSIONS` in `Settings.js` with View/Create/Edit/Delete/Export/Approve per
