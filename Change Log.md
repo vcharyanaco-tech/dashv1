@@ -148,6 +148,15 @@
   sheet).
 - Verified with `node --check` and a DOM/onclick audit; deployed @92.
 
+### Phase 5 — Security & Accessibility (deployment @93)
+- **Security hardening:** new `Security.js` module with input validation helpers
+  (`validateEmail`, `validatePassword`, `sanitizeHtml`) and login rate-limiting
+  utilities.
+- **Accessibility:** skip-to-content link, keyboard-accessible table rows with
+  arrow-key navigation and Enter/Space activation, improved ARIA labeling on
+  modals and dynamic regions.
+- Verified with `node --check` and a DOM/onclick audit; deployed @93.
+
 ### Phase 4 — Enterprise Features, Tranche A: User & Role Management (deployment @82)
 - **Granular RBAC permission matrix:** new `MODULES` / `MODULE_ACTIONS` /
   `PERMISSIONS` in `Settings.js` with View/Create/Edit/Delete/Export/Approve per
