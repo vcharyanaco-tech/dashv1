@@ -128,6 +128,15 @@
   `MailApp` with the selected template.
 - Verified with `node --check` and a DOM/onclick audit; deployed @90.
 
+### Phase 4 — Enterprise Features, Tranche H: Global Search & Command Palette (deployment @91)
+- **Command palette:** Ctrl+K opens a command palette with quick navigation
+  (Dashboard, Audit, Reports, Settings, Approvals, Tasks), actions (Refresh,
+  Add record, Toggle theme, Sign out), and live record search (by ID, sector,
+  description).
+- **Keyboard shortcuts:** palette actions show shortcuts; commands are filtered
+  by role (editor-only actions hidden for viewers).
+- Verified with `node --check` and a DOM/onclick audit; deployed @91.
+
 ### Phase 4 — Enterprise Features, Tranche A: User & Role Management (deployment @82)
 - **Granular RBAC permission matrix:** new `MODULES` / `MODULE_ACTIONS` /
   `PERMISSIONS` in `Settings.js` with View/Create/Edit/Delete/Export/Approve per
