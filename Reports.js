@@ -5,6 +5,11 @@
  * ============================================================
  */
 
+/**
+ * Computes totals/flagged/normal counts and a per-sector breakdown.
+ * @param {Object[]} items Display-ready record items.
+ * @returns {{total: number, flagged: number, normal: number, sectors: Object}}
+ */
 function buildSummaryFromItems(items) {
   items = items || [];
   const summary = {
@@ -20,27 +25,54 @@ function buildSummaryFromItems(items) {
   return summary;
 }
 
+/**
+ * Returns the aggregate dashboard summary.
+ * @returns {Object} buildSummaryFromItems(getData().items).
+ */
 function getDashboardSummary() {
   return buildSummaryFromItems((getData().items) || []);
 }
 
+/**
+ * Builds a sorted per-sector report from a summary object.
+ * @param {Object} summary Result of buildSummaryFromItems.
+ * @returns {Object[]} [{ sector, total }]
+ */
 function buildSectorReportFromSummary(summary) {
   const sectors = (summary && summary.sectors) || {};
   return Object.keys(sectors).sort().map(key => ({ sector: key, total: sectors[key] }));
 }
 
+/**
+ * Returns the per-sector report sorted alphabetically.
+ * @returns {Object[]} [{ sector, total }]
+ */
 function getSectorReport() {
   return buildSectorReportFromSummary(getDashboardSummary());
 }
 
+/**
+ * Filters items to the flagged (review-due) ones.
+ * @param {Object[]} items Display-ready record items.
+ * @returns {Object[]} Flagged items.
+ */
 function buildFlaggedItemsFromItems(items) {
   return (items || []).filter(item => item.flagged);
 }
 
+/**
+ * Returns only the flagged (review-due) items.
+ * @returns {Object[]} Flagged items.
+ */
 function getFlaggedItemsReport() {
   return buildFlaggedItemsFromItems((getData().items) || []);
 }
 
+/**
+ * Builds a { yyyy-MM: count } trend from item entry dates.
+ * @param {Object[]} items Display-ready record items.
+ * @returns {Object} Month -> count map.
+ */
 function buildMonthlyTrendFromItems(items) {
   const trend = {};
   (items || []).forEach(function (item) {
@@ -51,10 +83,18 @@ function buildMonthlyTrendFromItems(items) {
   return trend;
 }
 
+/**
+ * Returns the monthly entry-count trend.
+ * @returns {Object} Month -> count map.
+ */
 function getMonthlyTrend() {
   return buildMonthlyTrendFromItems((getData().items) || []);
 }
 
+/**
+ * Builds the printable report payload (title, timestamp, summary, items).
+ * @returns {{title: string, generatedOn: Date, summary: Object, items: Object[]}}
+ */
 function getPrintableReport() {
   const data = getData();
   return {
@@ -65,6 +105,12 @@ function getPrintableReport() {
   };
 }
 
+/**
+ * Exports the dashboard report as an .xlsx and returns it as base64.
+ * Uses Drive REST, DriveApp, spreadsheet blob, then an in-memory fallback.
+ * @param {string} token Session token (login required).
+ * @returns {{filename: string, base64: string}}
+ */
 function exportToSpreadsheet(token) {
   requireLogin_(token);
   const report = getPrintableReport();
@@ -228,6 +274,11 @@ function buildXlsxFromItems_(items) {
   return Utilities.zip(parts, 'report.xlsx').setContentType(xlsxMime);
 }
 
+/**
+ * Renders the printable report to PDF and returns it as base64.
+ * @param {string} token Session token (login required).
+ * @returns {{filename: string, base64: string}}
+ */
 function createPdfReport(token) {
   requireLogin_(token);
   const template = HtmlService.createTemplateFromFile('ReportPdf');

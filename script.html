@@ -10,9 +10,81 @@
 const APP_VERSION = '1.0.0';
 const APP_BUILD = '2026.08.02';
 const PAGE_SIZE = 10;
+const AUDIT_PAGE_SIZE = 20;
 const STORAGE_THEME = 'indiaPostDarkMode';
 const STORAGE_SIDEBAR = 'indiaPostSidebarCollapsed';
 const STORAGE_TOKEN = 'indiaPostAuthToken';
+
+/* ---------------------------------- Event bus (pub/sub) ---------------------------------- */
+/* Lightweight publish/subscribe used across the UI. Named events follow the
+   convention: UserLoggedIn, DataRefreshed, ReportSaved, SettingsUpdated,
+   ThemeChanged. */
+
+const EventBus = {
+  listeners: {},
+  on: function (event, fn) {
+    if (!this.listeners[event]) this.listeners[event] = [];
+    this.listeners[event].push(fn);
+    return this;
+  },
+  off: function (event, fn) {
+    const list = this.listeners[event];
+    if (!list) return this;
+    const idx = list.indexOf(fn);
+    if (idx !== -1) list.splice(idx, 1);
+    return this;
+  },
+  emit: function (event, payload) {
+    (this.listeners[event] || []).slice().forEach(function (fn) { fn(payload); });
+    return this;
+  }
+};
+
+/* ---------------------------------- API service layer ---------------------------------- */
+/* Central gateway for every server call: owns google.script.run, argument
+   order and token injection, and turns results into Promises. No UI code
+   calls google.script.run directly. */
+
+function apiCall_(fn) {
+  const args = Array.prototype.slice.call(arguments, 1);
+  return new Promise(function (resolve, reject) {
+    google.script.run
+      .withSuccessHandler(resolve)
+      .withFailureHandler(reject)
+      [fn].apply(null, args);
+  });
+}
+
+const ApiService = {
+  getAppData: function () { return apiCall_('getAppData', getAuthToken()); },
+  getData: function () { return apiCall_('getData'); },
+  addItem: function (item) { return apiCall_('addItem', item, getAuthToken()); },
+  updateItem: function (item) { return apiCall_('updateItem', item, getAuthToken()); },
+  deleteItem: function (row) { return apiCall_('deleteItem', row, getAuthToken()); },
+  markReviewDone: function (row) { return apiCall_('markReviewDone', row, getAuthToken()); },
+  login: function (email, password) { return apiCall_('login', email, password); },
+  logout: function () { return apiCall_('logout', getAuthToken()); },
+  validateSession: function () { return apiCall_('validateSession', getAuthToken()); },
+  requestPasswordReset: function (email, pageUrl) { return apiCall_('requestPasswordReset', email, pageUrl); },
+  resetPasswordWithToken: function (email, resetToken, newPassword) { return apiCall_('resetPasswordWithToken', email, resetToken, newPassword); },
+  changePassword: function (currentPassword, newPassword) { return apiCall_('changePassword', currentPassword, newPassword, getAuthToken()); },
+  adminGetUsers: function () { return apiCall_('adminGetUsers', getAuthToken()); },
+  adminAddUser: function (email, role, password) { return apiCall_('adminAddUser', email, role, password, getAuthToken()); },
+  adminDeleteUser: function (email) { return apiCall_('adminDeleteUser', email, getAuthToken()); },
+  adminResetPassword: function (email, newPassword) { return apiCall_('adminResetPassword', email, newPassword, getAuthToken()); },
+  getSubmissions: function (cardRow) { return apiCall_('getSubmissions', getAuthToken(), cardRow); },
+  addSubmission: function (cardRow, cardId, text) { return apiCall_('addSubmission', cardRow, cardId, text, getAuthToken()); },
+  updateSubmission: function (submissionId, text) { return apiCall_('updateSubmission', submissionId, text, getAuthToken()); },
+  lockSubmission: function (submissionId) { return apiCall_('lockSubmission', submissionId, getAuthToken()); },
+  unlockSubmission: function (submissionId) { return apiCall_('unlockSubmission', submissionId, getAuthToken()); },
+  deleteSubmission: function (submissionId) { return apiCall_('deleteSubmission', submissionId, getAuthToken()); },
+  toggleSubmissionDisplay: function (submissionId) { return apiCall_('toggleSubmissionDisplay', submissionId, getAuthToken()); },
+  getAuditEntries: function (limit) { return apiCall_('getAuditEntries', limit || 80); },
+  adminDeleteAuditRows: function (rowNumbers) { return apiCall_('adminDeleteAuditRows', rowNumbers, getAuthToken()); },
+  adminClearAudit: function () { return apiCall_('adminClearAudit', getAuthToken()); },
+  exportToSpreadsheet: function () { return apiCall_('exportToSpreadsheet', getAuthToken()); },
+  createPdfReport: function () { return apiCall_('createPdfReport', getAuthToken()); }
+};
 
 const appState = {
   items: [],
@@ -38,12 +110,53 @@ const appState = {
   page: 1,
   auditSortKey: 'timestamp',
   auditSortDir: 'desc',
-  selectedAuditRows: []
+  auditPage: 1,
+  selectedAuditRows: [],
+  dashboardView: 'cards',
+  dashSortKey: 'id',
+  dashSortDir: 'asc'
 };
 
 /* ---------------------------------- Helpers ---------------------------------- */
 
 function getEl(id) { return document.getElementById(id); }
+
+/* Apply a full server payload (getAppData shape) to the client state in one
+   place so every refresh path keeps the same fields in sync. */
+function applyAppData(data) {
+  appState.items = (data && data.items) || [];
+  appState.summary = (data && data.summary) || {};
+  appState.analytics = (data && data.analytics) || {};
+  appState.audit = (data && data.audit) || [];
+  appState.selectedAuditRows = [];
+  appState.settings = (data && data.settings) || {};
+  appState.submissionCounts = (data && data.submissionCounts) || {};
+  appState.submissionFlash = (data && data.submissionFlash) || {};
+  appState.displayedSubmissions = (data && data.displayedSubmissions) || [];
+  appState.auditPage = 1;
+}
+
+let auditLoaded = false;
+
+function ensureAuditLoaded() {
+  if (auditLoaded) return Promise.resolve(appState.audit);
+  return ApiService.getAuditEntries(80).then(function (entries) {
+    appState.audit = entries || [];
+    appState.auditPage = 1;
+    auditLoaded = true;
+    return appState.audit;
+  });
+}
+
+function renderAuditPanel() {
+  ensureAuditLoaded().then(function () {
+    renderAudit();
+  }).catch(function (err) {
+    if (handleServerFailure(err)) return;
+    showToast('Could not load audit log: ' + (err.message || err), 'error');
+    renderAudit();
+  });
+}
 
 function escapeHtml(value) {
   if (value === undefined || value === null) return '';
@@ -148,6 +261,60 @@ function hideOverlay() {
 function hideSplash() {
   const splash = getEl('splashScreen');
   if (splash) splash.classList.add('hide');
+}
+
+/* ---------------------------------- Shared dialog system ---------------------------------- */
+/* Central open/close for every modal plus a styled confirm that replaces the
+   native confirm() boxes. openDialog/closeDialog also manage the body scroll
+   lock and aria state so all dialogs behave consistently. */
+
+function openDialog(id) {
+  const modal = getEl(id);
+  if (!modal) return;
+  modal.classList.remove('hidden');
+  modal.setAttribute('aria-hidden', 'false');
+  document.body.classList.add('modal-open');
+  const focusable = modal.querySelector('input:not([type=hidden]), textarea, select, button, [tabindex]');
+  if (focusable) focusable.focus();
+}
+
+function closeDialog(id) {
+  const modal = getEl(id);
+  if (!modal) return;
+  modal.classList.add('hidden');
+  modal.setAttribute('aria-hidden', 'true');
+  if (!document.querySelector('.modal-backdrop:not(.hidden)')) {
+    document.body.classList.remove('modal-open');
+  }
+}
+
+let confirmDialogState = null;
+
+function showConfirm(options) {
+  return new Promise(function (resolve) {
+    confirmDialogState = { onConfirm: resolve };
+    getEl('confirmMessage').textContent = options.message || 'Are you sure?';
+    getEl('confirmModalTitle').textContent = options.title || 'Confirm';
+    const okBtn = getEl('confirmOkBtn');
+    okBtn.textContent = options.okLabel || 'OK';
+    okBtn.classList.toggle('btn-danger', !!options.danger);
+    okBtn.classList.toggle('btn-primary', !options.danger);
+    openDialog('confirmModal');
+  });
+}
+
+function runConfirmDialog() {
+  const cb = confirmDialogState ? confirmDialogState.onConfirm : null;
+  confirmDialogState = null;
+  closeDialog('confirmModal');
+  if (cb) cb(true);
+}
+
+function cancelConfirmDialog() {
+  const cb = confirmDialogState ? confirmDialogState.onConfirm : null;
+  confirmDialogState = null;
+  closeDialog('confirmModal');
+  if (cb) cb(false);
 }
 
 /* ---------------------------------- Auth token ---------------------------------- */
@@ -287,7 +454,7 @@ function openTab(tabId) {
     nav.setAttribute('aria-current', 'page');
   }
   if (tabId === 'analytics') renderAnalytics();
-  if (tabId === 'audit') renderAudit();
+  if (tabId === 'audit') renderAuditPanel();
   if (tabId === 'reports') renderReportPreview();
   if (tabId === 'settings') renderSettings();
   if (tabId === 'dashboard') renderDashboard();
@@ -317,7 +484,7 @@ function initApp() {
 
 function loadApp() {
   showOverlay('Loading app…');
-  google.script.run.withSuccessHandler(function (data) {
+  ApiService.getAppData().then(function (data) {
     hideOverlay();
     hideSplash();
     if (!data || !data.user || !data.user.loggedIn) {
@@ -329,15 +496,7 @@ function loadApp() {
     appState.isAdmin = data.user.role === 'ADMIN';
     appState.isEditor = data.user.role === 'ADMIN' || data.user.role === 'EDITOR';
     appState.mustChange = !!data.mustChange;
-    appState.items = data.items || [];
-    appState.summary = data.summary || {};
-    appState.analytics = data.analytics || {};
-    appState.audit = data.audit || [];
-    appState.selectedAuditRows = [];
-    appState.settings = data.settings || {};
-    appState.submissionCounts = data.submissionCounts || {};
-    appState.submissionFlash = data.submissionFlash || {};
-    appState.displayedSubmissions = data.displayedSubmissions || [];
+    applyAppData(data);
 
     populateFilters();
     renderProfile();
@@ -349,13 +508,15 @@ function loadApp() {
     getEl('resetScreen').classList.add('hidden');
     renderDashboard();
     updateOfflineBanner();
+    EventBus.emit('DataRefreshed');
+    EventBus.emit('UserLoggedIn');
 
     if (appState.mustChange) {
       getEl('mustChangeBanner').classList.remove('hidden');
       openTab('settings');
       showToast('Please set a new password to continue.', 'warning');
     }
-  }).withFailureHandler(function (err) {
+  }).catch(function (err) {
     hideOverlay();
     hideSplash();
     if (handleServerFailure(err)) return;
@@ -364,7 +525,7 @@ function loadApp() {
     panel.classList.remove('hidden');
     panel.textContent = 'Error loading app: ' + message;
     console.error('App load failed', err);
-  }).getAppData(getAuthToken());
+  });
 }
 
 function handleLogin(e) {
@@ -379,7 +540,7 @@ function handleLogin(e) {
   if (!valid) return;
 
   showOverlay('Logging in…');
-  google.script.run.withSuccessHandler(function (res) {
+  ApiService.login(email, password).then(function (res) {
     hideOverlay();
     if (!res || !res.success) {
       showAuthMessage('loginMessage', (res && res.message) || 'Login failed.');
@@ -389,10 +550,10 @@ function handleLogin(e) {
     appState.mustChange = !!res.mustChange;
     showAuthMessage('loginMessage', '');
     loadApp();
-  }).withFailureHandler(function (err) {
+  }).catch(function (err) {
     hideOverlay();
     showAuthMessage('loginMessage', err && err.message ? err.message : 'Login failed.');
-  }).login(email, password);
+  });
 }
 
 function showForgotPassword() {
@@ -412,14 +573,14 @@ function handleForgotPassword(e) {
   const email = getEl('forgotEmail').value.trim();
   if (!setFieldInvalid(getEl('forgotEmail'), email ? '' : 'Enter your email address.')) return;
   showOverlay('Sending reset link…');
-  google.script.run.withSuccessHandler(function (res) {
+  ApiService.requestPasswordReset(email, window.location.href).then(function (res) {
     hideOverlay();
     showAuthMessage('forgotMessage', (res && res.message) || 'Reset link sent.');
     showToast((res && res.message) || 'Reset link sent.', 'success');
-  }).withFailureHandler(function (err) {
+  }).catch(function (err) {
     hideOverlay();
     showAuthMessage('forgotMessage', err && err.message ? err.message : 'Could not send reset link.');
-  }).requestPasswordReset(email, window.location.href);
+  });
 }
 
 function handleResetPassword(e) {
@@ -441,7 +602,7 @@ function handleResetPassword(e) {
   if (!valid) return;
 
   showOverlay('Setting new password…');
-  google.script.run.withSuccessHandler(function (res) {
+  ApiService.resetPasswordWithToken(email, params.resetToken, np).then(function (res) {
     hideOverlay();
     if (!res || !res.success) {
       showAuthMessage('resetMessage', (res && res.message) || 'Could not reset password.');
@@ -451,20 +612,20 @@ function handleResetPassword(e) {
     appState.mustChange = false;
     showAuthMessage('resetMessage', '');
     loadApp();
-  }).withFailureHandler(function (err) {
+  }).catch(function (err) {
     hideOverlay();
     showAuthMessage('resetMessage', err && err.message ? err.message : 'Could not reset password.');
-  }).resetPasswordWithToken(email, params.resetToken, np);
+  });
 }
 
 function logout() {
-  google.script.run.withSuccessHandler(function () {
+  ApiService.logout().then(function () {
     setAuthToken('');
     window.location.href = window.location.href.split('?')[0];
-  }).withFailureHandler(function () {
+  }).catch(function () {
     setAuthToken('');
     window.location.reload();
-  }).logout(getAuthToken());
+  });
 }
 
 /* ---------------------------------- Form validation ---------------------------------- */
@@ -705,6 +866,95 @@ function renderDashboardCards() {
     : emptyStateHtml();
 }
 
+/* ---------------------------------- Dashboard: table view ---------------------------------- */
+/* Enterprise-style sortable table, additive alongside the card view. Rows use
+   the same filters + pagination as the cards; clicking a row opens the record
+   detail dialog (S8). */
+
+function toggleDashboardView(view) {
+  appState.dashboardView = view === 'table' ? 'table' : 'cards';
+  renderDashboard();
+}
+
+function dashCompare(a, b) {
+  const av = a == null ? '' : a;
+  const bv = b == null ? '' : b;
+  const an = Number(av);
+  const bn = Number(bv);
+  const aIsNum = av !== '' && isFinite(an);
+  const bIsNum = bv !== '' && isFinite(bn);
+  if (aIsNum && bIsNum) return an - bn;
+  return String(av).toLowerCase() < String(bv).toLowerCase() ? -1
+    : (String(av).toLowerCase() > String(bv).toLowerCase() ? 1 : 0);
+}
+
+function sortedItems() {
+  const key = appState.dashSortKey;
+  const dir = appState.dashSortDir === 'desc' ? -1 : 1;
+  return appState.filtered.slice().sort(function (a, b) {
+    return dashCompare(a[key], b[key]) * dir;
+  });
+}
+
+function buildTableRowHtml(item) {
+  const subCount = (appState.submissionCounts || {})[item.row] || 0;
+  const statusBadge = item.reviewStatus === 'due'
+    ? '<span class="review-badge review-due">Review due</span>'
+    : item.reviewStatus === 'done'
+      ? '<span class="review-badge review-done">Review done</span>'
+      : '';
+  const actions = `
+    <div class="row-actions">
+      <button class="btn btn-secondary btn-small" onclick="event.stopPropagation(); openSubmissionsModal('${escAttr(item.row)}','${escAttr(item.id)}')">Update${subCount ? ' (' + subCount + ')' : ''}</button>
+      ${appState.isEditor ? `<button class="btn btn-secondary btn-small" onclick="event.stopPropagation(); editItem('${escAttr(item.row)}')">Edit</button>` : ''}
+      ${appState.isEditor ? `<button class="btn btn-danger btn-small" onclick="event.stopPropagation(); deleteItem('${escAttr(item.row)}')">Delete</button>` : ''}
+    </div>`;
+  return `
+    <tr class="row-clickable ${item.reviewStatus === 'due' ? 'row-flagged' : ''}" data-row="${escAttr(item.row)}">
+      <td><span class="id-badge">#${escapeHtml(item.id)}</span></td>
+      <td class="preserve-whitespace">${escapeHtml(item.sector || '')}</td>
+      <td class="details-cell preserve-whitespace">${escapeHtml(item.description || '')}</td>
+      <td class="preserve-whitespace">${escapeHtml(item.entryDate || '')}</td>
+      <td class="preserve-whitespace">${escapeHtml(item.reviewDate || '')}</td>
+      <td>${statusBadge}</td>
+      <td>${actions}</td>
+    </tr>`;
+}
+
+function renderDashboardTable() {
+  const wrap = getEl('dashboardTableWrap');
+  const table = getEl('dashboardTable');
+  if (!wrap || !table) return;
+  const start = (appState.page - 1) * PAGE_SIZE;
+  const pageItems = sortedItems().slice(start, start + PAGE_SIZE);
+
+  table.querySelectorAll('thead th[data-dash-sort]').forEach(function (th) {
+    const sortKey = th.getAttribute('data-dash-sort');
+    if (sortKey === appState.dashSortKey) {
+      th.setAttribute('aria-sort', appState.dashSortDir === 'asc' ? 'ascending' : 'descending');
+    } else {
+      th.removeAttribute('aria-sort');
+    }
+  });
+
+  table.querySelector('tbody').innerHTML = pageItems.length
+    ? pageItems.map(buildTableRowHtml).join('')
+    : '<tr><td colspan="7">No records found.</td></tr>';
+
+  const summaryEl = getEl('dashboardTableSummary');
+  if (summaryEl) summaryEl.textContent = appState.filtered.length + ' record' + (appState.filtered.length === 1 ? '' : 's') + ' found';
+}
+
+function setDashSort(key) {
+  if (key === appState.dashSortKey) {
+    appState.dashSortDir = appState.dashSortDir === 'asc' ? 'desc' : 'asc';
+  } else {
+    appState.dashSortKey = key;
+    appState.dashSortDir = 'asc';
+  }
+  renderDashboard();
+}
+
 function renderPagination() {
   const bar = getEl('paginationBar');
   if (!bar) return;
@@ -730,40 +980,52 @@ function setPage(page) {
   const pages = Math.max(1, Math.ceil(appState.filtered.length / PAGE_SIZE));
   appState.page = Math.min(Math.max(1, page), pages);
   renderDashboardCards();
+  renderDashboardTable();
   renderPagination();
-  const grid = getEl('dashboardCards');
-  if (grid) grid.scrollIntoView({ behavior: 'smooth', block: 'start' });
+  const target = appState.dashboardView === 'table' ? getEl('dashboardTableWrap') : getEl('dashboardCards');
+  if (target) target.scrollIntoView({ behavior: 'smooth', block: 'start' });
 }
 
 function renderDashboard() {
   applyFilters();
   renderKpiCards();
   updateFilterChips();
-  renderDashboardCards();
+  const grid = getEl('dashboardCards');
+  const tableWrap = getEl('dashboardTableWrap');
+  const viewCardsBtn = getEl('viewCardsBtn');
+  const viewTableBtn = getEl('viewTableBtn');
+  const isTable = appState.dashboardView === 'table';
+  if (grid) grid.classList.toggle('hidden', isTable);
+  if (tableWrap) tableWrap.classList.toggle('hidden', !isTable);
+  if (viewCardsBtn) viewCardsBtn.classList.toggle('active', !isTable);
+  if (viewTableBtn) viewTableBtn.classList.toggle('active', isTable);
+  if (isTable) {
+    renderDashboardTable();
+  } else {
+    renderDashboardCards();
+  }
   renderPagination();
 }
 
 function refreshData() {
   showOverlay('Refreshing data…');
-  google.script.run.withSuccessHandler(function (data) {
+  ApiService.getAppData().then(function (data) {
     hideOverlay();
-    appState.items = data.items || [];
-    appState.summary = data.summary || {};
-    appState.analytics = data.analytics || {};
-    appState.audit = data.audit || [];
-    appState.selectedAuditRows = [];
-    appState.settings = data.settings || {};
-    appState.submissionCounts = data.submissionCounts || {};
-    appState.submissionFlash = data.submissionFlash || {};
-    appState.displayedSubmissions = data.displayedSubmissions || [];
+    applyAppData(data);
     populateFilters();
     renderDashboard();
+    auditLoaded = false;
+    const auditPanel = getEl('audit');
+    if (auditPanel && !auditPanel.classList.contains('hidden')) {
+      renderAuditPanel();
+    }
+    EventBus.emit('DataRefreshed');
     showToast('Dashboard refreshed', 'success');
-  }).withFailureHandler(function (err) {
+  }).catch(function (err) {
     hideOverlay();
     if (handleServerFailure(err)) return;
     showToast('Refresh failed: ' + (err.message || err), 'error');
-  }).getAppData(getAuthToken());
+  });
 }
 
 /* ---------------------------------- Analytics ---------------------------------- */
@@ -844,7 +1106,13 @@ function renderAudit() {
   appState.selectedAuditRows.forEach(function (r) { selected[r] = true; });
 
   const tbody = table.querySelector('tbody');
-  tbody.innerHTML = rows.length ? rows.map(function (row) {
+  const totalRows = rows.length;
+  const pages = Math.max(1, Math.ceil(totalRows / AUDIT_PAGE_SIZE));
+  if (appState.auditPage > pages) appState.auditPage = pages;
+  const start = (appState.auditPage - 1) * AUDIT_PAGE_SIZE;
+  const pageRows = rows.slice(start, start + AUDIT_PAGE_SIZE);
+
+  tbody.innerHTML = pageRows.length ? pageRows.map(function (row) {
     const rowNum = Number(row.row);
     const selectable = isFinite(rowNum) && rowNum >= 2;
     const checkbox = appState.isAdmin && selectable
@@ -864,7 +1132,27 @@ function renderAudit() {
   updateAuditSelection();
 
   const summaryEl = getEl('auditSummary');
-  if (summaryEl) summaryEl.textContent = rows.length + ' of ' + appState.audit.length + ' entries';
+  if (summaryEl) summaryEl.textContent = totalRows
+    ? (start + 1) + '–' + Math.min(start + AUDIT_PAGE_SIZE, totalRows) + ' of ' + totalRows + ' entries'
+    : 'No entries';
+  renderAuditPager();
+}
+
+function renderAuditPager() {
+  const pager = getEl('auditPager');
+  if (!pager) return;
+  const total = appState.audit.length;
+  const pages = Math.max(1, Math.ceil(total / AUDIT_PAGE_SIZE));
+  pager.innerHTML = pages <= 1 ? '' : `
+    <button class="page-btn" type="button" onclick="setAuditPage(${appState.auditPage - 1})" ${appState.auditPage <= 1 ? 'disabled' : ''} aria-label="Previous page">‹</button>
+    <span class="page-info">Page ${appState.auditPage} of ${pages}</span>
+    <button class="page-btn" type="button" onclick="setAuditPage(${appState.auditPage + 1})" ${appState.auditPage >= pages ? 'disabled' : ''} aria-label="Next page">›</button>`;
+}
+
+function setAuditPage(page) {
+  const pages = Math.max(1, Math.ceil(appState.audit.length / AUDIT_PAGE_SIZE));
+  appState.auditPage = Math.min(Math.max(1, page), pages);
+  renderAudit();
 }
 
 function auditSelectedRows() {
@@ -901,35 +1189,53 @@ function toggleAuditSelectAll() {
 function deleteAuditRows() {
   const rows = appState.selectedAuditRows.slice().sort(function (a, b) { return a - b; });
   if (!rows.length) { showToast('Select audit entries to delete', 'warning'); return; }
-  if (!confirm('Delete ' + rows.length + ' selected audit entr' + (rows.length === 1 ? 'y' : 'ies') + '?')) return;
-  showOverlay('Deleting audit entries…');
-  google.script.run.withSuccessHandler(function (result) {
-    hideOverlay();
-    appState.audit = result || [];
-    appState.selectedAuditRows = [];
-    renderAudit();
-    showToast('Deleted ' + rows.length + ' audit entr' + (rows.length === 1 ? 'y' : 'ies'), 'success');
-  }).withFailureHandler(function (err) {
-    hideOverlay();
-    if (handleServerFailure(err)) return;
-    showToast('Could not delete audit entries: ' + (err.message || err), 'error');
-  }).adminDeleteAuditRows(rows, getAuthToken());
+  showConfirm({
+    title: 'Delete audit entries',
+    message: 'Delete ' + rows.length + ' selected audit entr' + (rows.length === 1 ? 'y' : 'ies') + '?',
+    okLabel: 'Delete',
+    danger: true
+  }).then(function (ok) {
+    if (!ok) return;
+    showOverlay('Deleting audit entries…');
+    ApiService.adminDeleteAuditRows(rows).then(function (result) {
+      hideOverlay();
+      appState.audit = result || [];
+      appState.selectedAuditRows = [];
+      appState.auditPage = 1;
+      auditLoaded = true;
+      renderAudit();
+      showToast('Deleted ' + rows.length + ' audit entr' + (rows.length === 1 ? 'y' : 'ies'), 'success');
+    }).catch(function (err) {
+      hideOverlay();
+      if (handleServerFailure(err)) return;
+      showToast('Could not delete audit entries: ' + (err.message || err), 'error');
+    });
+  });
 }
 
 function clearAuditLog() {
-  if (!confirm('Delete the ENTIRE audit log? This cannot be undone.')) return;
-  showOverlay('Clearing audit log…');
-  google.script.run.withSuccessHandler(function (result) {
-    hideOverlay();
-    appState.audit = result || [];
-    appState.selectedAuditRows = [];
-    renderAudit();
-    showToast('Audit log cleared', 'success');
-  }).withFailureHandler(function (err) {
-    hideOverlay();
-    if (handleServerFailure(err)) return;
-    showToast('Could not clear audit log: ' + (err.message || err), 'error');
-  }).adminClearAudit(getAuthToken());
+  showConfirm({
+    title: 'Clear audit log',
+    message: 'Delete the ENTIRE audit log? This cannot be undone.',
+    okLabel: 'Clear log',
+    danger: true
+  }).then(function (ok) {
+    if (!ok) return;
+    showOverlay('Clearing audit log…');
+    ApiService.adminClearAudit().then(function (result) {
+      hideOverlay();
+      appState.audit = result || [];
+      appState.selectedAuditRows = [];
+      appState.auditPage = 1;
+      auditLoaded = true;
+      renderAudit();
+      showToast('Audit log cleared', 'success');
+    }).catch(function (err) {
+      hideOverlay();
+      if (handleServerFailure(err)) return;
+      showToast('Could not clear audit log: ' + (err.message || err), 'error');
+    });
+  });
 }
 
 function setAuditSort(key) {
@@ -939,6 +1245,7 @@ function setAuditSort(key) {
     appState.auditSortKey = key;
     appState.auditSortDir = key === 'timestamp' ? 'desc' : 'asc';
   }
+  appState.auditPage = 1;
   renderAudit();
 }
 
@@ -1179,7 +1486,7 @@ function downloadFromBase64(base64, filename, mimeType) {
 
 function exportSpreadsheet() {
   showOverlay('Exporting Excel file…');
-  google.script.run.withSuccessHandler(function (result) {
+  ApiService.exportToSpreadsheet().then(function (result) {
     hideOverlay();
     if (result && result.base64) {
       downloadFromBase64(result.base64, result.filename || 'IndiaPostDashboard_Report.xlsx', 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet');
@@ -1187,16 +1494,16 @@ function exportSpreadsheet() {
     } else {
       showToast('Excel export failed', 'error');
     }
-  }).withFailureHandler(function (err) {
+  }).catch(function (err) {
     hideOverlay();
     if (handleServerFailure(err)) return;
     showToast('Excel export failed: ' + (err.message || err), 'error');
-  }).exportToSpreadsheet(getAuthToken());
+  });
 }
 
 function downloadPdf() {
   showOverlay('Generating PDF…');
-  google.script.run.withSuccessHandler(function (result) {
+  ApiService.createPdfReport().then(function (result) {
     hideOverlay();
     if (result && result.base64) {
       downloadFromBase64(result.base64, result.filename || 'IndiaPostDashboard_Report.pdf', 'application/pdf');
@@ -1204,11 +1511,11 @@ function downloadPdf() {
     } else {
       showToast('PDF export failed', 'error');
     }
-  }).withFailureHandler(function (err) {
+  }).catch(function (err) {
     hideOverlay();
     if (handleServerFailure(err)) return;
     showToast('PDF export failed: ' + (err.message || err), 'error');
-  }).createPdfReport(getAuthToken());
+  });
 }
 
 /* ---------------------------------- Settings ---------------------------------- */
@@ -1246,7 +1553,7 @@ function handleChangePassword(e) {
   if (!valid) return;
 
   showOverlay('Updating password…');
-  google.script.run.withSuccessHandler(function (res) {
+  ApiService.changePassword(current, np).then(function (res) {
     hideOverlay();
     const status = getEl('changePasswordStatus');
     if (res && res.success) {
@@ -1258,6 +1565,7 @@ function handleChangePassword(e) {
       status.textContent = (res && res.message) || 'Password updated';
       status.classList.add('success');
       showToast('Password updated', 'success');
+      EventBus.emit('SettingsUpdated');
     } else {
       status.textContent = (res && res.message) || 'Could not update password';
       status.classList.add('error');
@@ -1267,22 +1575,22 @@ function handleChangePassword(e) {
       status.classList.remove('success');
       status.classList.remove('error');
     }, 3500);
-  }).withFailureHandler(function (err) {
+  }).catch(function (err) {
     hideOverlay();
     if (handleServerFailure(err)) return;
     const status = getEl('changePasswordStatus');
     status.textContent = err.message || 'Could not update password';
     status.classList.add('error');
-  }).changePassword(current, np, getAuthToken());
+  });
 }
 
 function loadUsers() {
-  google.script.run.withSuccessHandler(function (users) {
+  ApiService.adminGetUsers().then(function (users) {
     renderUsersTable(users || []);
-  }).withFailureHandler(function (err) {
+  }).catch(function (err) {
     if (handleServerFailure(err)) return;
     showToast('Could not load users: ' + (err.message || err), 'error');
-  }).adminGetUsers(getAuthToken());
+  });
 }
 
 function renderUsersTable(users) {
@@ -1316,7 +1624,7 @@ function handleAddUser(e) {
   if (!valid) return;
 
   showOverlay('Adding user…');
-  google.script.run.withSuccessHandler(function (users) {
+  ApiService.adminAddUser(email, role, password).then(function (users) {
     hideOverlay();
     emailEl.value = '';
     passwordEl.value = '';
@@ -1329,55 +1637,107 @@ function handleAddUser(e) {
     }, 3000);
     renderUsersTable(users || []);
     showToast('User added', 'success');
-  }).withFailureHandler(function (err) {
+  }).catch(function (err) {
     hideOverlay();
     if (handleServerFailure(err)) return;
     const status = getEl('addUserStatus');
     status.textContent = err.message || 'Could not add user';
     status.classList.add('error');
-  }).adminAddUser(email, role, password, getAuthToken());
+  });
 }
 
 function deleteUser(email) {
-  if (!confirm('Delete user ' + email + '?')) return;
-  showOverlay('Deleting user…');
-  google.script.run.withSuccessHandler(function (users) {
-    hideOverlay();
-    renderUsersTable(users || []);
-    showToast('User deleted', 'success');
-  }).withFailureHandler(function (err) {
-    hideOverlay();
-    if (handleServerFailure(err)) return;
-    showToast('Delete failed: ' + (err.message || err), 'error');
-  }).adminDeleteUser(email, getAuthToken());
+  showConfirm({
+    title: 'Delete user',
+    message: 'Delete user ' + email + '? They will no longer be able to sign in.',
+    okLabel: 'Delete',
+    danger: true
+  }).then(function (ok) {
+    if (!ok) return;
+    showOverlay('Deleting user…');
+    ApiService.adminDeleteUser(email).then(function (users) {
+      hideOverlay();
+      renderUsersTable(users || []);
+      showToast('User deleted', 'success');
+    }).catch(function (err) {
+      hideOverlay();
+      if (handleServerFailure(err)) return;
+      showToast('Delete failed: ' + (err.message || err), 'error');
+    });
+  });
 }
 
 function resetUserPassword(email) {
   const newPassword = prompt('New password for ' + email + ' (min 8 characters):');
   if (!newPassword) return;
   showOverlay('Resetting password…');
-  google.script.run.withSuccessHandler(function (users) {
+  ApiService.adminResetPassword(email, newPassword).then(function (users) {
     hideOverlay();
     renderUsersTable(users || []);
     showToast('Password reset for ' + email, 'success');
-  }).withFailureHandler(function (err) {
+  }).catch(function (err) {
     hideOverlay();
     if (handleServerFailure(err)) return;
     showToast('Reset failed: ' + (err.message || err), 'error');
-  }).adminResetPassword(email, newPassword, getAuthToken());
+  });
+}
+
+/* ---------------------------------- Record detail dialog ---------------------------------- */
+/* Read-only drill-down for any record (S8): shows every display field plus the
+   review status and submission count, with contextual actions. */
+
+function openRecordDetail(row) {
+  const item = appState.items.find(function (i) { return String(i.row) === String(row); });
+  if (!item) return;
+  const fieldsHtml = (item.displayFields || []).map(function (field) {
+    const valueHtml = field.html
+      ? `<div class="detail-value preserve-whitespace field-html">${field.html}</div>`
+      : `<div class="detail-value preserve-whitespace">${escapeHtml(field.value)}</div>`;
+    return `
+      <div class="about-row detail-row">
+        <span class="detail-label">${escapeHtml(field.label || 'Value')}</span>
+        ${valueHtml}
+      </div>`;
+  }).join('');
+
+  const subCount = (appState.submissionCounts || {})[item.row] || 0;
+  const statusBadge = item.reviewStatus === 'due'
+    ? '<span class="review-badge review-due">Review due</span>'
+    : item.reviewStatus === 'done'
+      ? '<span class="review-badge review-done">Review done</span>'
+      : '<span class="badge" data-tone="muted">Not reviewed</span>';
+
+  getEl('recordDetailTitle').textContent = 'Record #' + (item.id || item.row);
+  getEl('recordDetailBody').innerHTML = `
+    <div class="detail-status">${statusBadge}<span class="form-status">${subCount} submission${subCount === 1 ? '' : 's'}</span></div>
+    <div class="about-rows">${fieldsHtml}</div>`;
+
+  let actionsHtml = '';
+  if (appState.isEditor) {
+    actionsHtml += `<button class="btn btn-primary" type="button" onclick="closeRecordDetail(); editItem('${escAttr(item.row)}');">Edit</button>`;
+  }
+  actionsHtml += `
+    <button class="btn btn-secondary" type="button" onclick="closeRecordDetail(); openSubmissionsModal('${escAttr(item.row)}','${escAttr(item.id)}');">Submit update</button>
+    <button class="btn btn-ghost" type="button" onclick="closeRecordDetail()">Close</button>`;
+  getEl('recordDetailActions').innerHTML = actionsHtml;
+  openDialog('recordDetailModal');
+}
+
+function closeRecordDetail() {
+  closeDialog('recordDetailModal');
 }
 
 /* ---------------------------------- Edit modal ---------------------------------- */
 
 function openEditModal() {
+  openDialog('editModal');
   const modal = getEl('editModal');
-  modal.classList.remove('hidden');
   const firstInput = modal.querySelector('input:not([type=hidden]):not([readonly])');
   if (firstInput) firstInput.focus();
 }
 
 function closeEditModal() {
-  getEl('editModal').classList.add('hidden');
+  closeDialog('editModal');
 }
 
 function resetEditForm() {
@@ -1459,7 +1819,7 @@ function saveEditModal(e) {
 
 function submitNewItem(item) {
   showOverlay('Adding record…');
-  google.script.run.withSuccessHandler(function (data) {
+  ApiService.addItem(item).then(function (data) {
     hideOverlay();
     closeEditModal();
     appState.items = data.items || [];
@@ -1468,16 +1828,16 @@ function submitNewItem(item) {
     populateFilters();
     renderDashboard();
     showToast('New item created', 'success');
-  }).withFailureHandler(function (err) {
+  }).catch(function (err) {
     hideOverlay();
     if (handleServerFailure(err)) return;
     showToast('Add failed: ' + (err.message || err), 'error');
-  }).addItem(item, getAuthToken());
+  });
 }
 
 function saveItem(item) {
   showOverlay('Saving record…');
-  google.script.run.withSuccessHandler(function (data) {
+  ApiService.updateItem(item).then(function (data) {
     hideOverlay();
     closeEditModal();
     appState.items = data.items || [];
@@ -1485,29 +1845,36 @@ function saveItem(item) {
     appState.analytics = data.analytics || {};
     renderDashboard();
     showToast('Record saved', 'success');
-  }).withFailureHandler(function (err) {
+  }).catch(function (err) {
     hideOverlay();
     if (handleServerFailure(err)) return;
     showToast('Save failed: ' + (err.message || err), 'error');
-  }).updateItem(item, getAuthToken());
+  });
 }
 
 function deleteItem(row) {
   if (!appState.isEditor) { showToast('Admin/editor access required', 'warning'); return; }
-  if (!confirm('Delete this record permanently?')) return;
-  showOverlay('Deleting record…');
-  google.script.run.withSuccessHandler(function (data) {
-    hideOverlay();
-    appState.items = data.items || [];
-    appState.summary = data.summary || {};
-    appState.analytics = data.analytics || {};
-    renderDashboard();
-    showToast('Record deleted', 'success');
-  }).withFailureHandler(function (err) {
-    hideOverlay();
-    if (handleServerFailure(err)) return;
-    showToast('Delete failed: ' + (err.message || err), 'error');
-  }).deleteItem(row, getAuthToken());
+  showConfirm({
+    title: 'Delete record',
+    message: 'Delete this record permanently? This cannot be undone.',
+    okLabel: 'Delete',
+    danger: true
+  }).then(function (ok) {
+    if (!ok) return;
+    showOverlay('Deleting record…');
+    ApiService.deleteItem(row).then(function (data) {
+      hideOverlay();
+      appState.items = data.items || [];
+      appState.summary = data.summary || {};
+      appState.analytics = data.analytics || {};
+      renderDashboard();
+      showToast('Record deleted', 'success');
+    }).catch(function (err) {
+      hideOverlay();
+      if (handleServerFailure(err)) return;
+      showToast('Delete failed: ' + (err.message || err), 'error');
+    });
+  });
 }
 
 /* ---------------------------------- Review badge ---------------------------------- */
@@ -1524,19 +1891,25 @@ function toggleReviewDropdown(btn) {
 
 function markReviewDone(row) {
   if (!appState.isAdmin) { showToast('Admin access required', 'warning'); return; }
-  if (!confirm('Mark this record as review done?')) return;
-  showOverlay('Marking review as done…');
-  google.script.run.withSuccessHandler(function (data) {
-    hideOverlay();
-    appState.items = data.items || [];
-    appState.summary = data.summary || {};
-    renderDashboard();
-    showToast('Marked review as done', 'success');
-  }).withFailureHandler(function (err) {
-    hideOverlay();
-    if (handleServerFailure(err)) return;
-    showToast('Failed: ' + (err.message || err), 'error');
-  }).markReviewDone(row, getAuthToken());
+  showConfirm({
+    title: 'Mark review done',
+    message: 'Mark this record as review done?',
+    okLabel: 'Mark done'
+  }).then(function (ok) {
+    if (!ok) return;
+    showOverlay('Marking review as done…');
+    ApiService.markReviewDone(row).then(function (data) {
+      hideOverlay();
+      appState.items = data.items || [];
+      appState.summary = data.summary || {};
+      renderDashboard();
+      showToast('Marked review as done', 'success');
+    }).catch(function (err) {
+      hideOverlay();
+      if (handleServerFailure(err)) return;
+      showToast('Failed: ' + (err.message || err), 'error');
+    });
+  });
 }
 
 /* ---------------------------------- Submissions modal ---------------------------------- */
@@ -1555,7 +1928,7 @@ function openSubmissionsModal(row, cardId, onlyMine) {
 }
 
 function closeSubmissionsModal() {
-  getEl('submissionsModal').classList.add('hidden');
+  closeDialog('submissionsModal');
 }
 
 function resetSubmissionCompose() {
@@ -1564,13 +1937,13 @@ function resetSubmissionCompose() {
 }
 
 function loadSubmissions() {
-  google.script.run.withSuccessHandler(function (list) {
+  ApiService.getSubmissions(Number(appState.submissionCardRow)).then(function (list) {
     appState.submissions = list || [];
     renderSubmissionList();
-  }).withFailureHandler(function (err) {
+  }).catch(function (err) {
     if (handleServerFailure(err)) return;
     showToast('Could not load submissions: ' + (err.message || err), 'error');
-  }).getSubmissions(getAuthToken(), Number(appState.submissionCardRow));
+  });
 }
 
 function renderSubmissionList() {
@@ -1643,7 +2016,7 @@ function submitSubmission() {
   const editingId = appState.submissionEditingId;
   if (editingId) {
     showOverlay('Saving submission…');
-    google.script.run.withSuccessHandler(function (list) {
+    ApiService.updateSubmission(editingId, text).then(function (list) {
       hideOverlay();
       appState.submissions = list || [];
       appState.submissionEditingId = '';
@@ -1652,14 +2025,14 @@ function submitSubmission() {
       getEl('submissionStatus').textContent = '';
       renderSubmissionList();
       showToast('Submission updated', 'success');
-    }).withFailureHandler(function (err) {
+    }).catch(function (err) {
       hideOverlay();
       if (handleServerFailure(err)) return;
       getEl('submissionStatus').textContent = err.message || 'Could not save submission';
-    }).updateSubmission(editingId, text, getAuthToken());
+    });
   } else {
     showOverlay('Submitting update…');
-    google.script.run.withSuccessHandler(function (list) {
+    ApiService.addSubmission(Number(appState.submissionCardRow), appState.submissionCardId, text).then(function (list) {
       hideOverlay();
       appState.submissions = list || [];
       appState.submissionCounts[Number(appState.submissionCardRow)] = (list || []).length;
@@ -1670,75 +2043,82 @@ function submitSubmission() {
       renderSubmissionList();
       renderDashboard();
       showToast('Update submitted', 'success');
-    }).withFailureHandler(function (err) {
+    }).catch(function (err) {
       hideOverlay();
       if (handleServerFailure(err)) return;
       getEl('submissionStatus').textContent = err.message || 'Could not submit update';
-    }).addSubmission(Number(appState.submissionCardRow), appState.submissionCardId, text, getAuthToken());
+    });
   }
 }
 
 function lockSubmission(id) {
   if (!appState.isEditor) { showToast('Editor access required', 'warning'); return; }
   showOverlay('Locking submission…');
-  google.script.run.withSuccessHandler(function (list) {
+  ApiService.lockSubmission(id).then(function (list) {
     hideOverlay();
     appState.submissions = list || [];
     renderSubmissionList();
     showToast('Submission locked', 'success');
-  }).withFailureHandler(function (err) {
+  }).catch(function (err) {
     hideOverlay();
     if (handleServerFailure(err)) return;
     showToast('Could not lock submission: ' + (err.message || err), 'error');
-  }).lockSubmission(id, getAuthToken());
+  });
 }
 
 function unlockSubmission(id) {
   if (!appState.isEditor) { showToast('Editor access required', 'warning'); return; }
   showOverlay('Unlocking submission…');
-  google.script.run.withSuccessHandler(function (list) {
+  ApiService.unlockSubmission(id).then(function (list) {
     hideOverlay();
     appState.submissions = list || [];
     renderSubmissionList();
     showToast('Submission unlocked', 'success');
-  }).withFailureHandler(function (err) {
+  }).catch(function (err) {
     hideOverlay();
     if (handleServerFailure(err)) return;
     showToast('Could not unlock submission: ' + (err.message || err), 'error');
-  }).unlockSubmission(id, getAuthToken());
+  });
 }
 
 function deleteSubmission(id) {
   if (!appState.isAdmin) { showToast('Admin access required', 'warning'); return; }
-  if (!confirm('Delete this submission permanently?')) return;
-  showOverlay('Deleting submission…');
-  google.script.run.withSuccessHandler(function (list) {
-    hideOverlay();
-    appState.submissions = list || [];
-    renderSubmissionList();
-    showToast('Submission deleted', 'success');
-    refreshData();
-  }).withFailureHandler(function (err) {
-    hideOverlay();
-    if (handleServerFailure(err)) return;
-    showToast('Could not delete submission: ' + (err.message || err), 'error');
-  }).deleteSubmission(id, getAuthToken());
+  showConfirm({
+    title: 'Delete submission',
+    message: 'Delete this submission permanently?',
+    okLabel: 'Delete',
+    danger: true
+  }).then(function (ok) {
+    if (!ok) return;
+    showOverlay('Deleting submission…');
+    ApiService.deleteSubmission(id).then(function (list) {
+      hideOverlay();
+      appState.submissions = list || [];
+      renderSubmissionList();
+      showToast('Submission deleted', 'success');
+      refreshData();
+    }).catch(function (err) {
+      hideOverlay();
+      if (handleServerFailure(err)) return;
+      showToast('Could not delete submission: ' + (err.message || err), 'error');
+    });
+  });
 }
 
 function toggleDisplaySubmission(id) {
   if (!appState.isAdmin) { showToast('Admin access required', 'warning'); return; }
   showOverlay('Updating display…');
-  google.script.run.withSuccessHandler(function (list) {
+  ApiService.toggleSubmissionDisplay(id).then(function (list) {
     hideOverlay();
     appState.submissions = list || [];
     renderSubmissionList();
     showToast('Display updated', 'success');
     refreshData();
-  }).withFailureHandler(function (err) {
+  }).catch(function (err) {
     hideOverlay();
     if (handleServerFailure(err)) return;
     showToast('Could not update display: ' + (err.message || err), 'error');
-  }).toggleSubmissionDisplay(id, getAuthToken());
+  });
 }
 
 /* ---------------------------------- About ---------------------------------- */
@@ -1746,12 +2126,12 @@ function toggleDisplaySubmission(id) {
 function openAbout() {
   getEl('aboutVersion').textContent = APP_VERSION;
   getEl('aboutBuild').textContent = APP_BUILD;
-  getEl('aboutModal').classList.remove('hidden');
+  openDialog('aboutModal');
   getEl('profileDropdown').classList.remove('open');
 }
 
 function closeAbout() {
-  getEl('aboutModal').classList.add('hidden');
+  closeDialog('aboutModal');
 }
 
 /* ---------------------------------- Offline ---------------------------------- */
@@ -1792,8 +2172,14 @@ function wireGlobalEvents() {
         const trigger = getEl('profileTrigger');
         if (trigger) trigger.setAttribute('aria-expanded', 'false');
       }
-      ['editModal', 'aboutModal', 'submissionsModal'].forEach(function (id) {
-        getEl(id).classList.add('hidden');
+      const confirmModal = getEl('confirmModal');
+      if (confirmModal && !confirmModal.classList.contains('hidden')) {
+        cancelConfirmDialog();
+        return;
+      }
+      ['editModal', 'aboutModal', 'submissionsModal', 'recordDetailModal'].forEach(function (id) {
+        const el = getEl(id);
+        if (el && !el.classList.contains('hidden')) closeDialog(id);
       });
       document.body.classList.remove('sidebar-open');
       const backdrop = getEl('sidebarBackdrop');
@@ -1820,9 +2206,29 @@ function wireGlobalEvents() {
         if (backdrop.id === 'editModal') closeEditModal();
         else if (backdrop.id === 'aboutModal') closeAbout();
         else if (backdrop.id === 'submissionsModal') closeSubmissionsModal();
+        else if (backdrop.id === 'recordDetailModal') closeRecordDetail();
+        else if (backdrop.id === 'confirmModal') cancelConfirmDialog();
       }
     });
   });
+
+  const dashboardTable = getEl('dashboardTable');
+  if (dashboardTable) {
+    dashboardTable.querySelectorAll('thead th[data-dash-sort]').forEach(function (th) {
+      th.classList.add('sortable');
+      th.addEventListener('click', function () {
+        setDashSort(th.getAttribute('data-dash-sort'));
+      });
+    });
+    const dashTbody = dashboardTable.querySelector('tbody');
+    if (dashTbody) {
+      dashTbody.addEventListener('click', function (e) {
+        if (e.target.closest('button')) return;
+        const tr = e.target.closest('tr[data-row]');
+        if (tr) openRecordDetail(tr.getAttribute('data-row'));
+      });
+    }
+  }
 
   const auditTable = getEl('auditTable');
   if (auditTable) {

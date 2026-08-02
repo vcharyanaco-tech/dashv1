@@ -146,6 +146,10 @@
                 <svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="23 4 23 10 17 10"></polyline><polyline points="1 20 1 14 7 14"></polyline><path d="M3.51 9a9 9 0 0 1 14.85-3.36L23 10M1 14l4.64 4.36A9 9 0 0 0 20.49 15"></path></svg>
                 Refresh
               </button>
+              <div class="view-toggle" role="group" aria-label="Dashboard view">
+                <button id="viewCardsBtn" class="btn btn-ghost btn-small active" type="button" onclick="toggleDashboardView('cards')">Cards</button>
+                <button id="viewTableBtn" class="btn btn-ghost btn-small" type="button" onclick="toggleDashboardView('table')">Table</button>
+              </div>
             </div>
           </div>
 
@@ -166,6 +170,26 @@
           </div>
 
           <div id="dashboardCards" class="cards-grid"></div>
+
+          <div id="dashboardTableWrap" class="table-card hidden">
+            <div class="table-scroll" tabindex="0" aria-label="Records table">
+              <table class="data-table" id="dashboardTable">
+                <thead><tr>
+                  <th data-dash-sort="id">ID</th>
+                  <th data-dash-sort="sector">Sector</th>
+                  <th data-dash-sort="description">Description</th>
+                  <th data-dash-sort="entryDate">Entry date</th>
+                  <th data-dash-sort="reviewDate">Review date</th>
+                  <th>Status</th>
+                  <th class="dash-actions-col">Actions</th>
+                </tr></thead>
+                <tbody></tbody>
+              </table>
+            </div>
+            <div class="table-footer">
+              <span class="table-summary" id="dashboardTableSummary"></span>
+            </div>
+          </div>
 
           <div class="pagination" id="paginationBar" aria-label="Pagination"></div>
         </section>
@@ -230,6 +254,7 @@
             </div>
             <div class="table-footer">
               <span class="table-summary" id="auditSummary"></span>
+              <div class="audit-pager" id="auditPager"></div>
             </div>
           </div>
         </section>
@@ -539,6 +564,39 @@
           <div class="about-row"><span>Runtime</span><strong>Google Apps Script · V8</strong></div>
         </div>
         <p class="about-note">Built for the Department of Posts, Government of India.</p>
+      </div>
+    </div>
+  </div>
+
+  <!-- ============================ RECORD DETAIL DIALOG ============================ -->
+  <div id="recordDetailModal" class="modal-backdrop hidden" role="dialog" aria-modal="true" aria-labelledby="recordDetailTitle">
+    <div class="modal-card">
+      <div class="modal-header">
+        <h3 class="text-subheading" id="recordDetailTitle">Record details</h3>
+        <button class="icon-btn" type="button" onclick="closeRecordDetail()" aria-label="Close dialog">
+          <svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><line x1="18" y1="6" x2="6" y2="18"></line><line x1="6" y1="6" x2="18" y2="18"></line></svg>
+        </button>
+      </div>
+      <div id="recordDetailBody" class="detail-body"></div>
+      <div class="form-row" id="recordDetailActions"></div>
+    </div>
+  </div>
+
+  <!-- ============================ CONFIRM DIALOG ============================ -->
+  <div id="confirmModal" class="modal-backdrop hidden" role="dialog" aria-modal="true" aria-labelledby="confirmModalTitle">
+    <div class="modal-card modal-card-sm">
+      <div class="modal-header">
+        <h3 class="text-subheading" id="confirmModalTitle">Confirm</h3>
+        <button class="icon-btn" type="button" onclick="cancelConfirmDialog()" aria-label="Close dialog">
+          <svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><line x1="18" y1="6" x2="6" y2="18"></line><line x1="6" y1="6" x2="18" y2="18"></line></svg>
+        </button>
+      </div>
+      <div class="confirm-body">
+        <p id="confirmMessage" class="confirm-message"></p>
+        <div class="form-row">
+          <button id="confirmOkBtn" class="btn btn-primary" type="button" onclick="runConfirmDialog()">OK</button>
+          <button class="btn btn-secondary" type="button" onclick="cancelConfirmDialog()">Cancel</button>
+        </div>
       </div>
     </div>
   </div>

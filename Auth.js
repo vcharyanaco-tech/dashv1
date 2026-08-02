@@ -125,7 +125,7 @@ function readUserRecords_() {
 
 function userRecordFromRow_(row) {
   return {
-    role: row[1] || 'VIEWER',
+    role: row[1] || ROLES.VIEWER,
     salt: row[2] || '',
     passwordHash: row[3] || '',
     mustChange: row[4] === true || String(row[4]).toLowerCase() === 'true',
@@ -217,7 +217,7 @@ function listUserRecords_() {
     if (!String(values[i][0] || '').trim()) continue;
     out.push({
       email: values[i][0],
-      role: values[i][1] || 'VIEWER',
+      role: values[i][1] || ROLES.VIEWER,
       mustChange: values[i][4] === true || String(values[i][4]).toLowerCase() === 'true',
       createdAt: values[i][6] ? String(values[i][6]) : ''
     });
@@ -235,7 +235,7 @@ function ensureUserRecord_(email) {
   runWithLock_(function () {
     if (findUserRecord_(email)) return;
     const salt = generateSalt_();
-    addUserRecord_(email, 'ADMIN', salt, hashPassword_(DEFAULT_ADMIN_PASSWORD, salt), 'system');
+    addUserRecord_(email, ROLES.ADMIN, salt, hashPassword_(DEFAULT_ADMIN_PASSWORD, salt), 'system');
     setUserField_(email, 'mustChange', true);
   });
 }
@@ -302,29 +302,29 @@ let __roleCache__ = null;
 
 function getUserRole(email) {
   email = String(email || getCurrentUser() || '').toLowerCase().trim();
-  if (!email) return 'VIEWER';
+  if (!email) return ROLES.VIEWER;
 
   if (!__roleCache__) __roleCache__ = {};
   if (__roleCache__[email]) return __roleCache__[email];
 
   const rec = findUserRecord_(email);
-  let role = 'VIEWER';
+  let role = ROLES.VIEWER;
   if (rec && rec.role) role = rec.role;
-  else if (ADMIN_USERS.indexOf(email) !== -1) role = 'ADMIN';
-  else if (EDITOR_USERS.indexOf(email) !== -1) role = 'EDITOR';
-  else if (VIEWER_USERS.indexOf(email) !== -1) role = 'VIEWER';
+  else if (ADMIN_USERS.indexOf(email) !== -1) role = ROLES.ADMIN;
+  else if (EDITOR_USERS.indexOf(email) !== -1) role = ROLES.EDITOR;
+  else if (VIEWER_USERS.indexOf(email) !== -1) role = ROLES.VIEWER;
 
   __roleCache__[email] = role;
   return role;
 }
 
 function isAdmin(email) {
-  return getUserRole(email) === 'ADMIN';
+  return getUserRole(email) === ROLES.ADMIN;
 }
 
 function isEditor(email) {
   const role = getUserRole(email);
-  return role === 'ADMIN' || role === 'EDITOR';
+  return role === ROLES.ADMIN || role === ROLES.EDITOR;
 }
 
 function isViewer(email) {
@@ -370,6 +370,13 @@ function requireViewer() {
  * Login / Logout / Session
  * ============================================================ */
 
+/**
+ * Authenticates a user and issues a session token (6h TTL). Login failures
+ * are throttled (max attempts / lock minutes in CONFIG.USERS).
+ * @param {string} email User email.
+ * @param {string} password Plain-text password.
+ * @returns {{success: boolean, message?: string, token?: string, mustChange?: boolean, user?: Object}}
+ */
 function login(email, password) {
   email = String(email || '').toLowerCase().trim();
 
@@ -401,7 +408,7 @@ function login(email, password) {
   clearAttempts_(email);
 
   const token = createSession_(email);
-  try { logAudit_('LOGIN', '', 'Signed in', email); } catch (err) {}
+  try { logAudit_(ACTIONS.LOGIN, '', 'Signed in', email); } catch (err) {}
 
   return {
     success: true,
@@ -411,11 +418,21 @@ function login(email, password) {
   };
 }
 
+/**
+ * Destroys a session token.
+ * @param {string} token The session token to invalidate.
+ * @returns {{success: boolean}}
+ */
 function logout(token) {
   destroySession_(token);
   return { success: true };
 }
 
+/**
+ * Validates a session token without mutating state.
+ * @param {string} token The session token.
+ * @returns {{success: boolean, user?: Object, message?: string}}
+ */
 function validateSession(token) {
   try {
     const user = authenticate_(token);
@@ -430,6 +447,13 @@ function validateSession(token) {
  * Password Reset (email)
  * ============================================================ */
 
+/**
+ * Starts a password reset: stores a time-limited token and emails a reset
+ * link. Always returns a generic response to avoid account enumeration.
+ * @param {string} email User email.
+ * @param {string} pageUrl Base page URL to build the reset link on.
+ * @returns {{success: boolean, message: string}}
+ */
 function requestPasswordReset(email, pageUrl) {
   email = String(email || '').toLowerCase().trim();
 
@@ -468,10 +492,18 @@ function requestPasswordReset(email, pageUrl) {
     return { success: false, message: 'Could not send the reset email: ' + (err && err.message ? err.message : err) };
   }
 
-  try { logAudit_('PASSWORD_RESET_REQUESTED', '', '', email); } catch (err) {}
+  try { logAudit_(ACTIONS.PASSWORD_RESET_REQUESTED, '', '', email); } catch (err) {}
   return { success: true, message: 'If an account exists for that email, a reset link has been sent.' };
 }
 
+/**
+ * Completes a password reset using the emailed token; signs the user in
+ * on success.
+ * @param {string} email User email.
+ * @param {string} resetToken The one-time reset token from the email link.
+ * @param {string} newPassword New password (min 8 chars).
+ * @returns {{success: boolean, token?: string, user?: Object, message?: string}}
+ */
 function resetPasswordWithToken(email, resetToken, newPassword) {
   email = String(email || '').toLowerCase().trim();
 
@@ -496,7 +528,7 @@ function resetPasswordWithToken(email, resetToken, newPassword) {
   });
 
   const token = createSession_(email);
-  try { logAudit_('PASSWORD_RESET', '', '', email); } catch (err) {}
+  try { logAudit_(ACTIONS.PASSWORD_RESET, '', '', email); } catch (err) {}
 
   return {
     success: true,
@@ -505,6 +537,13 @@ function resetPasswordWithToken(email, resetToken, newPassword) {
   };
 }
 
+/**
+ * Changes the logged-in user's password after verifying the current one.
+ * @param {string} currentPassword The user's current password.
+ * @param {string} newPassword New password (min 8 chars).
+ * @param {string} token Session token (login required).
+ * @returns {{success: boolean, message: string}}
+ */
 function changePassword(currentPassword, newPassword, token) {
   const user = requireLogin_(token);
 
@@ -522,7 +561,7 @@ function changePassword(currentPassword, newPassword, token) {
     setUserField_(user.email, 'mustChange', false);
   });
 
-  try { logAudit_('CHANGE_PASSWORD', '', '', user.email); } catch (err) {}
+  try { logAudit_(ACTIONS.CHANGE_PASSWORD, '', '', user.email); } catch (err) {}
   return { success: true, message: 'Password updated.' };
 }
 
@@ -531,11 +570,24 @@ function changePassword(currentPassword, newPassword, token) {
  * Admin: User Management
  * ============================================================ */
 
+/**
+ * Lists all user records (email, role, mustChange, createdAt).
+ * @param {string} token Session token (admin required).
+ * @returns {Object[]} User records without credentials.
+ */
 function adminGetUsers(token) {
   requireAdmin_(token);
   return listUserRecords_();
 }
 
+/**
+ * Creates a new user account.
+ * @param {string} email New user email.
+ * @param {string} role One of ROLES.VIEWER / ROLES.EDITOR / ROLES.ADMIN.
+ * @param {string} password Initial password (min 8 chars).
+ * @param {string} token Session token (admin required).
+ * @returns {Object[]} Updated user list.
+ */
 function adminAddUser(email, role, password, token) {
   const admin = requireAdmin_(token);
 
@@ -544,7 +596,8 @@ function adminAddUser(email, role, password, token) {
     role = String(role || '').toUpperCase().trim();
 
     if (!isValidEmail_(email)) throw new Error('Invalid email address.');
-    if (['VIEWER', 'EDITOR', 'ADMIN'].indexOf(role) === -1) throw new Error('Role must be VIEWER, EDITOR or ADMIN.');
+    if ([ROLES.VIEWER, ROLES.EDITOR, ROLES.ADMIN].indexOf(role) === -1) throw new Error('Role must be VIEWER, EDITOR or ADMIN.');
+
     if (findUserRecord_(email)) throw new Error('A user with that email already exists.');
 
     const pwError = validatePassword_(password);
@@ -553,11 +606,17 @@ function adminAddUser(email, role, password, token) {
     const salt = generateSalt_();
     addUserRecord_(email, role, salt, hashPassword_(password, salt), admin.email);
 
-    try { logAudit_('USER_ADD', '', email + ' as ' + role, admin.email); } catch (err) {}
+    try { logAudit_(ACTIONS.USER_ADD, '', email + ' as ' + role, admin.email); } catch (err) {}
     return listUserRecords_();
   });
 }
 
+/**
+ * Deletes a user account (own account and the bootstrap admin are protected).
+ * @param {string} email Email of the user to delete.
+ * @param {string} token Session token (admin required).
+ * @returns {Object[]} Updated user list.
+ */
 function adminDeleteUser(email, token) {
   const admin = requireAdmin_(token);
 
@@ -568,11 +627,18 @@ function adminDeleteUser(email, token) {
     if (isBootstrapAdmin_(email)) throw new Error('The primary admin account cannot be deleted.');
     if (!deleteUserRecord_(email)) throw new Error('User not found.');
 
-    try { logAudit_('USER_DELETE', '', email, admin.email); } catch (err) {}
+    try { logAudit_(ACTIONS.USER_DELETE, '', email, admin.email); } catch (err) {}
     return listUserRecords_();
   });
 }
 
+/**
+ * Resets another user's password (admin override; clears mustChange).
+ * @param {string} email Email of the target user.
+ * @param {string} newPassword New password (min 8 chars).
+ * @param {string} token Session token (admin required).
+ * @returns {Object[]} Updated user list.
+ */
 function adminResetPassword(email, newPassword, token) {
   const admin = requireAdmin_(token);
 
@@ -591,7 +657,7 @@ function adminResetPassword(email, newPassword, token) {
     setUserField_(email, 'resetToken', '');
     setUserField_(email, 'resetExpires', null);
 
-    try { logAudit_('USER_RESET_PASSWORD', '', email, admin.email); } catch (err) {}
+    try { logAudit_(ACTIONS.USER_RESET_PASSWORD, '', email, admin.email); } catch (err) {}
     return listUserRecords_();
   });
 }
@@ -601,6 +667,11 @@ function adminResetPassword(email, newPassword, token) {
  * Current user info
  * ============================================================ */
 
+/**
+ * Returns the calling user's identity/role (best effort; anonymous callers
+ * get the deploying user).
+ * @returns {{email: string, role: string, loggedIn: boolean}}
+ */
 function getCurrentUserInfo() {
   const email = getCurrentUser();
   return {
@@ -610,6 +681,10 @@ function getCurrentUserInfo() {
   };
 }
 
+/**
+ * Debug helper: session/user/timezone/timestamp snapshot.
+ * @returns {Object} Session info.
+ */
 function getSessionInfo() {
   return {
     user: getCurrentUserInfo(),
@@ -619,6 +694,10 @@ function getSessionInfo() {
   };
 }
 
+/**
+ * Debug helper: alias for getCurrentUserInfo().
+ * @returns {{email: string, role: string, loggedIn: boolean}}
+ */
 function whoAmI() {
   return getCurrentUserInfo();
 }

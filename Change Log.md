@@ -2,6 +2,59 @@
 
 ## 1.0.0 — 2026-08-02 (current)
 
+### Phase 1 — Architecture & technical debt (deployment @79)
+- Backend service extraction: new `DashboardService.js` (item building + review
+  status logic) and `RecordService.js` (record CRUD + review-done), leaving
+  `code.js` as a thin entry facade. Role guards now consistently run before the
+  sheet lock.
+- Client service layer: new `EventBus` and `ApiService` in `script.html`. All 26
+  `google.script.run` call sites now go through `ApiService` promise calls;
+  token injection, argument order, and failure handling are centralized, and a
+  shared `applyAppData` updater keeps every refresh path in sync.
+- New `ROLES` (`ADMIN`/`EDITOR`/`VIEWER`) and `ACTIONS` enums in `Settings.js`;
+  hard-coded role/action strings replaced across the server code.
+- JSDoc added to every public server function.
+- Dead code removed: Data.js CRUD layer, Cache helpers, audit alias functions,
+  `getConfig`/`getAppInfo`/`saveAppSettings`, `renumber_`/`withLock_` aliases,
+  plus the unused `Scripts.html`, `images.png`, and `auto_commit_push.py` files.
+- Behavior unchanged; verified with `node --check` and a DOM/onclick audit.
+
+### Phase 2 — UI/UX modernization (deployment @80)
+- Enterprise table view for the dashboard (`Cards` / `Table` toggle). Sortable
+  columns (ID, Sector, Description, Entry date, Review date), review-due row
+  highlighting, and per-row Update/Edit/Delete actions; shares the existing
+  filters, search, and pagination with the card view.
+- Record drill-down dialog (S8): click any card row or table row to see every
+  field, review status, and submission count with contextual actions.
+- Shared dialog system (S4): `openDialog`/`closeDialog` manage every modal
+  (focus, aria state, body scroll lock) and a styled `confirm` dialog replaces
+  all native `confirm()` boxes (delete record/user/audit/submission, clear log,
+  mark review done).
+- Audit log pagination (S11): 20 entries per page with prev/next controls and a
+  page range in the summary; sorting and delete/clear now reset to page 1.
+- Global search (S12) was already present (topbar input + sector filters +
+  Ctrl-K focus) and continues to work across both views.
+- Verified with `node --check` and a DOM/onclick audit; deployed @80.
+
+### Phase 3 — Performance & optimization (deployment @81)
+- **Read caching (S1):** the `getData()` payload (items, review statuses,
+  formatted fields) is now served from a chunked `CacheService` read cache
+  (`CONFIG.CACHE.TTL`, 300 s), so page loads, refreshes, and report/summary
+  builders no longer re-read the sheet, rich text, or backgrounds every call.
+  The cache is invalidated in every data-sheet write (add/update/delete record,
+  mark review done) and safely degrades when disabled or quota-limited.
+- **Batch sheet writes (S3):** record ID re-sequencing after a delete
+  (`dataRenumber_`) writes all IDs in a single `setValues` instead of one
+  `setValue` per row; `addRecord_` reuses a single row `Range` handle.
+- **KPI / analytics / review-status (S5):** review-status computation (sheet
+  background reads) runs once per cached payload inside `buildDashboardItems_`;
+  summary and analytics builders run as pure functions over the cached item set.
+- **Payload reduction (S2):** the 80-entry audit tail was removed from the
+  `getAppData` bootstrap payload. The client now loads it lazily
+  (`ensureAuditLoaded`) the first time the Audit tab is opened and refreshes it
+  when that tab is visible during a manual refresh.
+- Verified with `node --check` and a DOM/onclick audit; deployed @81.
+
 Major refresh and stabilization of the India Post Dashboard for Circle Office, Haryana.
 
 ### Auth, roles & users

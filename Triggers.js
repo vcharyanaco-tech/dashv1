@@ -11,6 +11,9 @@
  * ============================================================
  */
 
+/**
+ * Installs the daily 00:00 title-stamp trigger (idempotent: removes first).
+ */
 function installTriggers() {
 
   removeTriggers();
@@ -29,6 +32,9 @@ function installTriggers() {
  * ============================================================
  */
 
+/**
+ * Removes all dailyDateUpdate triggers.
+ */
 function removeTriggers() {
 
   ScriptApp.getProjectTriggers().forEach(function (trigger) {
@@ -45,6 +51,9 @@ function removeTriggers() {
  * ============================================================
  */
 
+/**
+ * Removes and re-creates the daily triggers.
+ */
 function reinstallTriggers() {
 
   removeTriggers();
@@ -59,6 +68,9 @@ function reinstallTriggers() {
  * ============================================================
  */
 
+/**
+ * Logs all project triggers to the Apps Script console (diagnostic).
+ */
 function listTriggers() {
 
   const triggers = ScriptApp.getProjectTriggers();
@@ -79,6 +91,10 @@ function listTriggers() {
  * ============================================================
  */
 
+/**
+ * One-time setup: installs triggers, stamps the title, and seeds the
+ * bootstrap admin record. Run once from the Apps Script editor.
+ */
 function setupProject() {
 
   installTriggers();

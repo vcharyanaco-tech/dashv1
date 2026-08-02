@@ -57,6 +57,43 @@ const DATE_FORMAT = Object.freeze({
 
 const APP = CONFIG.APP;
 
+/**
+ * Application roles. Stored in the Users sheet 'Role' column.
+ * Order is not significant; privilege checks use isAdmin/isEditor helpers.
+ */
+const ROLES = Object.freeze({
+  ADMIN: 'ADMIN',
+  EDITOR: 'EDITOR',
+  VIEWER: 'VIEWER'
+});
+
+/**
+ * Audit log action identifiers (Audit Log sheet 'Action' column).
+ */
+const ACTIONS = Object.freeze({
+  ADD: 'ADD',
+  UPDATE: 'UPDATE',
+  DELETE: 'DELETE',
+  ERROR: 'ERROR',
+  AUDIT_DELETE: 'AUDIT_DELETE',
+  AUDIT_CLEAR: 'AUDIT_CLEAR',
+  LOGIN: 'LOGIN',
+  PASSWORD_RESET_REQUESTED: 'PASSWORD_RESET_REQUESTED',
+  PASSWORD_RESET: 'PASSWORD_RESET',
+  CHANGE_PASSWORD: 'CHANGE_PASSWORD',
+  USER_ADD: 'USER_ADD',
+  USER_DELETE: 'USER_DELETE',
+  USER_RESET_PASSWORD: 'USER_RESET_PASSWORD',
+  SUBMISSION_ADD: 'SUBMISSION_ADD',
+  SUBMISSION_UPDATE: 'SUBMISSION_UPDATE',
+  SUBMISSION_LOCK: 'SUBMISSION_LOCK',
+  SUBMISSION_UNLOCK: 'SUBMISSION_UNLOCK',
+  SUBMISSION_DELETE: 'SUBMISSION_DELETE',
+  SUBMISSION_DISPLAY: 'SUBMISSION_DISPLAY',
+  SUBMISSION_HIDE: 'SUBMISSION_HIDE',
+  REVIEW_DONE: 'REVIEW_DONE'
+});
+
 const COL = Object.freeze({
   ID: 1,
   SECTOR: 2,
@@ -74,18 +111,15 @@ const PROP = Object.freeze({
   LAST_SYNC: 'LAST_SYNC'
 });
 
-function getConfig() {
-  return CONFIG;
-}
-
-function getAppInfo() {
-  return CONFIG.APP;
-}
-
 function getPropertyStore() {
   return PropertiesService.getScriptProperties();
 }
 
+/**
+ * Reads overridable app settings from script properties, falling back to
+ * CONFIG defaults.
+ * @returns {{appName: string, sheetName: string, startRow: number}}
+ */
 function getAppSettings() {
   const props = getPropertyStore();
   return {
@@ -93,15 +127,4 @@ function getAppSettings() {
     sheetName: props.getProperty(PROP.SHEET_NAME) || CONFIG.SHEET.NAME,
     startRow: Number(props.getProperty(PROP.START_ROW) || CONFIG.SHEET.START_ROW)
   };
-}
-
-function saveAppSettings(settings, token) {
-  requireAdmin_(token);
-  const props = getPropertyStore();
-  props.setProperties({
-    [PROP.APP_NAME]: String(settings.appName || CONFIG.TITLE.DEFAULT),
-    [PROP.SHEET_NAME]: String(settings.sheetName || CONFIG.SHEET.NAME),
-    [PROP.START_ROW]: String(settings.startRow || CONFIG.SHEET.START_ROW)
-  });
-  return getAppSettings();
 }

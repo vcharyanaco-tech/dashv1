@@ -97,10 +97,10 @@ function submissionLocked_(rec) {
 }
 
 function canEditSubmission_(user, rec) {
-  if (user.role === 'ADMIN') return true;
+  if (user.role === ROLES.ADMIN) return true;
   const locked = submissionLocked_(rec);
-  if (user.role === 'EDITOR') {
-    return !locked || getUserRole(rec.lockedBy) !== 'ADMIN';
+  if (user.role === ROLES.EDITOR) {
+    return !locked || getUserRole(rec.lockedBy) !== ROLES.ADMIN;
   }
   if (locked) return false;
   return String(rec.email || '').toLowerCase() === String(user.email || '').toLowerCase();
@@ -109,7 +109,7 @@ function canEditSubmission_(user, rec) {
 function assertCanEditSubmission_(user, rec) {
   if (canEditSubmission_(user, rec)) return;
   if (submissionLocked_(rec)) {
-    if (getUserRole(rec.lockedBy) === 'ADMIN') {
+    if (getUserRole(rec.lockedBy) === ROLES.ADMIN) {
       throw new Error('This submission was locked by an admin and can only be changed by an admin.');
     }
     throw new Error('This submission is locked and cannot be edited.');
@@ -129,9 +129,9 @@ function formatDateTime_(value) {
 function visibleSubmission_(rec, user) {
   const locked = submissionLocked_(rec);
   const lockRole = locked ? getUserRole(rec.lockedBy) : '';
-  const isAdmin = user.role === 'ADMIN';
-  const isEditorUser = isAdmin || user.role === 'EDITOR';
-  const adminLocked = locked && lockRole === 'ADMIN';
+  const isAdmin = user.role === ROLES.ADMIN;
+  const isEditorUser = isAdmin || user.role === ROLES.EDITOR;
+  const adminLocked = locked && lockRole === ROLES.ADMIN;
 
   return {
     id: rec.id,
@@ -149,7 +149,7 @@ function visibleSubmission_(rec, user) {
     displayed: rec.displayed,
     editable: canEditSubmission_(user, rec),
     canLock: isEditorUser && !locked,
-    canUnlock: isEditorUser && locked && (isAdmin || lockRole !== 'ADMIN')
+    canUnlock: isEditorUser && locked && (isAdmin || lockRole !== ROLES.ADMIN)
   };
 }
 
@@ -209,11 +209,26 @@ function getSubmissionOverview_() {
  * Public API (all token-gated)
  * ============================================================ */
 
+/**
+ * Lists submissions, optionally filtered to a card, as visibility-tagged
+ * objects for the requesting user.
+ * @param {string} token Session token (login required).
+ * @param {number} cardRow Optional sheet row of the card to filter on.
+ * @returns {Object[]} Visible submissions (newest first).
+ */
 function getSubmissions(token, cardRow) {
   const user = requireLogin_(token);
   return submissionsForCard_(cardRow, user);
 }
 
+/**
+ * Adds a new submission to a record card.
+ * @param {number} cardRow Physical sheet row of the card.
+ * @param {string} cardId Display ID of the card.
+ * @param {string} text Submission text (max CONFIG.SUBMISSIONS.MAX_TEXT_LENGTH).
+ * @param {string} token Session token (login required).
+ * @returns {Object[]} Submissions for the card after the add.
+ */
 function addSubmission(cardRow, cardId, text, token) {
   const user = requireLogin_(token);
   cardRow = Number(cardRow);
@@ -232,11 +247,18 @@ function addSubmission(cardRow, cardId, text, token) {
     const now = new Date();
     sh.appendRow([id, cardRow, String(cardId || ''), user.email, content, now, now, '', null]);
 
-    try { logAudit_('SUBMISSION_ADD', cardRow, { id: id, cardRow: cardRow, text: content }, user.email); } catch (err) {}
+    try { logAudit_(ACTIONS.SUBMISSION_ADD, cardRow, { id: id, cardRow: cardRow, text: content }, user.email); } catch (err) {}
     return submissionsForCard_(cardRow, user);
   });
 }
 
+/**
+ * Updates the text of a submission the user is allowed to edit.
+ * @param {string} submissionId Submission UUID.
+ * @param {string} text New text (non-empty, length-capped).
+ * @param {string} token Session token (login required).
+ * @returns {Object[]} Submissions for the card after the update.
+ */
 function updateSubmission(submissionId, text, token) {
   const user = requireLogin_(token);
   const content = String(text || '').trim();
@@ -254,18 +276,24 @@ function updateSubmission(submissionId, text, token) {
     sh.getRange(rec.row, SUBMISSION_COL.TEXT).setValue(content);
     sh.getRange(rec.row, SUBMISSION_COL.UPDATED_AT).setValue(new Date());
 
-    try { logAudit_('SUBMISSION_UPDATE', rec.cardRow, { id: submissionId, text: content }, user.email); } catch (err) {}
+    try { logAudit_(ACTIONS.SUBMISSION_UPDATE, rec.cardRow, { id: submissionId, text: content }, user.email); } catch (err) {}
     return submissionsForCard_(rec.cardRow, user);
   });
 }
 
+/**
+ * Locks a submission so only editors/admins can edit it.
+ * @param {string} submissionId Submission UUID.
+ * @param {string} token Session token (editor+ required).
+ * @returns {Object[]} Submissions for the card after the lock.
+ */
 function lockSubmission(submissionId, token) {
   const editor = requireEditor_(token);
 
   return runWithLock_(function () {
     const rec = findSubmissionRecord_(submissionId);
     if (!rec) throw new Error('Submission not found.');
-    if (submissionLocked_(rec) && getUserRole(rec.lockedBy) === 'ADMIN' && editor.role !== 'ADMIN') {
+    if (submissionLocked_(rec) && getUserRole(rec.lockedBy) === ROLES.ADMIN && editor.role !== ROLES.ADMIN) {
       throw new Error('This submission was locked by an admin and can only be changed by an admin.');
     }
 
@@ -273,18 +301,24 @@ function lockSubmission(submissionId, token) {
     sh.getRange(rec.row, SUBMISSION_COL.LOCKED_BY).setValue(editor.email);
     sh.getRange(rec.row, SUBMISSION_COL.LOCKED_AT).setValue(new Date());
 
-    try { logAudit_('SUBMISSION_LOCK', rec.cardRow, { id: submissionId }, editor.email); } catch (err) {}
+    try { logAudit_(ACTIONS.SUBMISSION_LOCK, rec.cardRow, { id: submissionId }, editor.email); } catch (err) {}
     return submissionsForCard_(rec.cardRow, editor);
   });
 }
 
+/**
+ * Unlocks a submission (admin-locked submissions need an admin).
+ * @param {string} submissionId Submission UUID.
+ * @param {string} token Session token (editor+ required).
+ * @returns {Object[]} Submissions for the card after the unlock.
+ */
 function unlockSubmission(submissionId, token) {
   const editor = requireEditor_(token);
 
   return runWithLock_(function () {
     const rec = findSubmissionRecord_(submissionId);
     if (!rec) throw new Error('Submission not found.');
-    if (submissionLocked_(rec) && getUserRole(rec.lockedBy) === 'ADMIN' && editor.role !== 'ADMIN') {
+    if (submissionLocked_(rec) && getUserRole(rec.lockedBy) === ROLES.ADMIN && editor.role !== ROLES.ADMIN) {
       throw new Error('This submission was locked by an admin and can only be changed by an admin.');
     }
 
@@ -292,11 +326,17 @@ function unlockSubmission(submissionId, token) {
     sh.getRange(rec.row, SUBMISSION_COL.LOCKED_BY).setValue('');
     sh.getRange(rec.row, SUBMISSION_COL.LOCKED_AT).setValue(null);
 
-    try { logAudit_('SUBMISSION_UNLOCK', rec.cardRow, { id: submissionId }, editor.email); } catch (err) {}
+    try { logAudit_(ACTIONS.SUBMISSION_UNLOCK, rec.cardRow, { id: submissionId }, editor.email); } catch (err) {}
     return submissionsForCard_(rec.cardRow, editor);
   });
 }
 
+/**
+ * Deletes a submission permanently (admin only).
+ * @param {string} submissionId Submission UUID.
+ * @param {string} token Session token (admin required).
+ * @returns {Object[]} Submissions for the card after the delete.
+ */
 function deleteSubmission(submissionId, token) {
   const admin = requireAdmin_(token);
 
@@ -307,11 +347,17 @@ function deleteSubmission(submissionId, token) {
     const sh = submissionsSheet_();
     sh.deleteRow(rec.row);
 
-    try { logAudit_('SUBMISSION_DELETE', rec.cardRow, { id: submissionId, text: rec.text }, admin.email); } catch (err) {}
+    try { logAudit_(ACTIONS.SUBMISSION_DELETE, rec.cardRow, { id: submissionId, text: rec.text }, admin.email); } catch (err) {}
     return submissionsForCard_(rec.cardRow, admin);
   });
 }
 
+/**
+ * Shows or hides a submission on its card (admin only).
+ * @param {string} submissionId Submission UUID.
+ * @param {string} token Session token (admin required).
+ * @returns {Object[]} Submissions for the card after the toggle.
+ */
 function toggleSubmissionDisplay(submissionId, token) {
   const admin = requireAdmin_(token);
 
@@ -322,7 +368,7 @@ function toggleSubmissionDisplay(submissionId, token) {
     const next = !rec.displayed;
     submissionsSheet_().getRange(rec.row, SUBMISSION_COL.DISPLAYED).setValue(next);
 
-    try { logAudit_(next ? 'SUBMISSION_DISPLAY' : 'SUBMISSION_HIDE', rec.cardRow, { id: submissionId }, admin.email); } catch (err) {}
+    try { logAudit_(next ? ACTIONS.SUBMISSION_DISPLAY : ACTIONS.SUBMISSION_HIDE, rec.cardRow, { id: submissionId }, admin.email); } catch (err) {}
     return submissionsForCard_(rec.cardRow, admin);
   });
 }

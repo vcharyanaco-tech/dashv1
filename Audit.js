@@ -32,22 +32,11 @@ function logAudit_(action, id, details, userEmail) {
   }
 }
 
-function auditAdd_(item) {
-  logAudit_('ADD', item.id, item);
-}
-
-function auditUpdate_(oldItem, newItem) {
-  logAudit_('UPDATE', newItem.id, { before: oldItem, after: newItem });
-}
-
-function auditDelete_(item) {
-  logAudit_('DELETE', item.id, item);
-}
-
-function auditError_(functionName, error) {
-  logAudit_('ERROR', '', { function: functionName, message: error.message, stack: error.stack });
-}
-
+/**
+ * Reads the most recent audit entries (newest first).
+ * @param {number} limit Maximum number of entries (default 100).
+ * @returns {Object[]} Audit entries with physical row numbers.
+ */
 function getAuditEntries(limit) {
   requireViewer();
   const sheet = getAuditSheet_();
@@ -67,6 +56,12 @@ function getAuditEntries(limit) {
   });
 }
 
+/**
+ * Deletes the given audit entries by physical row number.
+ * @param {number[]} rowNumbers Physical rows to delete (must be >= 2).
+ * @param {string} token Session token (admin required).
+ * @returns {Object[]} Refreshed audit tail (80 entries).
+ */
 function adminDeleteAuditRows(rowNumbers, token) {
   requireAdmin_(token);
   const sheet = getAuditSheet_();
@@ -76,15 +71,20 @@ function adminDeleteAuditRows(rowNumbers, token) {
     .sort(function (a, b) { return b - a; });
   if (!rows.length) throw new Error('No audit entries selected.');
   rows.forEach(function (r) { sheet.deleteRow(r); });
-  try { logAudit_('AUDIT_DELETE', '', 'Deleted ' + rows.length + ' audit entries', getCurrentUser()); } catch (err) {}
+  try { logAudit_(ACTIONS.AUDIT_DELETE, '', 'Deleted ' + rows.length + ' audit entries', getCurrentUser()); } catch (err) {}
   return getAuditEntries(80);
 }
 
+/**
+ * Clears the entire audit log.
+ * @param {string} token Session token (admin required).
+ * @returns {Object[]} Empty audit tail.
+ */
 function adminClearAudit(token) {
   requireAdmin_(token);
   const sheet = getAuditSheet_();
   const lastRow = sheet.getLastRow();
   if (lastRow >= 2) sheet.deleteRows(2, lastRow - 1);
-  try { logAudit_('AUDIT_CLEAR', '', 'Cleared the entire audit log', getCurrentUser()); } catch (err) {}
+  try { logAudit_(ACTIONS.AUDIT_CLEAR, '', 'Cleared the entire audit log', getCurrentUser()); } catch (err) {}
   return getAuditEntries(80);
 }

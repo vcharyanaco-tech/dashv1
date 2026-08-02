@@ -1,12 +1,7 @@
-// --- Added helpers ---
-function withLock_(fn) {
-  return runWithLock_(fn);
-}
-
 /**
  * ============================================================
  * Circle Office Haryana Dashboard V3
- * Code.gs (Part 1)
+ * Code.gs (Part 1) - Web-app entry facade
  * ============================================================
  */
 
@@ -15,6 +10,12 @@ function withLock_(fn) {
  * Web App
  * ============================================================ */
 
+/**
+ * Web-app entry point. Serves the dashboard UI; supports a ?inspect=1
+ * JSON dump of the bound spreadsheet for debugging.
+ * @param {Object} e The web-app event object.
+ * @returns {GoogleAppsScript.HTML.HtmlOutput} The evaluated dashboard page.
+ */
 function doGet(e) {
 
   // JSON inspection endpoint for debugging bound spreadsheet
@@ -46,6 +47,11 @@ function doGet(e) {
  * HTML Include
  * ============================================================ */
 
+/**
+ * Includes an HTML file's content into a template page (used with <?!= include('x') ?>).
+ * @param {string} filename Name of an HTML file in the project.
+ * @returns {string} The file's rendered HTML content.
+ */
 function include(filename) {
 
   return HtmlService
@@ -113,85 +119,19 @@ function getTitle_() {
 
 
 /* ============================================================
- * Formatting
- * ============================================================ */
-
-function isFlagged_(background) {
-
-  if (!background)
-    return false;
-
-  const colour = String(background).toLowerCase();
-
-  return (
-    colour !== "#ffffff" &&
-    colour !== ""
-  );
-
-}
-
-function isReviewDoneColor_(background) {
-
-  if (!background)
-    return false;
-
-  const hex = String(background).replace("#", "").trim();
-  if (!/^[0-9a-fA-F]{6}$/.test(hex))
-    return false;
-
-  const r = parseInt(hex.substring(0, 2), 16);
-  const g = parseInt(hex.substring(2, 4), 16);
-  const b = parseInt(hex.substring(4, 6), 16);
-
-  return g >= 150 && g > r + 20 && g > b + 20;
-
-}
-
-function getReviewStatuses_(sheet, rows) {
-  const out = {};
-
-  if (!sheet || !rows || !rows.length) {
-    return out;
-  }
-
-  let start = Infinity;
-  let end = -Infinity;
-
-  rows.forEach(function (rowSpec) {
-    if (rowSpec && rowSpec.rowNumber) {
-      start = Math.min(start, rowSpec.rowNumber);
-      end = Math.max(end, rowSpec.rowNumber);
-    }
-  });
-
-  if (start === Infinity || end < start) {
-    return out;
-  }
-
-  try {
-    const colors = sheet
-      .getRange(start, COL.REVIEW_DATE, end - start + 1, 1)
-      .getBackgrounds();
-
-    rows.forEach(function (rowSpec) {
-      if (rowSpec && rowSpec.rowNumber) {
-        const background = colors[rowSpec.rowNumber - start][0];
-        out[String(rowSpec.rowNumber)] = isReviewDoneColor_(background)
-          ? "done"
-          : (isFlagged_(background) ? "due" : "");
-      }
-    });
-  } catch (err) {}
-
-  return out;
-}
-
-
-/* ============================================================
  * Read Dashboard Data
  * ============================================================ */
 
+/**
+ * Reads the dashboard records (sheet data, with a fallback to derived audit
+ * rows) plus review statuses, and returns them as display-ready items.
+ * No auth token is required for the read path.
+ * @returns {{title: string, heading: string, asOf: string, items: Object[]}}
+ */
 function getData() {
+
+  const cached = getCachedData_();
+  if (cached) return cached;
 
   const sheet = getSheet_();
   let rows = getSheetDataRows_(sheet);
@@ -205,7 +145,7 @@ function getData() {
 
     const title = stampTitle_();
 
-    return {
+    const result = {
 
       title: title.full,
 
@@ -217,81 +157,17 @@ function getData() {
 
     };
 
+    putCachedData_(result);
+
+    return result;
+
   }
 
-  const statuses = getReviewStatuses_(sheet, rows);
-
-  const items = rows.map(function (rowSpec) {
-
-    let actionHtml = escHtml_(rowSpec.action);
-
-    const reviewStatus = statuses[String(rowSpec.rowNumber)] || "";
-
-    const flagged = reviewStatus === "due";
-
-    const displayFields = (rowSpec.displayFields || []).map(function (field) {
-      const label = String(field && field.label ? field.label : "").trim();
-      const value = field && field.value !== undefined ? field.value : "";
-      const normalizedLabel = label.toLowerCase();
-      let formattedValue = value;
-
-      if (normalizedLabel.indexOf("date") !== -1 && value !== "") {
-        formattedValue = formatDate_(value);
-      }
-
-      let fieldHtml = "";
-      if (normalizedLabel.indexOf("date") === -1) {
-        if (field && field.html) {
-          fieldHtml = field.html;
-        } else if (looksLikeUrl_(formattedValue)) {
-          fieldHtml = linkifyText_(formattedValue);
-        }
-      }
-
-      if (normalizedLabel.indexOf("action") !== -1 && fieldHtml) {
-        actionHtml = fieldHtml;
-      }
-
-      return {
-        label: label,
-        value: formattedValue,
-        html: fieldHtml
-      };
-    });
-
-    return {
-
-      row: rowSpec.rowNumber,
-
-      id: rowSpec.id,
-
-      sector: rowSpec.sector,
-
-      description: rowSpec.description,
-
-      entryDate: formatDate_(rowSpec.entryDate),
-
-      action: rowSpec.action,
-
-      actionHtml: actionHtml,
-
-      responsibility: rowSpec.responsibility,
-
-      reviewDate: formatDate_(rowSpec.reviewDate),
-
-      flagged: flagged,
-
-      reviewStatus: reviewStatus,
-
-      displayFields: displayFields
-
-    };
-
-  });
+  const items = DashboardService.buildItems(rows, sheet);
 
   const title = stampTitle_();
 
-  return {
+  const result = {
 
     title: title.full,
 
@@ -303,6 +179,10 @@ function getData() {
 
   };
 
+  putCachedData_(result);
+
+  return result;
+
 }
 
 
@@ -310,55 +190,15 @@ function getData() {
  * Update Existing Item
  * ============================================================ */
 
+/**
+ * Updates an existing record in place, preserving action-cell rich text
+ * when the text is unchanged.
+ * @param {Object} item The record payload (includes the sheet row number).
+ * @param {string} token Session token (editor+ required).
+ * @returns {Object} Fresh getData() payload.
+ */
 function updateItem(item, token) {
-
-  requireEditor_(token);
-
-  return runWithLock_(function () {
-
-    const sheet = getSheet_();
-    const normalized = normalizeItemForSheet_(item);
-
-    // Columns A-D
-    sheet
-      .getRange(item.row, COL.ID, 1, 4)
-      .setValues([[
-        normalized.id,
-        normalized.sector,
-        normalized.description,
-        normalized.entryDate
-      ]]);
-
-    // Column E (Action) - only rewrite when the text actually changed,
-    // so the rich-text colours in the sheet are preserved otherwise.
-    const actionCell = sheet.getRange(item.row, COL.ACTION);
-    const oldAction = String(actionCell.getValue() == null ? "" : actionCell.getValue());
-    const newAction = String(normalized.action == null ? "" : normalized.action);
-
-    if (oldAction.replace(/\r\n/g, "\n") !== newAction.replace(/\r\n/g, "\n")) {
-      actionCell.setValue(newAction);
-    }
-
-    // Columns F-G
-    sheet
-      .getRange(item.row, COL.RESPONSIBILITY, 1, 2)
-      .setValues([[
-        normalized.responsibility,
-        normalized.reviewDate
-      ]]);
-
-    sheet
-      .getRange(item.row, COL.REVIEW_DATE)
-      .setBackground(
-        item.flagged
-          ? CONFIG.COLORS.FLAG
-          : CONFIG.COLORS.NORMAL
-      );
-
-    return getData();
-
-  });
-
+  return RecordService.update(item, token);
 }
 
 
@@ -366,111 +206,37 @@ function updateItem(item, token) {
  * Add New Item
  * ============================================================ */
 
+/**
+ * Appends a new record to the sheet with an auto-incremented ID, borders
+ * and a review-date flag background.
+ * @param {Object} item The record payload.
+ * @param {string} token Session token (editor+ required).
+ * @returns {Object} Fresh getData() payload.
+ */
 function addItem(item, token) {
-
-  requireEditor_(token);
-
-  return runWithLock_(function () {
-
-    const sheet = getSheet_();
-    const normalized = normalizeItemForSheet_(item);
-
-    const lastRow = Math.max(
-      sheet.getLastRow(),
-      CONFIG.SHEET.START_ROW - 1
-    );
-
-    const row = lastRow + 1;
-
-    const id =
-      row -
-      CONFIG.SHEET.START_ROW +
-      1;
-
-    sheet
-      .getRange(
-        row,
-        1,
-        1,
-        CONFIG.SHEET.NUM_COLS
-      )
-      .setValues([[
-        id,
-        normalized.sector,
-        normalized.description,
-        normalized.entryDate,
-        normalized.action,
-        normalized.responsibility,
-        normalized.reviewDate
-      ]]);
-
-    sheet
-      .getRange(
-        row,
-        1,
-        1,
-        CONFIG.SHEET.NUM_COLS
-      )
-      .setBorder(
-        true,
-        true,
-        true,
-        true,
-        true,
-        true,
-        CONFIG.COLORS.BORDER,
-        SpreadsheetApp.BorderStyle.SOLID
-      );
-
-    sheet
-      .getRange(
-        row,
-        COL.REVIEW_DATE
-      )
-      .setBackground(
-        item.flagged
-          ? CONFIG.COLORS.FLAG
-          : CONFIG.COLORS.NORMAL
-      );
-
-    return getData();
-
-  });
-
+  return RecordService.add(item, token);
 }
 
+/**
+ * Deletes a record row and re-sequences the remaining IDs.
+ * @param {number} row The physical sheet row to delete.
+ * @param {string} token Session token (editor+ required).
+ * @returns {Object} Fresh getData() payload.
+ */
 function deleteItem(row, token) {
-  return withLock_(function(){
-    try {
-      requireEditor_(token);
-      const sheet = getSheet_();
-      sheet.deleteRow(row);
-      dataRenumber_();
-      return getData();
-    } catch(err){throw new Error(err.message);} 
-  });
+  return RecordService.remove(row, token);
 }
 
+/**
+ * Marks a record's review as done by setting the review-date cell background
+ * to the configured done colour.
+ * @param {number} row The physical sheet row.
+ * @param {string} token Session token (admin required).
+ * @returns {{items: Object[], summary: Object}} Updated items + summary.
+ */
 function markReviewDone(row, token) {
-  return withLock_(function () {
-    try {
-      requireAdmin_(token);
-      const sheet = getSheet_();
-      sheet.getRange(row, COL.REVIEW_DATE).setBackground(CONFIG.COLORS.REVIEW_DONE);
-      logAudit_('REVIEW_DONE', String(row), 'Marked review as done');
-      const data = getData();
-      return {
-        items: data.items || [],
-        summary: buildSummaryFromItems(data.items || [])
-      };
-    } catch (err) { throw new Error(err.message); }
-  });
+  return RecordService.markReviewDone(row, token);
 }
-
-function renumber_() {
-  dataRenumber_();
-}
-
 
 function escHtml_(s) {
   if (s === null || s === undefined) return '';
@@ -589,11 +355,18 @@ function absUrl_(u) {
 }
 
 
+/**
+ * Aggregates everything the dashboard needs for one full-screen load:
+ * user identity, records, summary, analytics, settings and the
+ * submission overview. The audit tail is intentionally excluded and is
+ * fetched lazily by the client when the Audit tab is opened.
+ * @param {string} token Session token (any logged-in user).
+ * @returns {Object} The full dashboard payload.
+ */
 function getAppData(token) {
   const user = requireLogin_(token);
   const data = getData();
   const items = data.items || [];
-  const audit = getAuditEntries(80);
   const settings = getAppSettings();
   const summary = buildSummaryFromItems(items);
   const analytics = {
@@ -611,7 +384,6 @@ function getAppData(token) {
     items: items,
     summary: summary,
     analytics: analytics,
-    audit: audit,
     settings: settings,
     submissionCounts: submissionOverview.counts,
     submissionFlash: submissionOverview.flash,
@@ -619,6 +391,9 @@ function getAppData(token) {
   };
 }
 
+/**
+ * Daily trigger handler that refreshes the "… on dd.MM.yyyy" title cell.
+ */
 function dailyDateUpdate() {
   stampTitle_();
 }

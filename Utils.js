@@ -318,6 +318,10 @@ function getBoundSpreadsheetId_() {
   ).trim();
 }
 
+/**
+ * Debug helper: returns the configured spreadsheet id and url.
+ * @returns {{spreadsheetId: string, url: string}}
+ */
 function getSpreadsheetBindingInfo() {
   const id = getPreferredSpreadsheetId_();
 
@@ -343,6 +347,10 @@ function getSpreadsheetBindingInfo() {
   }
 }
 
+/**
+ * Debug helper: binds the active spreadsheet into script properties.
+ * @returns {{success: boolean, spreadsheetId?: string, url?: string, message?: string}}
+ */
 function bindCurrentSpreadsheet() {
   try {
     const activeSpreadsheet = SpreadsheetApp.getActiveSpreadsheet();
@@ -395,6 +403,11 @@ function getSpreadsheet_() {
 /**
  * Run this function once in the Apps Script editor as the deploying user
  * to force the OAuth consent flow and pre-authorize the script's scopes.
+ */
+/**
+ * Debug helper: resolves the bound spreadsheet and returns its id/url.
+ * Run once from the Apps Script editor to force OAuth consent.
+ * @returns {{success: boolean, spreadsheetId?: string, url?: string, message?: string}}
  */
 function preauthorize() {
   try {
@@ -570,45 +583,6 @@ function runWithLock_(callback) {
 
 
 /* ============================================================
- * Cache Helpers
- * ============================================================ */
-
-function getCache_() {
-  return CacheService.getScriptCache();
-}
-
-function cacheGet_(key) {
-
-  if (!CONFIG.CACHE.ENABLED) return null;
-
-  const value = getCache_().get(key);
-
-  if (!value) return null;
-
-  return JSON.parse(value);
-
-}
-
-function cachePut_(key, value) {
-
-  if (!CONFIG.CACHE.ENABLED) return;
-
-  getCache_().put(
-    key,
-    JSON.stringify(value),
-    CONFIG.CACHE.TTL
-  );
-
-}
-
-function cacheRemove_(key) {
-
-  getCache_().remove(key);
-
-}
-
-
-/* ============================================================
  * Property Helpers
  * ============================================================ */
 
@@ -634,6 +608,130 @@ function deleteProperty_(key) {
     .getScriptProperties()
     .deleteProperty(key);
 
+}
+
+
+/* ============================================================
+ * Read Cache Helpers
+ *
+ * Chunked CacheService storage for the getData() payload so that
+ * repeated reads (page loads, refreshes, PDF/summary builders) do
+ * not re-read the sheet / rich text / backgrounds every time.
+ * Every write path calls invalidateDataCache_() after mutating the
+ * data sheet; all helpers are no-ops or safe fallsbacks when the
+ * cache is disabled or quota-limited.
+ * ============================================================ */
+
+const __DATA_CACHE_PREFIX__ = "dashv1:data:v1:";
+
+const __DATA_CACHE_CHUNK_SIZE__ = 90000;
+
+const __DATA_CACHE_MAX_CHUNKS__ = 20;
+
+function __dataCacheBaseKey_() {
+  return __DATA_CACHE_PREFIX__ + today_();
+}
+
+function __dataCacheChunkKey_(base, index) {
+  return base + ":c" + index;
+}
+
+function __dataCacheIndexKey_(base) {
+  return base + ":n";
+}
+
+function getCachedData_() {
+  if (!CONFIG.CACHE.ENABLED) return null;
+
+  try {
+    const cache = CacheService.getScriptCache();
+    const base = __dataCacheBaseKey_();
+    const index = cache.get(__dataCacheIndexKey_(base));
+
+    if (!index) return null;
+
+    const count = parseInt(index, 10);
+    if (!isFinite(count) || count < 1 || count > __DATA_CACHE_MAX_CHUNKS__) {
+      return null;
+    }
+
+    const chunkKeys = [];
+    for (let i = 0; i < count; i++) {
+      chunkKeys.push(__dataCacheChunkKey_(base, i));
+    }
+
+    const chunks = cache.getAll(chunkKeys) || {};
+    let json = "";
+
+    for (let i = 0; i < count; i++) {
+      const chunk = chunks[__dataCacheChunkKey_(base, i)];
+      if (chunk === undefined || chunk === null) return null;
+      json += chunk;
+    }
+
+    if (!json) return null;
+    return JSON.parse(json);
+  } catch (err) {
+    return null;
+  }
+}
+
+function putCachedData_(payload) {
+  if (!CONFIG.CACHE.ENABLED) return;
+
+  try {
+    const cache = CacheService.getScriptCache();
+    const base = __dataCacheBaseKey_();
+    const json = JSON.stringify(payload);
+
+    if (!json) return;
+
+    const chunks = [];
+    for (let i = 0; i < json.length; i += __DATA_CACHE_CHUNK_SIZE__) {
+      chunks.push(json.substring(i, i + __DATA_CACHE_CHUNK_SIZE__));
+      if (chunks.length > __DATA_CACHE_MAX_CHUNKS__) {
+        cache.remove(__dataCacheIndexKey_(base));
+        return;
+      }
+    }
+
+    const keyed = {};
+    chunks.forEach(function (chunk, index) {
+      keyed[__dataCacheChunkKey_(base, index)] = chunk;
+    });
+
+    cache.putAll(keyed, Math.max(1, CONFIG.CACHE.TTL));
+    cache.put(__dataCacheIndexKey_(base), String(chunks.length), Math.max(1, CONFIG.CACHE.TTL));
+  } catch (err) {
+    invalidateDataCache_();
+  }
+}
+
+function invalidateDataCache_() {
+  if (!CONFIG.CACHE.ENABLED) return;
+
+  try {
+    const cache = CacheService.getScriptCache();
+    const base = __dataCacheBaseKey_();
+    const index = cache.get(__dataCacheIndexKey_(base));
+    const count = index ? parseInt(index, 10) : 0;
+
+    const keys = [];
+    if (isFinite(count) && count > 0 && count <= __DATA_CACHE_MAX_CHUNKS__) {
+      for (let i = 0; i < count; i++) {
+        keys.push(__dataCacheChunkKey_(base, i));
+      }
+    } else {
+      for (let i = 0; i < __DATA_CACHE_MAX_CHUNKS__; i++) {
+        keys.push(__dataCacheChunkKey_(base, i));
+      }
+    }
+
+    keys.push(__dataCacheIndexKey_(base));
+    cache.removeAll(keys);
+  } catch (err) {
+    // ignore
+  }
 }
 
 
