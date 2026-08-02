@@ -372,7 +372,11 @@ function bindCurrentSpreadsheet() {
   }
 }
 
+let __spreadsheetCache__ = null;
+
 function getSpreadsheet_() {
+  if (__spreadsheetCache__) return __spreadsheetCache__;
+
   const spreadsheetId = getPreferredSpreadsheetId_();
 
   if (!spreadsheetId) {
@@ -380,10 +384,11 @@ function getSpreadsheet_() {
   }
 
   try {
-    return SpreadsheetApp.openById(spreadsheetId);
+    __spreadsheetCache__ = SpreadsheetApp.openById(spreadsheetId);
   } catch (err) {
-    return null;
+    __spreadsheetCache__ = null;
   }
+  return __spreadsheetCache__;
 }
 
 

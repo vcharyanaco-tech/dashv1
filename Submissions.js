@@ -26,7 +26,11 @@ const SUBMISSION_COL = Object.freeze({
  * Store (hidden "Submissions" sheet in the bound spreadsheet)
  * ============================================================ */
 
+let __submissionsSheetCache__ = null;
+
 function submissionsSheet_() {
+  if (__submissionsSheetCache__) return __submissionsSheetCache__;
+
   const ss = getSpreadsheet_();
   if (!ss) return null;
 
@@ -44,6 +48,7 @@ function submissionsSheet_() {
     sh.getRange(1, 1, 1, SUBMISSION_HEADERS.length).setFontWeight('bold');
   }
 
+  __submissionsSheetCache__ = sh;
   return sh;
 }
 
@@ -92,9 +97,24 @@ function submissionLocked_(rec) {
 }
 
 function canEditSubmission_(user, rec) {
-  if (isEditor(user.email)) return true;
-  if (String(rec.email || '').toLowerCase() !== String(user.email || '').toLowerCase()) return false;
-  return !submissionLocked_(rec);
+  if (user.role === 'ADMIN') return true;
+  const locked = submissionLocked_(rec);
+  if (user.role === 'EDITOR') {
+    return !locked || getUserRole(rec.lockedBy) !== 'ADMIN';
+  }
+  if (locked) return false;
+  return String(rec.email || '').toLowerCase() === String(user.email || '').toLowerCase();
+}
+
+function assertCanEditSubmission_(user, rec) {
+  if (canEditSubmission_(user, rec)) return;
+  if (submissionLocked_(rec)) {
+    if (getUserRole(rec.lockedBy) === 'ADMIN') {
+      throw new Error('This submission was locked by an admin and can only be changed by an admin.');
+    }
+    throw new Error('This submission is locked and cannot be edited.');
+  }
+  throw new Error('You can only edit your own submissions.');
 }
 
 function formatDateTime_(value) {
@@ -106,9 +126,9 @@ function formatDateTime_(value) {
   return String(value).trim();
 }
 
-function visibleSubmission_(rec, user, roleOf) {
+function visibleSubmission_(rec, user) {
   const locked = submissionLocked_(rec);
-  const lockRole = locked ? roleOf(rec.lockedBy) : '';
+  const lockRole = locked ? getUserRole(rec.lockedBy) : '';
   const isAdmin = user.role === 'ADMIN';
   const isEditorUser = isAdmin || user.role === 'EDITOR';
   const adminLocked = locked && lockRole === 'ADMIN';
@@ -135,15 +155,6 @@ function visibleSubmission_(rec, user, roleOf) {
 
 function submissionsForCard_(cardRow, user) {
   const rows = readSubmissionRows_();
-  const roleCache = {};
-  const roleOf = function (email) {
-    email = String(email || '').toLowerCase().trim();
-    if (!email) return '';
-    if (roleCache[email]) return roleCache[email];
-    const role = getUserRole(email);
-    roleCache[email] = role;
-    return role;
-  };
 
   const filtered = (cardRow !== undefined && cardRow !== null && cardRow !== '')
     ? rows.filter(function (r) { return Number(r.cardRow) === Number(cardRow); })
@@ -156,7 +167,7 @@ function submissionsForCard_(cardRow, user) {
       const tb = Object.prototype.toString.call(b.createdAt) === '[object Date]' ? b.createdAt.getTime() : 0;
       return tb - ta;
     })
-    .map(function (rec) { return visibleSubmission_(rec, user, roleOf); });
+    .map(function (rec) { return visibleSubmission_(rec, user); });
 }
 
 function cardExists_(cardRow) {
@@ -164,26 +175,29 @@ function cardExists_(cardRow) {
   return (data.items || []).some(function (item) { return Number(item.row) === Number(cardRow); });
 }
 
-function getSubmissionCounts_() {
+let __submissionOverviewCache__ = null;
+
+function getSubmissionOverview_() {
+  if (__submissionOverviewCache__) return __submissionOverviewCache__;
+
   const counts = {};
+  const displayed = [];
+
   readSubmissionRows_().forEach(function (rec) {
     const key = Number(rec.cardRow);
     counts[key] = (counts[key] || 0) + 1;
-  });
-  return counts;
-}
-
-function getDisplayedSubmissions_() {
-  return readSubmissionRows_()
-    .filter(function (rec) { return rec.displayed; })
-    .map(function (rec) {
-      return {
-        cardRow: Number(rec.cardRow),
+    if (rec.displayed) {
+      displayed.push({
+        cardRow: key,
         email: rec.email,
         text: rec.text,
         createdAt: formatDateTime_(rec.createdAt)
-      };
-    });
+      });
+    }
+  });
+
+  __submissionOverviewCache__ = { counts: counts, displayed: displayed };
+  return __submissionOverviewCache__;
 }
 
 
@@ -230,10 +244,7 @@ function updateSubmission(submissionId, text, token) {
   return runWithLock_(function () {
     const rec = findSubmissionRecord_(submissionId);
     if (!rec) throw new Error('Submission not found.');
-    if (!canEditSubmission_(user, rec)) {
-      if (submissionLocked_(rec)) throw new Error('This submission is locked by an editor and cannot be edited.');
-      throw new Error('You can only edit your own submissions.');
-    }
+    assertCanEditSubmission_(user, rec);
 
     const sh = submissionsSheet_();
     sh.getRange(rec.row, SUBMISSION_COL.TEXT).setValue(content);

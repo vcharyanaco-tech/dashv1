@@ -7,7 +7,11 @@
 
 const AUDIT_SHEET = 'Audit Log';
 
+let __auditSheetCache__ = null;
+
 function getAuditSheet_() {
+  if (__auditSheetCache__) return __auditSheetCache__;
+
   const ss = getSpreadsheet_();
   let sheet = ss.getSheetByName(AUDIT_SHEET);
   if (!sheet) {
@@ -15,6 +19,7 @@ function getAuditSheet_() {
     sheet.appendRow(['Timestamp', 'User', 'Action', 'Record ID', 'Details']);
     sheet.getRange(1, 1, 1, 5).setFontWeight('bold');
   }
+  __auditSheetCache__ = sheet;
   return sheet;
 }
 

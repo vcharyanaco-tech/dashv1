@@ -84,7 +84,11 @@ function safeCacheKey_(value) {
  * User Store (hidden "Users" sheet in the bound spreadsheet)
  * ============================================================ */
 
+let __usersSheetCache__ = null;
+
 function usersSheet_() {
+  if (__usersSheetCache__) return __usersSheetCache__;
+
   const ss = getSpreadsheet_();
   if (!ss) return null;
 
@@ -105,6 +109,7 @@ function usersSheet_() {
     } catch (err) {}
   }
 
+  __usersSheetCache__ = sh;
   return sh;
 }
 
@@ -293,17 +298,24 @@ function clearAttempts_(email) {
  * Authorization
  * ============================================================ */
 
+let __roleCache__ = null;
+
 function getUserRole(email) {
   email = String(email || getCurrentUser() || '').toLowerCase().trim();
   if (!email) return 'VIEWER';
 
-  const rec = findUserRecord_(email);
-  if (rec && rec.role) return rec.role;
+  if (!__roleCache__) __roleCache__ = {};
+  if (__roleCache__[email]) return __roleCache__[email];
 
-  if (ADMIN_USERS.indexOf(email) !== -1) return 'ADMIN';
-  if (EDITOR_USERS.indexOf(email) !== -1) return 'EDITOR';
-  if (VIEWER_USERS.indexOf(email) !== -1) return 'VIEWER';
-  return 'VIEWER';
+  const rec = findUserRecord_(email);
+  let role = 'VIEWER';
+  if (rec && rec.role) role = rec.role;
+  else if (ADMIN_USERS.indexOf(email) !== -1) role = 'ADMIN';
+  else if (EDITOR_USERS.indexOf(email) !== -1) role = 'EDITOR';
+  else if (VIEWER_USERS.indexOf(email) !== -1) role = 'VIEWER';
+
+  __roleCache__[email] = role;
+  return role;
 }
 
 function isAdmin(email) {

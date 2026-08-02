@@ -561,6 +561,7 @@ function getAppData(token) {
     flaggedItems: buildFlaggedItemsFromItems(items),
     trend: buildMonthlyTrendFromItems(items)
   };
+  const submissionOverview = getSubmissionOverview_();
   return {
     user: {
       email: user.email,
@@ -572,8 +573,8 @@ function getAppData(token) {
     analytics: analytics,
     audit: audit,
     settings: settings,
-    submissionCounts: getSubmissionCounts_(),
-    displayedSubmissions: getDisplayedSubmissions_()
+    submissionCounts: submissionOverview.counts,
+    displayedSubmissions: submissionOverview.displayed
   };
 }
 
