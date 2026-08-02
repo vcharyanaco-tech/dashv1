@@ -157,6 +157,19 @@
   modals and dynamic regions.
 - Verified with `node --check` and a DOM/onclick audit; deployed @93.
 
+### Security patch — Password reset hardening
+- **Reset tokens hashed:** `requestPasswordReset` now stores a SHA-256 hash of
+  the token in the `Users` sheet instead of plaintext. `resetPasswordWithToken`
+  hashes the submitted token before comparison.
+- **Base URL reliability:** reset links are built server-side using
+  `ScriptApp.getService().getUrl()` instead of the client-provided
+  `window.location.href`, eliminating broken links from test/old/preview
+  deployments.
+- **Mail diagnostics:** `MailApp.sendEmail` failures are now logged to the audit
+  trail with the full error message.
+- **Token cleanup on password change:** `changePassword` and `adminResetPassword`
+  now clear any pending `resetToken` / `resetExpires`.
+
 ### Phase 4 — Enterprise Features, Tranche A: User & Role Management (deployment @82)
 - **Granular RBAC permission matrix:** new `MODULES` / `MODULE_ACTIONS` /
   `PERMISSIONS` in `Settings.js` with View/Create/Edit/Delete/Export/Approve per
