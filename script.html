@@ -92,6 +92,9 @@ const ApiService = {
   getReportTemplates: function () { return apiCall_('getReportTemplates'); },
   getReportData: function (templateKey) { return apiCall_('getReportData', templateKey, getAuthToken()); },
   emailReport: function (templateKey, recipient) { return apiCall_('emailReport', templateKey, recipient, getAuthToken()); },
+  getRecordDocuments: function (row) { return apiCall_('getRecordDocuments', row, getAuthToken()); },
+  uploadDocument: function (row, recordId, fileName, fileBytes, mimeType) { return apiCall_('uploadDocument', row, recordId, fileName, fileBytes, mimeType, getAuthToken()); },
+  deleteDocument: function (docId) { return apiCall_('deleteDocument', docId, getAuthToken()); },
   getSubmissions: function (cardRow) { return apiCall_('getSubmissions', getAuthToken(), cardRow); },
   addSubmission: function (cardRow, cardId, text) { return apiCall_('addSubmission', cardRow, cardId, text, getAuthToken()); },
   updateSubmission: function (submissionId, text) { return apiCall_('updateSubmission', submissionId, text, getAuthToken()); },
@@ -2059,7 +2062,75 @@ function openRecordDetail(row) {
     <button class="btn btn-secondary" type="button" onclick="closeRecordDetail(); openSubmissionsModal('${escAttr(item.row)}','${escAttr(item.id)}');">Submit update</button>
     <button class="btn btn-ghost" type="button" onclick="closeRecordDetail()">Close</button>`;
   getEl('recordDetailActions').innerHTML = actionsHtml;
+
+  loadRecordDocuments(item.row);
+
   openDialog('recordDetailModal');
+}
+
+function loadRecordDocuments(row) {
+  const docsEl = getEl('recordDetailDocs');
+  if (!docsEl) return;
+  ApiService.getRecordDocuments(row).then(function (docs) {
+    const docsList = docs || [];
+    docsEl.innerHTML = docsList.length ? `
+      <div class="detail-docs-head">
+        <span class="text-subheading">Documents</span>
+        <label class="btn btn-ghost btn-small" style="cursor:pointer;">
+          <input type="file" id="docUploadInput" style="display:none" onchange="handleDocUpload(${escAttr(row)}, this)">
+          Upload
+        </label>
+      </div>
+      <ul class="detail-docs-list">${docsList.map(function (d) {
+        return '<li class="detail-doc-item">' +
+          '<a href="' + escapeHtml(d.url || '#') + '" target="_blank" rel="noopener">' + escapeHtml(d.fileName) + '</a>' +
+          '<button class="btn btn-ghost btn-small" type="button" onclick="deleteRecordDoc(\'' + escAttr(d.id) + '\', \'' + escAttr(row) + '\')">Remove</button>' +
+          '</li>';
+      }).join('')}</ul>` : '';
+  }).catch(function (err) {
+    if (handleServerFailure(err)) return;
+  });
+}
+
+function handleDocUpload(row, input) {
+  const file = input.files && input.files[0];
+  if (!file) return;
+  const reader = new FileReader();
+  reader.onload = function (e) {
+    const bytes = e.target.result;
+    const base64 = btoa(String.fromCharCode.apply(null, new Uint8Array(bytes)));
+    showOverlay('Uploading document…');
+    ApiService.uploadDocument(row, '', file.name, base64, file.type || 'application/octet-stream').then(function () {
+      hideOverlay();
+      showToast('Document uploaded.', 'success');
+      loadRecordDocuments(row);
+    }).catch(function (err) {
+      hideOverlay();
+      if (handleServerFailure(err)) return;
+      showToast('Upload failed: ' + (err.message || err), 'error');
+    });
+  };
+  reader.readAsArrayBuffer(file);
+}
+
+function deleteRecordDoc(docId, row) {
+  showConfirm({
+    title: 'Delete document',
+    body: 'Remove this document permanently?',
+    confirmLabel: 'Delete',
+    onConfirm: function () {
+      showOverlay('Deleting document…');
+      ApiService.deleteDocument(docId).then(function () {
+        hideOverlay();
+        showToast('Document removed.', 'success');
+        loadRecordDocuments(row);
+      }).catch(function (err) {
+        hideOverlay();
+        if (handleServerFailure(err)) return;
+        showToast('Could not delete document.', 'error');
+      });
+    }
+  });
 }
 
 function closeRecordDetail() {

@@ -50,6 +50,9 @@ const CONFIG = Object.freeze({
   TASKS: {
     SHEET_NAME: 'Tasks'
   },
+  DOCUMENTS: {
+    SHEET_NAME: 'Documents'
+  },
   LOCK: {
     WAIT_TIME: 30000
   },
