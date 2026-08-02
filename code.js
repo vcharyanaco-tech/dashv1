@@ -130,6 +130,42 @@ function isFlagged_(background) {
 
 }
 
+function getFlaggedBackgrounds_(sheet, rows) {
+  const out = {};
+
+  if (!sheet || !rows || !rows.length) {
+    return out;
+  }
+
+  let start = Infinity;
+  let end = -Infinity;
+
+  rows.forEach(function (rowSpec) {
+    if (rowSpec && rowSpec.rowNumber) {
+      start = Math.min(start, rowSpec.rowNumber);
+      end = Math.max(end, rowSpec.rowNumber);
+    }
+  });
+
+  if (start === Infinity || end < start) {
+    return out;
+  }
+
+  try {
+    const colors = sheet
+      .getRange(start, COL.REVIEW_DATE, end - start + 1, 1)
+      .getBackgrounds();
+
+    rows.forEach(function (rowSpec) {
+      if (rowSpec && rowSpec.rowNumber) {
+        out[String(rowSpec.rowNumber)] = isFlagged_(colors[rowSpec.rowNumber - start][0]);
+      }
+    });
+  } catch (err) {}
+
+  return out;
+}
+
 
 /* ============================================================
  * Read Dashboard Data
@@ -163,21 +199,13 @@ function getData() {
 
   }
 
+  const backgrounds = getFlaggedBackgrounds_(sheet, rows);
+
   const items = rows.map(function (rowSpec) {
 
     let actionHtml = escHtml_(rowSpec.action);
 
-    let flagged = false;
-
-    try {
-      if (rowSpec.rowNumber && sheet) {
-        flagged = isFlagged_(sheet.getRange(rowSpec.rowNumber, COL.REVIEW_DATE).getBackground());
-      } else {
-        flagged = false;
-      }
-    } catch (err) {
-      flagged = false;
-    }
+    const flagged = backgrounds[String(rowSpec.rowNumber)] || false;
 
     const displayFields = (rowSpec.displayFields || []).map(function (field) {
       const label = String(field && field.label ? field.label : "").trim();
@@ -524,13 +552,14 @@ function absUrl_(u) {
 function getAppData(token) {
   const user = requireLogin_(token);
   const data = getData();
+  const items = data.items || [];
   const audit = getAuditEntries(80);
   const settings = getAppSettings();
-  const summary = getDashboardSummary();
+  const summary = buildSummaryFromItems(items);
   const analytics = {
-    sectors: getSectorReport(),
-    flaggedItems: getFlaggedItemsReport(),
-    trend: getMonthlyTrend()
+    sectors: buildSectorReportFromSummary(summary),
+    flaggedItems: buildFlaggedItemsFromItems(items),
+    trend: buildMonthlyTrendFromItems(items)
   };
   return {
     user: {
@@ -538,7 +567,7 @@ function getAppData(token) {
       role: user.role,
       loggedIn: true
     },
-    items: data.items || [],
+    items: items,
     summary: summary,
     analytics: analytics,
     audit: audit,

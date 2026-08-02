@@ -108,32 +108,41 @@ function usersSheet_() {
   return sh;
 }
 
+function readUserRecords_() {
+  const sh = usersSheet_();
+  if (!sh) return [];
+
+  const lastRow = sh.getLastRow();
+  if (lastRow < 2) return [];
+
+  return sh.getRange(2, 1, lastRow - 1, USER_SHEET_HEADERS.length).getValues();
+}
+
+function userRecordFromRow_(row) {
+  return {
+    role: row[1] || 'VIEWER',
+    salt: row[2] || '',
+    passwordHash: row[3] || '',
+    mustChange: row[4] === true || String(row[4]).toLowerCase() === 'true',
+    createdBy: row[5] || '',
+    createdAt: row[6],
+    resetToken: row[7] || '',
+    resetExpires: row[8] || null
+  };
+}
+
 function findUserRecord_(email) {
   email = String(email || '').toLowerCase().trim();
   if (!email) return null;
 
-  const sh = usersSheet_();
-  if (!sh) return null;
+  const rows = readUserRecords_();
 
-  const lastRow = sh.getLastRow();
-  if (lastRow < 2) return null;
-
-  const values = sh.getRange(2, 1, lastRow - 1, USER_SHEET_HEADERS.length).getValues();
-
-  for (let i = 0; i < values.length; i++) {
-    if (String(values[i][0] || '').toLowerCase().trim() === email) {
-      return {
-        row: i + 2,
-        email: email,
-        role: values[i][1] || 'VIEWER',
-        salt: values[i][2] || '',
-        passwordHash: values[i][3] || '',
-        mustChange: values[i][4] === true || String(values[i][4]).toLowerCase() === 'true',
-        createdBy: values[i][5] || '',
-        createdAt: values[i][6],
-        resetToken: values[i][7] || '',
-        resetExpires: values[i][8] || null
-      };
+  for (let i = 0; i < rows.length; i++) {
+    if (String(rows[i][0] || '').toLowerCase().trim() === email) {
+      const rec = userRecordFromRow_(rows[i]);
+      rec.row = i + 2;
+      rec.email = email;
+      return rec;
     }
   }
 
@@ -226,10 +235,13 @@ function ensureUserRecord_(email) {
   });
 }
 
-function verifyPassword_(email, password) {
-  const rec = findUserRecord_(email);
+function verifyPasswordRecord_(rec, password) {
   if (!rec || !rec.salt || !rec.passwordHash) return false;
   return hashPassword_(password, rec.salt) === rec.passwordHash;
+}
+
+function verifyPassword_(email, password) {
+  return verifyPasswordRecord_(findUserRecord_(email), password);
 }
 
 
@@ -362,10 +374,14 @@ function login(email, password) {
     };
   }
 
-  ensureUserRecord_(email);
+  let rec = findUserRecord_(email);
 
-  const rec = findUserRecord_(email);
-  if (!rec || !verifyPassword_(email, password)) {
+  if (!rec && isBootstrapAdmin_(email)) {
+    ensureUserRecord_(email);
+    rec = findUserRecord_(email);
+  }
+
+  if (!rec || !verifyPasswordRecord_(rec, password)) {
     recordFailedAttempt_(email);
     return { success: false, message: 'Invalid email or password.' };
   }

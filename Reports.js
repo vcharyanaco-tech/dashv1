@@ -5,9 +5,8 @@
  * ============================================================
  */
 
-function getDashboardSummary() {
-  const data = getData();
-  const items = data.items || [];
+function buildSummaryFromItems(items) {
+  items = items || [];
   const summary = {
     total: items.length,
     flagged: items.filter(i => i.flagged).length,
@@ -21,23 +20,39 @@ function getDashboardSummary() {
   return summary;
 }
 
-function getSectorReport() {
-  const sectors = getDashboardSummary().sectors;
+function getDashboardSummary() {
+  return buildSummaryFromItems((getData().items) || []);
+}
+
+function buildSectorReportFromSummary(summary) {
+  const sectors = (summary && summary.sectors) || {};
   return Object.keys(sectors).sort().map(key => ({ sector: key, total: sectors[key] }));
 }
 
-function getFlaggedItemsReport() {
-  return (getData().items || []).filter(item => item.flagged);
+function getSectorReport() {
+  return buildSectorReportFromSummary(getDashboardSummary());
 }
 
-function getMonthlyTrend() {
+function buildFlaggedItemsFromItems(items) {
+  return (items || []).filter(item => item.flagged);
+}
+
+function getFlaggedItemsReport() {
+  return buildFlaggedItemsFromItems((getData().items) || []);
+}
+
+function buildMonthlyTrendFromItems(items) {
   const trend = {};
-  (getData().items || []).forEach(function (item) {
+  (items || []).forEach(function (item) {
     if (!item || !item.entryDate) return;
     const key = String(item.entryDate).slice(0, 7);
     trend[key] = (trend[key] || 0) + 1;
   });
   return trend;
+}
+
+function getMonthlyTrend() {
+  return buildMonthlyTrendFromItems((getData().items) || []);
 }
 
 function getPrintableReport() {
