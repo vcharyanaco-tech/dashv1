@@ -76,6 +76,8 @@ const ApiService = {
   adminGetUserActivity: function () { return apiCall_('adminGetUserActivity', getAuthToken()); },
   adminDeleteUser: function (email) { return apiCall_('adminDeleteUser', email, getAuthToken()); },
   adminResetPassword: function (email, newPassword) { return apiCall_('adminResetPassword', email, newPassword, getAuthToken()); },
+  notificationsGet: function () { return apiCall_('notificationsGet', getAuthToken()); },
+  notificationsRead: function (ids) { return apiCall_('notificationsRead', ids, getAuthToken()); },
   getSubmissions: function (cardRow) { return apiCall_('getSubmissions', getAuthToken(), cardRow); },
   addSubmission: function (cardRow, cardId, text) { return apiCall_('addSubmission', cardRow, cardId, text, getAuthToken()); },
   updateSubmission: function (submissionId, text) { return apiCall_('updateSubmission', submissionId, text, getAuthToken()); },
@@ -119,7 +121,8 @@ const appState = {
   dashboardView: 'cards',
   dashSortKey: 'id',
   dashSortDir: 'asc',
-  permissions: {}
+  permissions: {},
+  notifications: { unread: 0, recent: [] }
 };
 
 /* ---------------------------------- Helpers ---------------------------------- */
@@ -449,6 +452,103 @@ function renderProfile() {
   if (addButton) addButton.style.display = appState.isEditor ? 'inline-flex' : 'none';
 }
 
+/* ---------------------------------- Notifications ---------------------------------- */
+
+function loadNotifications(silent) {
+  return ApiService.notificationsGet().then(function (data) {
+    appState.notifications = data || { unread: 0, recent: [] };
+    renderNotifications();
+  }).catch(function (err) {
+    if (!silent && handleServerFailure(err)) return;
+  });
+}
+
+function renderNotifications() {
+  const n = appState.notifications || { unread: 0, recent: [] };
+  const badge = getEl('notifBadge');
+  if (badge) {
+    badge.textContent = n.unread > 99 ? '99+' : String(n.unread || 0);
+    badge.classList.toggle('hidden', !n.unread);
+    badge.setAttribute('aria-hidden', String(!n.unread));
+  }
+  const list = getEl('notifList');
+  const empty = getEl('notifEmpty');
+  const recent = n.recent || [];
+  if (list) {
+    list.innerHTML = (recent.map(function (item) {
+      const unreadClass = item.readAt ? '' : ' notif-item-unread';
+      return '<li class="notif-item' + unreadClass + '" data-notif-id="' + escapeAttr(String(item.id || '')) + '" data-notif-type="' + escapeAttr(String(item.type || 'system')) + '">' +
+        '<div class="notif-item-title">' + escapeHtml(item.title) + '</div>' +
+        '<div class="notif-item-body">' + escapeHtml(item.body) + '</div>' +
+        '<div class="notif-item-time">' + escapeHtml(formatNotifTime(item.createdAt)) + '</div>' +
+        '</li>';
+    }).join('')) || '<li class="notif-item-empty">No notifications yet.</li>';
+  }
+  if (empty) empty.classList.toggle('hidden', !!(recent && recent.length));
+}
+
+function escapeAttr(value) {
+  return String(value)
+    .replace(/&/g, '&amp;')
+    .replace(/"/g, '&quot;')
+    .replace(/'/g, '&#39;')
+    .replace(/</g, '&lt;')
+    .replace(/>/g, '&gt;');
+}
+
+function formatNotifTime(ts) {
+  if (!ts) return '';
+  const diff = Math.floor((Date.now() - Number(ts)) / 1000);
+  if (diff < 60) return 'just now';
+  if (diff < 3600) return Math.floor(diff / 60) + 'm ago';
+  if (diff < 86400) return Math.floor(diff / 3600) + 'h ago';
+  if (diff < 604800) return Math.floor(diff / 86400) + 'd ago';
+  return new Date(Number(ts)).toLocaleDateString();
+}
+
+function toggleNotifications() {
+  const panel = getEl('notifPanel');
+  if (!panel) return;
+  const open = panel.classList.toggle('hidden');
+  const trigger = getEl('notifTrigger');
+  if (trigger) trigger.setAttribute('aria-expanded', String(!open));
+  if (!open) loadNotifications(true);
+}
+
+function closeNotificationsPanel() {
+  const panel = getEl('notifPanel');
+  if (panel) panel.classList.add('hidden');
+  const trigger = getEl('notifTrigger');
+  if (trigger) trigger.setAttribute('aria-expanded', 'false');
+}
+
+function markAllNotificationsRead() {
+  ApiService.notificationsRead('all').then(function (data) {
+    appState.notifications = data || { unread: 0, recent: [] };
+    renderNotifications();
+    showToast('All notifications marked as read.', 'success');
+  }).catch(function (err) {
+    if (handleServerFailure(err)) return;
+    showToast('Could not update notifications: ' + (err.message || err), 'error');
+  });
+}
+
+function openNotification(id, type) {
+  if (!id) {
+    closeNotificationsPanel();
+    return;
+  }
+  ApiService.notificationsRead([id]).then(function (data) {
+    appState.notifications = data || { unread: 0, recent: [] };
+    renderNotifications();
+  }).catch(function (err) {
+    if (handleServerFailure(err)) return;
+  });
+  closeNotificationsPanel();
+  const map = { record: 'dashboard', submission: 'dashboard', user: 'settings', system: 'dashboard' };
+  openTab(map[type] || 'dashboard');
+}
+
 /* ---------------------------------- Tabs ---------------------------------- */
 
 function openTab(tabId) {
@@ -520,6 +620,7 @@ function loadApp() {
     getEl('resetScreen').classList.add('hidden');
     renderDashboard();
     updateOfflineBanner();
+    loadNotifications(true);
     EventBus.emit('DataRefreshed');
     EventBus.emit('UserLoggedIn');
 
@@ -1026,6 +1127,7 @@ function refreshData() {
     applyAppData(data);
     populateFilters();
     renderDashboard();
+    loadNotifications(true);
     auditLoaded = false;
     const auditPanel = getEl('audit');
     if (auditPanel && !auditPanel.classList.contains('hidden')) {
@@ -2308,6 +2410,15 @@ function wireGlobalEvents() {
     }, 180));
   }
 
+  const notifList = getEl('notifList');
+  if (notifList) {
+    notifList.addEventListener('click', function (e) {
+      const item = e.target.closest('.notif-item');
+      if (!item) return;
+      openNotification(item.getAttribute('data-notif-id'), item.getAttribute('data-notif-type'));
+    });
+  }
+
   document.addEventListener('keydown', function (e) {
     if ((e.ctrlKey || e.metaKey) && (e.key === 'k' || e.key === 'K')) {
       e.preventDefault();
@@ -2327,6 +2438,7 @@ function wireGlobalEvents() {
         const trigger = getEl('profileTrigger');
         if (trigger) trigger.setAttribute('aria-expanded', 'false');
       }
+      closeNotificationsPanel();
       const confirmModal = getEl('confirmModal');
       if (confirmModal && !confirmModal.classList.contains('hidden')) {
         cancelConfirmDialog();
@@ -2352,6 +2464,11 @@ function wireGlobalEvents() {
       profileDropdown.classList.remove('open');
       const trigger = getEl('profileTrigger');
       if (trigger) trigger.setAttribute('aria-expanded', 'false');
+    }
+    const notifPanel = getEl('notifPanel');
+    const notifMenu = getEl('notifMenu');
+    if (notifPanel && notifMenu && !notifPanel.classList.contains('hidden') && !notifMenu.contains(event.target)) {
+      closeNotificationsPanel();
     }
   });
 

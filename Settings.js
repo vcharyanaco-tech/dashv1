@@ -40,6 +40,10 @@ const CONFIG = Object.freeze({
     SHEET_NAME: 'Submissions',
     MAX_TEXT_LENGTH: 5000
   },
+  NOTIFICATIONS: {
+    SHEET_NAME: 'Notifications',
+    MAX_PER_USER: 50
+  },
   LOCK: {
     WAIT_TIME: 30000
   },

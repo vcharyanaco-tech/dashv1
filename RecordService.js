@@ -15,7 +15,7 @@
  * @returns {Object} Fresh getData() payload.
  */
 function addRecord_(item, token) {
-  requireEditor_(token);
+  const editor = requireEditor_(token);
 
   return runWithLock_(function () {
     const sheet = getSheet_();
@@ -74,6 +74,10 @@ function addRecord_(item, token) {
 
     invalidateDataCache_();
 
+    try {
+      notifyStaffLocked_(NOTIFICATION_TYPES.RECORD, 'New item added', 'Record #' + id + ' · ' + normalized.sector + (normalized.description ? ' — ' + normalized.description : ''), '', editor.email);
+    } catch (err) {}
+
     return getData();
   });
 }
@@ -86,7 +90,7 @@ function addRecord_(item, token) {
  * @returns {Object} Fresh getData() payload.
  */
 function updateRecord_(item, token) {
-  requireEditor_(token);
+  const editor = requireEditor_(token);
 
   return runWithLock_(function () {
     const sheet = getSheet_();
@@ -130,6 +134,10 @@ function updateRecord_(item, token) {
 
     invalidateDataCache_();
 
+    try {
+      notifyStaffLocked_(NOTIFICATION_TYPES.RECORD, 'Record updated', 'Record #' + normalized.id + ' · ' + normalized.sector + (normalized.description ? ' — ' + normalized.description : ''), '', editor.email);
+    } catch (err) {}
+
     return getData();
   });
 }
@@ -141,13 +149,19 @@ function updateRecord_(item, token) {
  * @returns {Object} Fresh getData() payload.
  */
 function deleteRecord_(row, token) {
-  requireEditor_(token);
+  const editor = requireEditor_(token);
 
   return runWithLock_(function () {
     const sheet = getSheet_();
+    const deletedId = row >= CONFIG.SHEET.START_ROW ? (row - CONFIG.SHEET.START_ROW + 1) : '';
     sheet.deleteRow(row);
     dataRenumber_();
     invalidateDataCache_();
+
+    try {
+      notifyStaffLocked_(NOTIFICATION_TYPES.RECORD, 'Item deleted', 'Record #' + deletedId + ' was removed from the dashboard.', '', editor.email);
+    } catch (err) {}
+
     return getData();
   });
 }
@@ -160,13 +174,18 @@ function deleteRecord_(row, token) {
  * @returns {{items: Object[], summary: Object}} Updated items + summary.
  */
 function markReviewDone_(row, token) {
-  requireAdmin_(token);
+  const admin = requireAdmin_(token);
 
   return runWithLock_(function () {
     const sheet = getSheet_();
     sheet.getRange(row, COL.REVIEW_DATE).setBackground(CONFIG.COLORS.REVIEW_DONE);
     logAudit_(ACTIONS.REVIEW_DONE, String(row), 'Marked review as done');
     invalidateDataCache_();
+
+    try {
+      notifyStaffLocked_(NOTIFICATION_TYPES.RECORD, 'Review marked done', 'Review for record #' + (row - CONFIG.SHEET.START_ROW + 1) + ' was marked as done.', '', admin.email);
+    } catch (err) {}
+
     const data = getData();
     return {
       items: data.items || [],

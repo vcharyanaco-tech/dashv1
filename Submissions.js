@@ -248,6 +248,9 @@ function addSubmission(cardRow, cardId, text, token) {
     sh.appendRow([id, cardRow, String(cardId || ''), user.email, content, now, now, '', null]);
 
     try { logAudit_(ACTIONS.SUBMISSION_ADD, cardRow, { id: id, cardRow: cardRow, text: content }, user.email); } catch (err) {}
+    try {
+      notifyStaffLocked_(NOTIFICATION_TYPES.SUBMISSION, 'New submission', 'Update submitted on record #' + cardRow + ' by ' + user.email + '.', '', user.email);
+    } catch (err) {}
     return submissionsForCard_(cardRow, user);
   });
 }

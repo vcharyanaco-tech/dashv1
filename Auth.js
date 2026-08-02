@@ -712,6 +712,7 @@ function changePassword(currentPassword, newPassword, token) {
   });
 
   try { logAudit_(ACTIONS.CHANGE_PASSWORD, '', '', user.email); } catch (err) {}
+  try { notify_(user.email, NOTIFICATION_TYPES.USER, 'Password changed', 'Your dashboard password was changed successfully.', ''); } catch (err) {}
   return { success: true, message: 'Password updated.' };
 }
 
@@ -760,6 +761,7 @@ function adminAddUser(email, role, password, group, department, office, token) {
     addUserRecord_(email, role, salt, hashPassword_(password, salt), admin.email, group, department, office);
 
     try { logAudit_(ACTIONS.USER_ADD, '', email + ' as ' + role, admin.email); } catch (err) {}
+    try { notify_(email, NOTIFICATION_TYPES.USER, 'Account created', 'Your dashboard account was created with the ' + role + ' role. Use the credentials given by your administrator.', ''); } catch (err) {}
     return listUserRecords_();
   });
 }
@@ -909,6 +911,7 @@ function adminImportUsers(csv, token) {
         addUserRecord_(email, role, salt, hashPassword_(pw, salt), admin.email, group, department, office);
         if (!password) setUserField_(email, 'mustChange', true);
         result.added++;
+        try { notify_(email, NOTIFICATION_TYPES.USER, 'Account created', 'Your dashboard account was created with the ' + role + ' role during a bulk import.', ''); } catch (err) {}
       }
     }
 
@@ -1020,6 +1023,7 @@ function adminResetPassword(email, newPassword, token) {
     setUserField_(email, 'resetExpires', null);
 
     try { logAudit_(ACTIONS.USER_RESET_PASSWORD, '', email, admin.email); } catch (err) {}
+    try { notify_(email, NOTIFICATION_TYPES.USER, 'Password reset', 'An administrator reset your dashboard password. Please sign in with the new password.', ''); } catch (err) {}
     return listUserRecords_();
   });
 }

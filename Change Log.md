@@ -55,6 +55,20 @@
   when that tab is visible during a manual refresh.
 - Verified with `node --check` and a DOM/onclick audit; deployed @81.
 
+### Phase 4 — Enterprise Features, Tranche B: Notification Center (deployment @83)
+- **In-app notification center:** a bell in the topbar with an unread badge and a
+  dropdown panel lists the signed-in user's most recent notifications. Items can
+  be opened (marks read + jumps to the relevant tab) or all marked read at once.
+- **Notifications sheet:** hidden `Notifications` sheet (auto-created) stores one
+  row per recipient; each user keeps at most `CONFIG.NOTIFICATIONS.MAX_PER_USER`
+  (50) entries, pruned on write. `getMyNotifications` / `markNotificationsRead`
+  power the panel (`notificationsGet` / `notificationsRead` via ApiService).
+- **Event hooks:** record add/update/delete and review-done notify all staff
+  (ADMIN/EDITOR roles + APPROVER group, excluding the actor); new submissions
+  notify approvers; account creation (single or bulk import), password change
+  and admin password resets notify the affected user.
+- Verified with `node --check` and a DOM/onclick audit; deployed @83.
+
 ### Phase 4 — Enterprise Features, Tranche A: User & Role Management (deployment @82)
 - **Granular RBAC permission matrix:** new `MODULES` / `MODULE_ACTIONS` /
   `PERMISSIONS` in `Settings.js` with View/Create/Edit/Delete/Export/Approve per
