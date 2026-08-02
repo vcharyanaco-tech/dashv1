@@ -89,6 +89,9 @@ const ApiService = {
   deleteTask: function (id) { return apiCall_('deleteTask', id, getAuthToken()); },
   getDashboardPreferences: function () { return apiCall_('getDashboardPreferences', getAuthToken()); },
   saveDashboardPreferences: function (prefs) { return apiCall_('saveDashboardPreferences', prefs, getAuthToken()); },
+  getReportTemplates: function () { return apiCall_('getReportTemplates'); },
+  getReportData: function (templateKey) { return apiCall_('getReportData', templateKey, getAuthToken()); },
+  emailReport: function (templateKey, recipient) { return apiCall_('emailReport', templateKey, recipient, getAuthToken()); },
   getSubmissions: function (cardRow) { return apiCall_('getSubmissions', getAuthToken(), cardRow); },
   addSubmission: function (cardRow, cardId, text) { return apiCall_('addSubmission', cardRow, cardId, text, getAuthToken()); },
   updateSubmission: function (submissionId, text) { return apiCall_('updateSubmission', submissionId, text, getAuthToken()); },
@@ -1536,7 +1539,10 @@ function printAudit() {
 function renderReportPreview() {
   const wrap = getEl('reportPreview');
   if (!wrap) return;
-  const itemsHtml = (appState.items || []).map(function (item) {
+  const templateKey = getEl('reportTemplate') ? getEl('reportTemplate').value : 'summary';
+  let items = appState.items || [];
+  if (templateKey === 'flagged') items = items.filter(function (i) { return i.flagged; });
+  const itemsHtml = items.map(function (item) {
     return `
       <tr>
         <td class="preserve-whitespace">${escapeHtml(item.id)}</td>
@@ -1548,13 +1554,43 @@ function renderReportPreview() {
       </tr>`;
   }).join('');
   wrap.innerHTML = `
-    <h3>Report preview</h3>
+    <h3>Report preview (${templateKey})</h3>
     <div class="report-preview-scroll">
       <table class="data-table">
         <thead><tr><th>#</th><th>Sector</th><th>Description</th><th>Action</th><th>Responsibility</th><th>Review</th></tr></thead>
         <tbody>${itemsHtml || '<tr><td colspan="6">No records to report.</td></tr>'}</tbody>
       </table>
     </div>`;
+}
+
+function openEmailReportDialog() {
+  const templateSelect = getEl('reportTemplate');
+  const emailTemplate = getEl('emailReportTemplate');
+  if (templateSelect && emailTemplate) emailTemplate.value = templateSelect.value;
+  openDialog('emailReportModal');
+}
+
+function closeEmailReportDialog() {
+  closeDialog('emailReportModal');
+}
+
+function sendEmailReport() {
+  const recipient = getEl('emailReportRecipient').value.trim();
+  const templateKey = getEl('emailReportTemplate').value;
+  if (!recipient) {
+    showToast('Recipient email is required.', 'error');
+    return;
+  }
+  showOverlay('Sending report…');
+  ApiService.emailReport(templateKey, recipient).then(function (res) {
+    hideOverlay();
+    closeEmailReportDialog();
+    showToast('Report emailed to ' + res.sentTo, 'success');
+  }).catch(function (err) {
+    hideOverlay();
+    if (handleServerFailure(err)) return;
+    showToast('Could not send report: ' + (err.message || err), 'error');
+  });
 }
 
 function downloadReportCsv() {
@@ -2769,7 +2805,7 @@ function wireGlobalEvents() {
         cancelConfirmDialog();
         return;
       }
-      ['editModal', 'aboutModal', 'submissionsModal', 'recordDetailModal', 'editUserModal', 'reviewModal', 'taskModal', 'columnModal'].forEach(function (id) {
+      ['editModal', 'aboutModal', 'submissionsModal', 'recordDetailModal', 'editUserModal', 'reviewModal', 'taskModal', 'columnModal', 'emailReportModal'].forEach(function (id) {
         const el = getEl(id);
         if (el && !el.classList.contains('hidden')) closeDialog(id);
       });

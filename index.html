@@ -295,6 +295,14 @@
             </div>
           </div>
           <div class="report-actions">
+            <div class="field" style="min-width:180px;">
+              <label for="reportTemplate">Template</label>
+              <select id="reportTemplate" class="select" onchange="renderReportPreview()">
+                <option value="summary">Summary</option>
+                <option value="detailed">Detailed</option>
+                <option value="flagged">Flagged only</option>
+              </select>
+            </div>
             <button class="btn btn-primary" type="button" onclick="printReport()" data-tip="Print the report">
               <svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="6 9 6 2 18 2 18 9"></polyline><path d="M6 18H4a2 2 0 0 1-2-2v-5a2 2 0 0 1 2-2h16a2 2 0 0 1 2 2v5a2 2 0 0 1-2 2h-2"></path><rect x="6" y="14" width="12" height="8"></rect></svg>
               Print report
@@ -310,6 +318,10 @@
             <button class="btn btn-secondary" type="button" onclick="downloadReportCsv()">
               <svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><line x1="12" y1="1" x2="12" y2="23"></line><path d="M17 5H9.5a3.5 3.5 0 0 0 0 7h5a3.5 3.5 0 0 1 0 7H6"></path></svg>
               CSV
+            </button>
+            <button class="btn btn-secondary" type="button" onclick="openEmailReportDialog()">
+              <svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M4 4h16c1.1 0 2 .9 2 2v12c0 1.1-.9 2-2 2H4c-1.1 0-2-.9-2-2V6c0-1.1.9-2 2-2z"></path><polyline points="22,6 12,13 2,6"></polyline></svg>
+              Email report
             </button>
           </div>
           <div class="report-preview" id="reportPreview"></div>
@@ -878,6 +890,36 @@
         <div class="form-row">
           <button class="btn btn-primary" type="submit">Save preferences</button>
           <button class="btn btn-secondary" type="button" onclick="closeColumnDialog()">Cancel</button>
+        </div>
+      </form>
+    </div>
+  </div>
+
+  <!-- ============================ EMAIL REPORT MODAL ============================ -->
+  <div id="emailReportModal" class="modal-backdrop hidden" role="dialog" aria-modal="true" aria-labelledby="emailReportModalTitle">
+    <div class="modal-card">
+      <div class="modal-header">
+        <h3 class="text-subheading" id="emailReportModalTitle">Email report</h3>
+        <button class="icon-btn" type="button" onclick="closeEmailReportDialog()" aria-label="Close dialog">
+          <svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><line x1="18" y1="6" x2="6" y2="18"></line><line x1="6" y1="6" x2="18" y2="18"></line></svg>
+        </button>
+      </div>
+      <form class="form" novalidate onsubmit="sendEmailReport(); return false;">
+        <div class="field">
+          <label for="emailReportRecipient">Recipient email</label>
+          <input id="emailReportRecipient" type="email" class="input" required autocomplete="off">
+        </div>
+        <div class="field">
+          <label for="emailReportTemplate">Template</label>
+          <select id="emailReportTemplate" class="select">
+            <option value="summary">Summary</option>
+            <option value="detailed">Detailed</option>
+            <option value="flagged">Flagged only</option>
+          </select>
+        </div>
+        <div class="form-row">
+          <button class="btn btn-primary" type="submit">Send report</button>
+          <button class="btn btn-secondary" type="button" onclick="closeEmailReportDialog()">Cancel</button>
         </div>
       </form>
     </div>

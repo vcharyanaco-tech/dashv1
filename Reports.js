@@ -288,3 +288,50 @@ function createPdfReport(token) {
   const pdf = blob.getAs('application/pdf').setName('IndiaPostDashboard_Report_' + Utilities.formatDate(new Date(), Session.getScriptTimeZone(), 'yyyyMMdd_HHmm') + '.pdf');
   return { filename: pdf.getName(), base64: Utilities.base64Encode(pdf.getBytes()) };
 }
+
+const REPORT_TEMPLATES = Object.freeze({
+  SUMMARY: { key: 'summary', label: 'Summary', description: 'Total, flagged, normal counts and sector breakdown' },
+  DETAILED: { key: 'detailed', label: 'Detailed', description: 'All record fields with review status' },
+  FLAGGED: { key: 'flagged', label: 'Flagged only', description: 'Only records with review due' }
+});
+
+function getReportTemplates() {
+  return Object.keys(REPORT_TEMPLATES).map(function (key) {
+    const t = REPORT_TEMPLATES[key];
+    return { key: t.key, label: t.label, description: t.description };
+  });
+}
+
+function getReportData(token, templateKey) {
+  requireLogin_(token);
+  const data = getData();
+  const items = data.items || [];
+  const key = String(templateKey || 'summary').toLowerCase();
+  let filtered = items;
+  if (key === 'flagged') filtered = items.filter(function (i) { return i.flagged; });
+  const summary = buildSummaryFromItems(filtered);
+  return {
+    title: getTitle_(),
+    generatedOn: new Date(),
+    template: key,
+    summary: summary,
+    items: filtered
+  };
+}
+
+function emailReport(token, templateKey, recipient) {
+  requireLogin_(token);
+  if (!recipient) throw new Error('Recipient email is required.');
+  const report = getReportData(token, templateKey);
+  const pdfBase64 = createPdfReport(token);
+  const subject = report.title + ' — ' + (REPORT_TEMPLATES[templateKey.toUpperCase()] || REPORT_TEMPLATES.SUMMARY).label + ' report';
+  const body = 'Please find attached the ' + subject + ' generated on ' + Utilities.formatDate(new Date(), Session.getScriptTimeZone(), 'dd.MM.yyyy HH:mm') + '.';
+  const pdfBlob = Utilities.newBlob(Utilities.base64Decode(pdfBase64.base64), 'application/pdf', pdfBase64.filename);
+  MailApp.sendEmail({
+    to: recipient,
+    subject: subject,
+    body: body,
+    attachments: [pdfBlob]
+  });
+  return { success: true, sentTo: recipient, template: templateKey };
+}
