@@ -102,6 +102,26 @@ ID), `Scripts.html` (legacy standalone client, superseded by `script.html`).
 Documentation: `README.md`, `Architecture.md`, `Admin Guide.md`,
 `Deployment Guide.md`, `Change Log.md`, `Contributing.md`, `Developer Guide.md`.
 
+## Public website & Google OAuth verification
+
+The `docs/` folder is the **public compliance website** for Google OAuth/app
+verification. Publish it on GitHub Pages (Source: `main` → `/docs` **or** use the
+provided workflow `.github/workflows/pages.yml` with Source → **GitHub Actions**):
+
+```
+https://<your-org>.github.io/<repo>/          (home)
+https://<your-org>.github.io/<repo>/privacy.html
+https://<your-org>.github.io/<repo>/terms.html
+https://<your-org>.github.io/<repo>/data-deletion.html
+https://<your-org>.github.io/<repo>/googledb112fa8b7d5dd0c.html   (Search Console verification file)
+```
+
+Follow [`GOOGLE_OAUTH_VERIFICATION.md`](GOOGLE_OAUTH_VERIFICATION.md) for the
+complete, first-try submission checklist (GitHub Pages setup, Search Console
+domain verification, OAuth consent screen, and the review questionnaire). The
+`docs/` folder is excluded from `clasp push` (`.clasp.json` →
+`skipSubdirectories: true`), so site files never enter the Apps Script project.
+
 ## Quick start
 
 1. Clone the repository.
