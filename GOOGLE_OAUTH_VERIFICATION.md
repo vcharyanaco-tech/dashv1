@@ -57,6 +57,16 @@ hosted at `docs/googledb112fa8b7d5dd0c.html`.
 3. Note the resulting URL. For a project repository it will be:
    `https://vcharyanaco-tech.github.io/dashv1/`
    (substitute the actual GitHub org/user and repo name).
+
+   > **Custom domain (recommended for OAuth verification).** Google requires the
+   > home page to sit on a domain you own, and `github.io` subdomains do not
+   > satisfy that. Point your registered domain at this site instead:
+   > - Set the Pages custom domain to `www.dashboardharyana.site` (this repo's
+   >   `docs/CNAME` already contains it).
+   > - At your registrar add a `CNAME` `www` →
+   >   `vcharyanaco-tech.github.io`, plus four `A` records on `@` →
+   >   `185.199.108.153`, `.109.`, `.110.`, `.111.`.
+   > - Use `https://www.dashboardharyana.site/` everywhere below.
 4. Verify these URLs open in an incognito window:
    - `https://<your-site>/`
    - `https://<your-site>/privacy.html`
@@ -85,9 +95,11 @@ hosted at `docs/googledb112fa8b7d5dd0c.html`.
 ## 3. Verify the domain in Google Search Console
 
 1. Open <https://search.google.com/search-console>.
-2. **Add property → URL prefix** and paste the exact site URL, e.g.
-   `https://vcharyanaco-tech.github.io/dashv1/`.
-3. Choose either verification method — both are already prepared in this repo:
+2. **Add property → Domain** and enter `dashboardharyana.site` (verify with the
+   DNS TXT record — this proves you own the registrable domain, which is what
+   Google's OAuth check requires). A URL-prefix property for a `github.io` URL is
+   **not** sufficient.
+3. Choose either HTML verification method — both are already prepared in this repo:
    - **HTML file**: the file already exists at
      `docs/googledb112fa8b7d5dd0c.html` and will be served at the site root.
    - **HTML tag**: the meta tag is already in `docs/index.html`:
@@ -123,7 +135,7 @@ project and set:
 | App name | `India Post Dashboard` (must match this repo and the site) |
 | Support email | `vcharyanaco@gmail.com` (a real, monitored address) |
 | App logo | A square logo, 120×120 px (recommended) |
-| App domain | Your published site domain, e.g. `vcharyanaco-tech.github.io` |
+| App domain | `dashboardharyana.site` (your published custom domain) |
 | Application home page | `https://<your-site>/` |
 | Application privacy policy link | `https://<your-site>/privacy.html` |
 | Application terms of service link | `https://<your-site>/terms.html` |
