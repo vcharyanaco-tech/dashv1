@@ -3,14 +3,14 @@
  *
  * Serves the GAS web app from app.dashboardharyana.site, stripping the
  * "This application was created by a Google Apps Script user" banner that
- * Google injects on all Apps Script web app pages.
+ * Google injects via client-side JavaScript on all Apps Script web app pages.
  *
  * Deployment: https://dash.cloudflare.com  →  Workers  →  Create
  * Route: app.dashboardharyana.site/*
  *
  * Usage after deploy:
- *   https://app.dashboardharyana.site/     →  loads the GAS web app
- *   The iframe in docs/index.html should point here, NOT to script.google.com
+ *   https://dashv1-proxy.dashv1-proxy.workers.dev/    (default workers.dev)
+ *   https://app.dashboardharyana.site/                (custom domain, when on Cloudflare)
  */
 
 const COMMON_HEADERS = {
@@ -36,10 +36,7 @@ export default {
     const GAS_SCRIPT_URL = env.GAS_SCRIPT_URL;
 
     if (!GAS_BASE_URL || !GAS_SCRIPT_URL) {
-      return new Response('Worker not configured: GAS_URL and GAS_SCRIPT_URL required', {
-        status: 500,
-        headers: COMMON_HEADERS,
-      });
+      return new Response('Worker not configured', { status: 500, headers: COMMON_HEADERS });
     }
 
     const path = url.pathname;
@@ -104,28 +101,78 @@ export default {
 /**
  * Removes the Google Apps Script disclaimer banner from the HTML response.
  *
- * Google injects a div at the bottom of every Apps Script web app page with
- * text like:
- *   "This application was created by a Google Apps Script user, not by Google.
- *    It is not offered, endorsed, or supported by Google.
- *    To report abuse, click here."
+ * The disclaimer text ("This application was created by a Google Apps Script
+ * user, not by Google…") is injected by Google's client-side JavaScript after
+ * page load, populating a <div id="warning-bar-table"> element. We remove
+ * this element and inject CSS to hide any remaining disclaimer-related nodes.
  *
- * The exact HTML structure varies, so we use multiple patterns.
+ * We also strip the disclaimer text from any JavaScript that contains it.
  */
 function stripDisclaimer(html) {
-  const patterns = [
-    /<div[^>]*>\s*<div[^>]*>\s*This application was created by a Google Apps Script user[^<]*<\/div>\s*<\/div>/gis,
-    /<div[^>]*>\s*This application was created by a Google Apps Script user[\s\S]*?<\/div>/gi,
-    /<div[^>]*class="[^"]*ga-web-app-banner[^"]*"[^>]*>[\s\S]*?<\/div>/gi,
-    /<div[^>]*>[\s\S]*?This application was created by a Google Apps Script user[\s\S]*?<\/div>/gi,
-    /This application was created by a Google Apps Script user[^<]*(<[^>]+>[^<]*<\/[^>]+>)*[\s]*/gi,
-  ];
-
   let result = html;
-  for (const pattern of patterns) {
-    result = result.replace(pattern, '');
-  }
 
+  // Remove the warning-bar table div entirely (contains the sandbox iframe wrapper)
+  result = result.replace(
+    /<div[^>]*id=["']warning-bar-table["'][^>]*>[\s\S]*?<\/div>\s*<div[^>]*style=["'][^"']*height:\s*100%[^"']*[\s\S]*?<\/div>\s*<\/div>/gi,
+    '<div id="sandboxRoot"></div>'
+  );
+
+  // Remove just the warning-bar div
+  result = result.replace(
+    /<div[^>]*id=["']warning["'][^>]*>[\s\S]*?<\/div>/gi,
+    ''
+  );
+  result = result.replace(
+    /<div[^>]*>[\s\S]*?This application was created by a Google Apps Script user[\s\S]*?<\/div>/gi,
+    ''
+  );
+  result = result.replace(
+    /<div[^>]*>\s*This application was created by a Google Apps Script user[^<]*<\/div>\s*<\/div>/gis,
+    ''
+  );
+  result = result.replace(
+    /This application was created by a Google Apps Script user[^<]*(<[^>]+>[^<]*<\/[^>]+>)*[\s]*/gi,
+    ''
+  );
+
+  // Remove standalone disclaimer text
+  result = result.replace(
+    /[\s]*This application was created by a Google Apps Script user[^<]*(<[^>]+>[^<]*<\/[^>]+>)*[\s]*/gi,
+    ''
+  );
+
+  // Inject CSS to hide any remaining disclaimer or warning-bar elements
+  // This runs before the GAS JavaScript tries to populate them
+  const hideCss =
+    '<style id="gas-disclaimer-killer">'
+    + '#warning-bar-table{display:none!important}'
+    + '#warning{display:none!important}'
+    + '.warning-bar{display:none!important}'
+    + '[id*="warning-bar"]{display:none!important}'
+    + '[id*="ga-web-app-banner"]{display:none!important}'
+    + '.gas-disclaimer{display:none!important}'
+    + '</style>';
+
+  result = result.replace(/(<\/head>)/i, hideCss + '$1');
+
+  // Inject a script that removes warning-bar elements after DOM load
+  const killScript =
+    '<script>(function(){'
+    + 'function killDisclaimer(){'
+    + 'var els=document.querySelectorAll("#warning-bar-table,#warning,.warning-bar");'
+    + 'for(var i=0;i<els.length;i++){els[i].style.setProperty("display","none","important");'
+    + 'els[i].parentNode&&els[i].parentNode.removeChild(els[i]);}'
+    + '}'
+    + 'if(document.readyState==="loading"){document.addEventListener("DOMContentLoaded",killDisclaimer)}'
+    + 'else{killDisclaimer()}'
+    + 'setTimeout(killDisclaimer,500);'
+    + 'setTimeout(killDisclaimer,2000);'
+    + '})();'
+    + '<\/script>';
+
+  result = result.replace(/(<body)/i, killScript + '$1');
+
+  // Clean up trailing whitespace before </body>
   result = result.replace(/<\/body>\s*$/i, '</body>');
 
   return result;

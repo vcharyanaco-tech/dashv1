@@ -95,34 +95,24 @@ function updateRecord_(item, token) {
   return runWithLock_(function () {
     const sheet = getSheet_();
     const normalized = normalizeItemForSheet_(item);
+    const row = item.row;
 
-    // Columns A-D
-    sheet
-      .getRange(item.row, COL.ID, 1, 4)
-      .setValues([[
-        normalized.id,
-        normalized.sector,
-        normalized.description,
-        normalized.entryDate
-      ]]);
-
-    // Column E (Action) - only rewrite when the text actually changed,
-    // so the rich-text colours in the sheet are preserved otherwise.
-    const actionCell = sheet.getRange(item.row, COL.ACTION);
-    const oldAction = String(actionCell.getValue() == null ? "" : actionCell.getValue());
-    const newAction = String(normalized.action == null ? "" : normalized.action);
-
-    if (oldAction.replace(/\r\n/g, "\n") !== newAction.replace(/\r\n/g, "\n")) {
-      actionCell.setValue(newAction);
+    function writeIfChanged(col, oldVal, newVal) {
+      const o = String(oldVal == null ? "" : oldVal).replace(/\r\n/g, "\n");
+      const n = String(newVal == null ? "" : newVal).replace(/\r\n/g, "\n");
+      if (o !== n) {
+        sheet.getRange(row, col).setValue(newVal);
+      }
     }
 
-    // Columns F-G
-    sheet
-      .getRange(item.row, COL.RESPONSIBILITY, 1, 2)
-      .setValues([[
-        normalized.responsibility,
-        normalized.reviewDate
-      ]]);
+    // Read old values and only write changed cells to preserve rich text / hyperlinks
+    writeIfChanged(COL.ID, sheet.getRange(row, COL.ID).getValue(), normalized.id);
+    writeIfChanged(COL.SECTOR, sheet.getRange(row, COL.SECTOR).getValue(), normalized.sector);
+    writeIfChanged(COL.DESCRIPTION, sheet.getRange(row, COL.DESCRIPTION).getValue(), normalized.description);
+    writeIfChanged(COL.ENTRY_DATE, sheet.getRange(row, COL.ENTRY_DATE).getValue(), normalized.entryDate);
+    writeIfChanged(COL.ACTION, sheet.getRange(row, COL.ACTION).getValue(), normalized.action);
+    writeIfChanged(COL.RESPONSIBILITY, sheet.getRange(row, COL.RESPONSIBILITY).getValue(), normalized.responsibility);
+    writeIfChanged(COL.REVIEW_DATE, sheet.getRange(row, COL.REVIEW_DATE).getValue(), normalized.reviewDate);
 
     sheet
       .getRange(item.row, COL.REVIEW_DATE)
