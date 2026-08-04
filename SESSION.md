@@ -1,9 +1,21 @@
 # India Post Dashboard — Session State
 
-Last updated: 2026-08-04
+Last updated: 2026-08-04 15:33:57
 
-## Current Task (login logo + deploy — DONE, deployed @106)
-Fix the login screen to use the same logo as the dashboard homepage, and deploy all pending fixes.
+## Current Task (auto-commit + session-save automation — IN PROGRESS)
+Set up automatic git commit + push to GitHub and SESSION.md save after every task.
+
+## Previous Task (CSP fix — DONE, deployed 2026-08-04)
+Fixed Cloudflare Worker CSP violation: `base-uri 'self'` blocked the `<base>` tag.
+
+### What changed
+- `worker.js`: removed `<base>` tag injection; now rewrites all relative `/static/…` URLs
+  to absolute `https://script.google.com/…`; extracts page nonce and applies it to injected
+  `<style>` and `<script>` so they pass Google's strict-dynamic nonce-based CSP.
+- `wrangler.toml`: no change (still pointing at @106).
+- Deployed as Worker version `f5f62d85`. Committed as `285f73e`.
+
+## Previous Task (login logo + deploy — DONE, deployed @106)
 
 ### What was found
 - `index.html` had 5 PNG data-URIs: favicon (line ~10, 96x62), splash (line ~23, 192x125), sidebar banner (line ~38, 512x332 — the "dashboard homepage" logo), login (line ~540, 192x125), about (line ~679, 192x125).
@@ -57,6 +69,8 @@ Fix the login screen to use the same logo as the dashboard homepage, and deploy 
 - appsscript.json: 4 scopes (send_mail removed).
 
 ## Recent commits (git log)
+- `285f73e` fix: remove base tag injection; rewrite relative URLs to absolute + use page nonce on injected script/style to pass Google CSP — DONE, deployed
+- `14b2da8` fix: match login screen logo to dashboard homepage banner; repoint worker to deployment @106
 - `a5c03c5` fix: preserve hyperlinks when editing records (RichTextValue plain-text compare) — DONE, deployed @105
 - `a2c254d` Embed GAS web app via Cloudflare Worker proxy; remove Group/Department fields — DONE
 - `bc05693` Add optional Username: email-or-username sign-in — DONE, deployed

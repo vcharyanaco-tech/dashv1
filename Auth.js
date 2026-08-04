@@ -282,6 +282,64 @@ function deleteUserRecord_(email) {
   return true;
 }
 
+/* Renames a user's login email in the Users sheet and everywhere the login
+   email is referenced functionally: Submissions (submitter + editor lock),
+   Tasks (assignee + creator), Notifications (recipient), Approvals workflow
+   (submitter + reviewer) and Users.createdBy. Historical Audit Log rows are
+   intentionally left unchanged so the audit trail is not rewritten. */
+function renameUserEmail_(oldEmail, newEmail) {
+  oldEmail = String(oldEmail || '').toLowerCase().trim();
+  newEmail = String(newEmail || '').toLowerCase().trim();
+  if (!oldEmail || !newEmail || oldEmail === newEmail) return;
+
+  const ss = getSpreadsheet_();
+  const replaceColumn = function (sheetName, colIndex) {
+    try {
+      const sh = ss.getSheetByName(sheetName);
+      if (!sh) return;
+      const lastRow = sh.getLastRow();
+      if (lastRow < 2) return;
+      const range = sh.getRange(2, colIndex, lastRow - 1, 1);
+      const values = range.getValues();
+      let changed = false;
+      for (let i = 0; i < values.length; i++) {
+        if (String(values[i][0] || '').toLowerCase().trim() === oldEmail) {
+          values[i][0] = newEmail;
+          changed = true;
+        }
+      }
+      if (changed) range.setValues(values);
+    } catch (err) {
+      console.warn('renameUserEmail_: could not update ' + sheetName + ' col ' + colIndex + ': ' + err);
+    }
+  };
+
+  replaceColumn(CONFIG.SUBMISSIONS.SHEET_NAME, SUBMISSION_COL.EMAIL);
+  replaceColumn(CONFIG.SUBMISSIONS.SHEET_NAME, SUBMISSION_COL.LOCKED_BY);
+  replaceColumn(CONFIG.TASKS.SHEET_NAME, TASK_COL.ASSIGNEE);
+  replaceColumn(CONFIG.TASKS.SHEET_NAME, TASK_COL.CREATED_BY);
+  replaceColumn(CONFIG.NOTIFICATIONS.SHEET_NAME, NOTIFICATION_COL.EMAIL);
+  replaceColumn(CONFIG.WORKFLOW.APPROVALS_SHEET_NAME, WORKFLOW_COL.SUBMITTED_BY);
+  replaceColumn(CONFIG.WORKFLOW.APPROVALS_SHEET_NAME, WORKFLOW_COL.REVIEWED_BY);
+
+  const sh = usersSheet_();
+  if (sh) {
+    const lastRow = sh.getLastRow();
+    if (lastRow >= 2) {
+      const range = sh.getRange(2, USER_COL.CREATED_BY, lastRow - 1, 1);
+      const values = range.getValues();
+      let changed = false;
+      for (let i = 0; i < values.length; i++) {
+        if (String(values[i][0] || '').toLowerCase().trim() === oldEmail) {
+          values[i][0] = newEmail;
+          changed = true;
+        }
+      }
+      if (changed) range.setValues(values);
+    }
+  }
+}
+
 function listUserRecords_() {
   const sh = usersSheet_();
   const out = [];
@@ -777,11 +835,15 @@ function adminAddUser(email, username, role, password, group, department, office
 }
 
 /**
- * Updates a user's username / group / department / office metadata.
- * @param {string} email Email of the target user.
- * @param {Object} fields { username?, group?, department?, office? } new values.
+ * Updates a user's email / username / role / group / department / office.
+ * Email changes propagate to every sheet that references the login email
+ * (Submissions, Tasks, Notifications, Approvals, Users.createdBy); the Audit
+ * Log keeps the original email for history. Role changes are protected: the
+ * bootstrap admin is immutable and the last admin cannot be demoted.
+ * @param {string} email Email of the target user (current email unless f.email is set).
+ * @param {Object} fields { email?, username?, role?, group?, department?, office? } new values.
  * @param {string} token Session token (admin required).
- * @returns {Object[]} Updated user list.
+ * @returns {{users: Object[], reAuth: boolean, message: string}} Updated list + flags.
  */
 function adminUpdateUser(email, fields, token) {
   const admin = requireAdmin_(token);
@@ -791,19 +853,63 @@ function adminUpdateUser(email, fields, token) {
     if (!findUserRecord_(email)) throw new Error('User not found.');
 
     const f = fields || {};
+    const changes = [];
+    let reAuth = false;
+
+    if (f.email !== undefined) {
+      const newEmail = String(f.email || '').toLowerCase().trim();
+      if (newEmail !== email) {
+        if (isBootstrapAdmin_(email)) throw new Error('The primary admin account email cannot be changed.');
+        if (!isValidEmail_(newEmail)) throw new Error('Invalid email address.');
+        if (findUserRecord_(newEmail)) throw new Error('A user with that email already exists.');
+
+        renameUserEmail_(email, newEmail);
+        changes.push('email ' + email + ' -> ' + newEmail);
+        try { notify_(newEmail, NOTIFICATION_TYPES.USER, 'Account updated', 'Your dashboard login email was changed to ' + newEmail + ' by an administrator.', ''); } catch (err) {}
+        if (email === admin.email) {
+          destroySession_(token);
+          reAuth = true;
+        }
+        email = newEmail;
+      }
+    }
+
+    if (f.role !== undefined) {
+      const role = String(f.role || '').toUpperCase().trim();
+      if ([ROLES.VIEWER, ROLES.EDITOR, ROLES.ADMIN].indexOf(role) === -1) throw new Error('Role must be VIEWER, EDITOR or ADMIN.');
+      if (isBootstrapAdmin_(email)) throw new Error('The primary admin account role cannot be changed.');
+      if (email === admin.email && role !== ROLES.ADMIN) throw new Error('You cannot change your own role.');
+      if (role !== ROLES.ADMIN && getUserRole(email) === ROLES.ADMIN) {
+        const adminCount = listUserRecords_().filter(function (u) { return u.role === ROLES.ADMIN; }).length;
+        if (adminCount <= 1) throw new Error('Cannot demote the last admin.');
+      }
+      if (getUserRole(email) !== role) {
+        setUserField_(email, 'role', role);
+        changes.push('role -> ' + role);
+        try { notify_(email, NOTIFICATION_TYPES.USER, 'Role changed', 'Your dashboard role was changed to ' + role + ' by an administrator.', ''); } catch (err) {}
+      }
+    }
+
     if (f.username !== undefined) {
       const uname = String(f.username || '').trim();
       if (uname && !isValidUsername_(uname)) throw new Error('Username must be 3-30 characters (letters, digits, dot, underscore, hyphen).');
       const holder = uname ? findUserByUsername_(uname) : null;
       if (holder && holder.email !== email) throw new Error('Username already taken.');
       setUserField_(email, 'username', uname);
+      changes.push('username updated');
     }
     if (f.group !== undefined) setUserField_(email, 'group', String(f.group || ''));
     if (f.department !== undefined) setUserField_(email, 'department', String(f.department || ''));
     if (f.office !== undefined) setUserField_(email, 'office', String(f.office || ''));
 
-    try { logAudit_(ACTIONS.USER_UPDATE, '', email + ' metadata updated', admin.email); } catch (err) {}
-    return listUserRecords_();
+    const summary = changes.length ? changes.join(', ') : 'metadata updated';
+    try { logAudit_(ACTIONS.USER_UPDATE, '', email + ' (' + summary + ')', admin.email); } catch (err) {}
+
+    return {
+      users: listUserRecords_(),
+      reAuth: reAuth,
+      message: changes.length ? 'User updated: ' + summary : 'No changes were made.'
+    };
   });
 }
 
