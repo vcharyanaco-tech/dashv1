@@ -75,8 +75,8 @@ const ApiService = {
   adminGetUserActivity: function () { return apiCall_('adminGetUserActivity', getAuthToken()); },
   adminDeleteUser: function (email) { return apiCall_('adminDeleteUser', email, getAuthToken()); },
   adminResetPassword: function (email, newPassword) { return apiCall_('adminResetPassword', email, newPassword, getAuthToken()); },
-  notificationsGet: function () { return apiCall_('notificationsGet', getAuthToken()); },
-  notificationsRead: function (ids) { return apiCall_('notificationsRead', ids, getAuthToken()); },
+  getMyNotifications: function () { return apiCall_('getMyNotifications', getAuthToken()); },
+  markNotificationsRead: function (ids) { return apiCall_('markNotificationsRead', ids, getAuthToken()); },
   submitRecordReview: function (row, summary) { return apiCall_('submitRecordReview', row, summary, getAuthToken()); },
   getPendingApprovals: function () { return apiCall_('getPendingApprovals', getAuthToken()); },
   getMyApprovals: function () { return apiCall_('getMyApprovals', getAuthToken()); },
@@ -470,7 +470,7 @@ function renderProfile() {
 /* ---------------------------------- Notifications ---------------------------------- */
 
 function loadNotifications(silent) {
-  return ApiService.notificationsGet().then(function (data) {
+  return ApiService.getMyNotifications().then(function (data) {
     appState.notifications = data || { unread: 0, recent: [] };
     renderNotifications();
   }).catch(function (err) {
@@ -529,7 +529,7 @@ function closeNotificationsPanel() {
 }
 
 function markAllNotificationsRead() {
-  ApiService.notificationsRead('all').then(function (data) {
+  ApiService.markNotificationsRead('all').then(function (data) {
     appState.notifications = data || { unread: 0, recent: [] };
     renderNotifications();
     showToast('All notifications marked as read.', 'success');
@@ -544,7 +544,7 @@ function openNotification(id, type) {
     closeNotificationsPanel();
     return;
   }
-  ApiService.notificationsRead([id]).then(function (data) {
+  ApiService.markNotificationsRead([id]).then(function (data) {
     appState.notifications = data || { unread: 0, recent: [] };
     renderNotifications();
   }).catch(function (err) {

@@ -173,7 +173,7 @@ function getMyNotifications(token) {
  * @param {string} token Session token.
  * @returns {{unread: number, recent: Object[], count: number}} Fresh state.
  */
-function markNotificationsRead(token, ids) {
+function markNotificationsRead(ids, token) {
   const user = requireLogin_(token);
   const sh = notificationsSheet_();
   if (!sh) return getMyNotifications(token);

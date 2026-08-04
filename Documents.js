@@ -91,22 +91,24 @@ function uploadDocumentToDrive_(fileBytes, fileName, mimeType) {
   return { driveFileId: file.getId(), url: file.getUrl(), size: blob.getBytes().length };
 }
 
-function getRecordDocuments(recordRow) {
-  requireLogin_(getAuthToken());
+function getRecordDocuments(recordRow, token) {
+  requireLogin_(token);
   return getRecordDocuments_(Number(recordRow) || 0);
 }
 
-function uploadDocument(recordRow, recordId, fileName, base64, mimeType) {
-  const user = requireLogin_(getAuthToken());
+function uploadDocument(recordRow, recordId, fileName, base64, mimeType, token) {
+  const user = requireLogin_(token);
   const bytes = Utilities.base64Decode(base64);
   const drive = uploadDocumentToDrive_(bytes, fileName, mimeType);
   const doc = addDocument_(Number(recordRow) || 0, String(recordId || ''), String(fileName || ''), drive.driveFileId, String(mimeType || ''), drive.size, user.email);
+  try { notifyStaff_(NOTIFICATION_TYPES.RECORD, 'Document added', 'Document "' + String(fileName || '') + '" was added to record #' + (Number(recordRow) || 0) + ' by ' + user.email + '.', '', user.email); } catch (err) {}
   return doc;
 }
 
-function deleteDocument(docId) {
-  const user = requireLogin_(getAuthToken());
+function deleteDocument(docId, token) {
+  const user = requireLogin_(token);
   const ok = deleteDocument_(String(docId));
   if (!ok) throw new Error('Document not found.');
+  try { notifyStaff_(NOTIFICATION_TYPES.RECORD, 'Document removed', 'A document (' + String(docId) + ') was removed by ' + user.email + '.', '', user.email); } catch (err) {}
   return { success: true };
 }
