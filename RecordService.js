@@ -97,8 +97,14 @@ function updateRecord_(item, token) {
     const normalized = normalizeItemForSheet_(item);
     const row = item.row;
 
+    function toPlainText_(v) {
+      if (v == null) return "";
+      if (typeof v.getText === "function") { try { return String(v.getText()); } catch (e) {} }
+      return String(v);
+    }
+
     function writeIfChanged(col, oldVal, newVal) {
-      const o = String(oldVal == null ? "" : oldVal).replace(/\r\n/g, "\n");
+      const o = toPlainText_(oldVal).replace(/\r\n/g, "\n");
       const n = String(newVal == null ? "" : newVal).replace(/\r\n/g, "\n");
       if (o !== n) {
         sheet.getRange(row, col).setValue(newVal);
