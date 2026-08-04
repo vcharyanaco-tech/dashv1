@@ -14,18 +14,7 @@ if ($changes) {
 
 Write-Host "`n=== Deploying to Apps Script ===" -ForegroundColor Cyan
 
-# Push code - @HEAD deployment auto-serves latest code at a fixed URL
 clasp push --force
-Write-Host "Code pushed to Apps Script" -ForegroundColor Green
-
-# Show the @HEAD deployment URL (unchanged across deploys)
-$deployments = clasp deployments 2>&1
-foreach ($line in $deployments) {
-  if ($line -match '^\-\s+(\S+)\s+@HEAD') {
-    $headId = $Matches[1]
-    Write-Host "`nWeb app URL: https://script.google.com/macros/s/$headId/exec" -ForegroundColor Green
-    break
-  }
-}
+Write-Host "Code pushed. Existing deployment URL unchanged." -ForegroundColor Green
 
 Write-Host "`n=== Done ===" -ForegroundColor Cyan

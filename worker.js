@@ -5,12 +5,11 @@
  * "This application was created by a Google Apps Script user" banner that
  * Google injects via client-side JavaScript on all Apps Script web app pages.
  *
- * Deployment: https://dash.cloudflare.com  →  Workers  →  Create
- * Route: app.dashboardharyana.site/*
- *
- * Usage after deploy:
- *   https://dashv1-proxy.dashv1-proxy.workers.dev/    (default workers.dev)
- *   https://app.dashboardharyana.site/                (custom domain, when on Cloudflare)
+ * The disclaimer is injected by Google's warden.js script at runtime, creating
+ * elements with class names like "warning-banner", "warning-banner-text",
+ * "warning-banner-icon", etc. We strip the disclaimer text from the warden
+ * script source and inject CSS + JavaScript to hide/remove any remaining
+ * disclaimer elements.
  */
 
 const COMMON_HEADERS = {
@@ -42,16 +41,24 @@ export default {
     const path = url.pathname;
     let targetUrl = GAS_BASE_URL;
 
-    if (path.startsWith('/app')) {
-      const suffix = path.slice(4);
-      if (suffix && suffix !== '/') {
-        targetUrl = GAS_SCRIPT_URL + suffix + '/exec';
+    // Route: root or /app → GAS web app exec URL
+    // Route: /static/* → script.google.com static resources
+    // Route: anything else → GAS script URL
+    const gasScriptOrigin = new URL(GAS_SCRIPT_URL).origin;
+
+    if (!path || path === '/' || path === '/index.html' || path.startsWith('/app')) {
+      const suffix = (path.startsWith('/app') && path.length > 4) ? path.slice(4) : '';
+      let p = suffix;
+      if (p && p !== '/') {
+        targetUrl = GAS_SCRIPT_URL + p + '/exec';
       }
-    } else if (path.startsWith('/')) {
-      const suffix = path.slice(1);
-      if (suffix && suffix !== 'index.html') {
-        targetUrl = GAS_SCRIPT_URL + suffix + '/exec';
-      }
+    } else if (path.startsWith('/static/')) {
+      targetUrl = gasScriptOrigin + path;
+    } else if (path.startsWith('/favicon.ico')) {
+      targetUrl = gasScriptOrigin + '/favicon.ico';
+    } else {
+      // For any other path, try the GAS script URL
+      targetUrl = GAS_SCRIPT_URL + path;
     }
 
     const gasHeaders = new Headers(request.headers);
@@ -69,111 +76,161 @@ export default {
 
     if (contentType.includes('text/html')) {
       let html = await response.text();
-
-      html = stripDisclaimer(html);
-
-      html = html.replace(
-        /<base[^>]*>/gi,
-        '<base href="' + GAS_SCRIPT_URL + '/">'
-      );
-
+      html = stripDisclaimerHtml(html, gasScriptOrigin);
       const newHeaders = new Headers(response.headers);
       newHeaders.set('Content-Type', 'text/html; charset=utf-8');
       Object.entries(COMMON_HEADERS).forEach(([k, v]) => newHeaders.set(k, v));
+      return new Response(html, { status: response.status, headers: newHeaders });
+    }
 
-      return new Response(html, {
-        status: response.status,
-        headers: newHeaders,
-      });
+    if (contentType.includes('javascript') || path.endsWith('.js')) {
+      let js = await response.text();
+      js = stripDisclaimerJs(js);
+      const newHeaders = new Headers(response.headers);
+      newHeaders.set('Content-Type', 'application/javascript; charset=utf-8');
+      Object.entries(COMMON_HEADERS).forEach(([k, v]) => newHeaders.set(k, v));
+      return new Response(js, { status: response.status, headers: newHeaders });
+    }
+
+    if (contentType.includes('text/css') || path.endsWith('.css')) {
+      let css = await response.text();
+      const newHeaders = new Headers(response.headers);
+      newHeaders.set('Content-Type', 'text/css; charset=utf-8');
+      Object.entries(COMMON_HEADERS).forEach(([k, v]) => newHeaders.set(k, v));
+      return new Response(css, { status: response.status, headers: newHeaders });
     }
 
     const body = await response.arrayBuffer();
     const newHeaders = new Headers(response.headers);
     Object.entries(COMMON_HEADERS).forEach(([k, v]) => newHeaders.set(k, v));
-
-    return new Response(body, {
-      status: response.status,
-      headers: newHeaders,
-    });
+    return new Response(body, { status: response.status, headers: newHeaders });
   },
 };
 
 /**
- * Removes the Google Apps Script disclaimer banner from the HTML response.
- *
- * The disclaimer text ("This application was created by a Google Apps Script
- * user, not by Google…") is injected by Google's client-side JavaScript after
- * page load, populating a <div id="warning-bar-table"> element. We remove
- * this element and inject CSS to hide any remaining disclaimer-related nodes.
- *
- * We also strip the disclaimer text from any JavaScript that contains it.
+ * Processes HTML response: fixes base href, strips disclaimer elements,
+ * injects CSS and JavaScript to prevent disclaimer display.
  */
-function stripDisclaimer(html) {
+function stripDisclaimerHtml(html, gasOrigin) {
   let result = html;
 
-  // Remove the warning-bar table div entirely (contains the sandbox iframe wrapper)
+  // Fix the <base> tag to point to script.google.com root
+  // so relative URLs (/static/...) resolve correctly
+  const baseTag = '<base href="' + gasOrigin + '/">';
+  result = result.replace(/<base[^>]*>/gi, baseTag);
+  // If there's no base tag, inject one
+  if (!result.includes('<base')) {
+    result = result.replace(/(<head[^>]*>)/i, '$1' + baseTag);
+  }
+
+  // Remove the empty warning-bar div
   result = result.replace(
-    /<div[^>]*id=["']warning-bar-table["'][^>]*>[\s\S]*?<\/div>\s*<div[^>]*style=["'][^"']*height:\s*100%[^"']*[\s\S]*?<\/div>\s*<\/div>/gi,
-    '<div id="sandboxRoot"></div>'
+    /<div[^>]*id=["']warning["'][^>]*>[\s\S]*?<\/div>/gi, ''
   );
 
-  // Remove just the warning-bar div
+  // Strip standalone disclaimer text
   result = result.replace(
-    /<div[^>]*id=["']warning["'][^>]*>[\s\S]*?<\/div>/gi,
-    ''
-  );
-  result = result.replace(
-    /<div[^>]*>[\s\S]*?This application was created by a Google Apps Script user[\s\S]*?<\/div>/gi,
-    ''
-  );
-  result = result.replace(
-    /<div[^>]*>\s*This application was created by a Google Apps Script user[^<]*<\/div>\s*<\/div>/gis,
-    ''
-  );
-  result = result.replace(
-    /This application was created by a Google Apps Script user[^<]*(<[^>]+>[^<]*<\/[^>]+>)*[\s]*/gi,
-    ''
+    /[\s]*This application was created by a Google Apps Script user[^<]*(<[^>]+>[^<]*<\/[^>]+>)*[\s]*/gi, ''
   );
 
-  // Remove standalone disclaimer text
-  result = result.replace(
-    /[\s]*This application was created by a Google Apps Script user[^<]*(<[^>]+>[^<]*<\/[^>]+>)*[\s]*/gi,
-    ''
-  );
-
-  // Inject CSS to hide any remaining disclaimer or warning-bar elements
-  // This runs before the GAS JavaScript tries to populate them
+  // Inject CSS to hide ALL disclaimer-related elements
   const hideCss =
-    '<style id="gas-disclaimer-killer">'
+    '<style id="gas-disclaimer-killer" media="print" onload="this.media=\'screen\'">'
     + '#warning-bar-table{display:none!important}'
     + '#warning{display:none!important}'
     + '.warning-bar{display:none!important}'
+    + '.warning-banner{display:none!important}'
+    + '.warning-banner-text{display:none!important}'
+    + '.warning-banner-icon{display:none!important}'
+    + '.warning-banner-header{display:none!important}'
+    + '.warning-banner-buttons{display:none!important}'
+    + '.warning-banner-close-icon{display:none!important}'
     + '[id*="warning-bar"]{display:none!important}'
-    + '[id*="ga-web-app-banner"]{display:none!important}'
-    + '.gas-disclaimer{display:none!important}'
+    + '[id*="warning-banner"]{display:none!important}'
+    + '[class*="warning-banner"]{display:none!important}'
+    + '[class*="warning-bar"]{display:none!important}'
+    + '[class*="ga-web-app-banner"]{display:none!important}'
+    + '[id*="disclaimer"]{display:none!important}'
     + '</style>';
 
   result = result.replace(/(<\/head>)/i, hideCss + '$1');
 
-  // Inject a script that removes warning-bar elements after DOM load
+  // Inject JavaScript that aggressively removes disclaimer elements
   const killScript =
     '<script>(function(){'
+    + 'var disclaimerSelectors = ['
+    + '"#warning-bar-table",'
+    + '"#warning",'
+    + '".warning-bar",'
+    + '".warning-banner",'
+    + '".warning-banner-text",'
+    + '".warning-banner-icon",'
+    + '".warning-banner-header",'
+    + '".warning-banner-buttons",'
+    + '".warning-banner-close-icon",'
+    + '"[id*=\"warning-bar\"],'
+    + '"[id*=\"warning-banner\"],'
+    + '"[class*=\"warning-banner\"]",'
+    + '"[class*=\"warning-bar\"]",'
+    + '"[id*=\"disclaimer\"],'
+    + '"[class*=\"disclaimer\"]"'
+    + '];'
     + 'function killDisclaimer(){'
-    + 'var els=document.querySelectorAll("#warning-bar-table,#warning,.warning-bar");'
-    + 'for(var i=0;i<els.length;i++){els[i].style.setProperty("display","none","important");'
-    + 'els[i].parentNode&&els[i].parentNode.removeChild(els[i]);}'
+    + 'disclaimerSelectors.forEach(function(sel){'
+    + 'var els=document.querySelectorAll(sel);'
+    + 'for(var i=0;i<els.length;i++){'
+    + 'els[i].style.setProperty("display","none","important");'
+    + 'els[i].style.setProperty("visibility","hidden","important");'
+    + 'els[i].style.setProperty("opacity","0","important");'
+    + 'els[i].style.height="0";'
+    + 'els[i].style.overflow="hidden";'
+    + 'try{els[i].parentNode.removeChild(els[i])}catch(e){}'
     + '}'
-    + 'if(document.readyState==="loading"){document.addEventListener("DOMContentLoaded",killDisclaimer)}'
-    + 'else{killDisclaimer()}'
+    + '});'
+    + '}'
+    + 'if(document.readyState==="loading"){'
+    + 'document.addEventListener("DOMContentLoaded",killDisclaimer)'
+    + '}else{killDisclaimer()}'
+    + 'setTimeout(killDisclaimer,100);'
     + 'setTimeout(killDisclaimer,500);'
-    + 'setTimeout(killDisclaimer,2000);'
+    + 'setTimeout(killDisclaimer,1000);'
+    + 'setTimeout(killDisclaimer,3000);'
+    + 'var mo=new MutationObserver(function(mutations){mutations.forEach(function(m){m.addedNodes.forEach(function(n){'
+    + 'if(n.nodeType===1&&(n.id||"")+(n.className||"").match(/warning|disclaimer|banner/))'
+    + '{n.style.setProperty("display","none","important");try{n.parentNode.removeChild(n)}catch(e){}}'
+    + ')})});'
+    + 'mo.observe(document.body,{childList:true,subtree:true});'
     + '})();'
     + '<\/script>';
 
   result = result.replace(/(<body)/i, killScript + '$1');
 
-  // Clean up trailing whitespace before </body>
-  result = result.replace(/<\/body>\s*$/i, '</body>');
+  return result;
+}
+
+/**
+ * Strips the disclaimer text from the warden JavaScript source.
+ *
+ * The warden script contains the literal string "This application was created
+ * by a Google Apps Script user" as a string argument to a DOM creation
+ * function. We replace it with an empty string so no disclaimer elements
+ * are ever created.
+ */
+function stripDisclaimerJs(js) {
+  let result = js;
+
+  // Replace the disclaimer text string with empty string
+  result = result.replace(
+    /"This application was created by a Google Apps Script user"/g,
+    '""'
+  );
+
+  // Also strip the entire warning-banner creation block if found
+  // The function kB creates the disclaimer elements
+  result = result.replace(
+    /function kB\(a,b\)\{[\s\S]*?d\.appendChild\(a\);[\s\S]*?d\.appendChild\(e\);[\s\S]*?\}/g,
+    'function kB(a,b){}'
+  );
 
   return result;
 }
