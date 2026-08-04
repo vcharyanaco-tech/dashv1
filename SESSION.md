@@ -1,6 +1,6 @@
 # India Post Dashboard — Session State
 
-Last updated: 2026-08-04 15:45
+Last updated: 2026-08-04 15:42:55
 
 ## Current Task (edit user: email + role — DONE, deployed @108)
 The "Edit" option in user management should allow admins to edit the full user details: email, username, role and office.
@@ -58,6 +58,7 @@ The "Edit" option in user management should allow admins to edit the full user d
 - Docs site on GitHub Pages redirects root → Worker proxy. OAuth/app-verification thread ABANDONED by user decision.
 
 ## Recent commits (git log)
+- `6d2ec82` fix: add page nonce to warden external script tag so it passes strict-dynamic CSP
 - `772e031` session: update SESSION.md; commit remaining modified files (Auth.js, index.html, script.html) — includes the edit-user feature
 - `285f73e` fix: remove base tag injection; rewrite relative URLs to absolute + page nonce for CSP — DONE, deployed
 - `14b2da8` fix: match login screen logo to dashboard homepage banner; repoint worker to @106 — DONE, deployed

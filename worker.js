@@ -133,6 +133,19 @@ function processHtml(html, gasOrigin) {
   const pageNonce = nonceMatch ? nonceMatch[1] : '';
   const nonceAttr = pageNonce ? ` nonce="${pageNonce}"` : '';
 
+  // 3b. Add the page nonce to the warden external <script src> tag so it
+  //     passes strict-dynamic CSP (external scripts need a nonce under strict-dynamic)
+  if (pageNonce) {
+    result = result.replace(
+      /(<script\b)([^>]*\bsrc=["']https:\/\/script\.google\.com\/static\/[^"']+["'][^>]*)(>)/gi,
+      (match, open, attrs, close) => {
+        // Only add nonce if not already present
+        if (attrs.includes('nonce=')) return match;
+        return `${open}${attrs} nonce="${pageNonce}"${close}`;
+      }
+    );
+  }
+
   // 4. Remove the empty #warning div (initially empty, populated by warden JS)
   result = result.replace(
     /<div[^>]*id=["']warning["'][^>]*>\s*<\/div>/gi, ''
