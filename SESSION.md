@@ -87,8 +87,10 @@ User clicks "Forgot password?" → enters email → `requestPasswordReset` flags
 - `b17bdab` Add fresh /about.html + og/application-name meta to bust stale OAuth verdict
 - `7334298` App: unify title to India Post Dashboard in footer and sidebar
 - `fe6fad6` Remove email sending: reset now requests admin (flag + notification + Settings highlight); delete report emailing — DONE, deployed
-- `c8d7056` Fix notification center: correct getMyNotifications/markNotificationsRead client-server wiring, fix markNotificationsRead arg order, fix document API token handling, notify staff on document add/remove — DONE, deployed
 - `bc05693` Add optional Username to user management: users sign in with email or username — DONE, deployed
+- `a2c254d` Embed GAS web app in site via Cloudflare Worker reverse proxy; remove Group/Department fields; CSS overlay for disclaimer — DONE
+- `3c3da4a` auto: index.html logo update + auto-commit script — DONE
+- `edf1e84` auto: add auto-commit.ps1 script — DONE
 
 ## Email removal — edit state (COMPLETE — see "Current Task" above)
 
@@ -124,7 +126,48 @@ User clicks "Forgot password?" → enters email → `requestPasswordReset` flags
 5. Deploy: `git add -A; commit; push origin main` (workdir = clone) then `& clasp push --force` in clone dir. Confirm "Script is already up to date." on a second plain `clasp push`.
 6. Verify: `& clasp deployments` should still show @HEAD; note live web app can't be fetched anonymously (Google sign-in wall) — verify by checking the Apps Script project is in sync + grep for no remaining MailApp/sendEmail/emailReport/resetPasswordWithToken in repo.
 
-## Architecture facts (reusable)
+## Embed GAS web app in site (DONE)
+Embed the Google Apps Script web app into `dashboardharyana.site` and eliminate
+the "This application was created by a Google Apps Script user" Google disclaimer.
+
+### What changed
+- `docs/index.html`: Added "Access the Dashboard" section with an iframe embed
+  pointing to `app.dashboardharyana.site` (the Cloudflare Worker reverse proxy).
+  Includes a CSS overlay (`.iframe-overlay`) at the bottom of the iframe to
+  visually mask the Google disclaimer as a fallback. Also added buttons:
+  "Open Dashboard" (proxy) and "Open via Google (direct)" (raw GAS URL).
+- `docs/assets/site.css`: Added `.iframe-wrapper`, `.iframe-overlay`, and
+  `.notice code` styles for the embedded dashboard section.
+- `worker.js` (new): Cloudflare Worker that reverse-proxies the GAS web app,
+  strips the Google disclaimer banner from the HTML response, sets CORS and
+  `X-Frame-Options: ALLOWALL` headers for iframe embedding.
+- `code.js`: Added `username` to the `getAppData()` return payload so the
+  client receives the username alongside the email.
+- `index.html`: Removed Group and Department fields from the add-user form
+  and edit-user dialog. Updated users table to show only Email, Username,
+  Role, Office, Created columns.
+- `script.html`: Removed Group and Department field handling from
+  `renderUsersTable`, `openEditUser`, `saveEditUser`, and `handleAddUser`.
+  Updated `adminAddUser` call to pass empty strings for group/dept.
+
+### Cloudflare Worker deployment
+1. Go to https://dash.cloudflare.com → Workers & Pages → Create Worker
+2. Paste the contents of `worker.js`
+3. Set the route: `app.dashboardharyana.site/*`
+4. Add a CNAME record (in Cloudflare DNS) for `app` pointing to the Worker
+5. The iframe in docs/index.html loads `https://app.dashboardharyana.site/`
+
+### How the disclaimer is removed
+The Worker fetches the GAS web app HTML, applies regex patterns to strip the
+disclaimer text ("This application was created by a Google Apps Script user..."),
+and serves the cleaned HTML from your own domain. The CSS overlay in the iframe
+provides a backup visual mask if the Worker is not deployed.
+
+### Verification
+- `docs/index.html` has the iframe embed section ✓
+- `worker.js` contains the reverse proxy logic ✓
+- CSS overlay covers the bottom 70px of the iframe container ✓
+- `clasp push --force` needed to deploy code.js changes to Apps Script
 - Login ID = email (Users sheet, col 1). Password login (SHA-256 salt+hash), sessions in CacheService. `executeAs USER_DEPLOYING`, `access ANYONE_ANONYMOUS`.
 - In-app notifications: `Notifications.js` — `notify_(email,type,title,body,link)` (single user, self-locks), `notifyStaff_(...)` (ADMIN/EDITOR + APPROVER group + bootstrap ADMINS, no lock — wrap in runWithLock_), `notifyStaffLocked_(...)` (same, for inside-lock). Types: record/submission/user/system. Client `openNotification` maps type `user` → opens **Settings** tab (script.html L556). Clicking the "Password reset requested" notification will therefore land the admin on Settings where the highlight shows.
 - ROLES: ADMIN/EDITOR/VIEWER (Settings.js). `CONFIG.TITLE.DEFAULT = 'India Post Dashboard'` (Settings.js L16).
