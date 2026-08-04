@@ -9,7 +9,7 @@
  * elements with class names like "warning-banner", "warning-banner-text",
  * "warning-banner-icon", etc. We strip the disclaimer text from the warden
  * script source and inject CSS + JavaScript to hide/remove any remaining
- * disclaimer elements.
+ * disclaimer elements WITHOUT hiding the sandbox iframe that contains the app.
  */
 
 const COMMON_HEADERS = {
@@ -41,9 +41,6 @@ export default {
     const path = url.pathname;
     let targetUrl = GAS_BASE_URL;
 
-    // Route: root or /app → GAS web app exec URL
-    // Route: /static/* → script.google.com static resources
-    // Route: anything else → GAS script URL
     const gasScriptOrigin = new URL(GAS_SCRIPT_URL).origin;
 
     if (!path || path === '/' || path === '/index.html' || path.startsWith('/app')) {
@@ -57,7 +54,6 @@ export default {
     } else if (path.startsWith('/favicon.ico')) {
       targetUrl = gasScriptOrigin + '/favicon.ico';
     } else {
-      // For any other path, try the GAS script URL
       targetUrl = GAS_SCRIPT_URL + path;
     }
 
@@ -93,7 +89,7 @@ export default {
     }
 
     if (contentType.includes('text/css') || path.endsWith('.css')) {
-      let css = await response.text();
+      const css = await response.text();
       const newHeaders = new Headers(response.headers);
       newHeaders.set('Content-Type', 'text/css; charset=utf-8');
       Object.entries(COMMON_HEADERS).forEach(([k, v]) => newHeaders.set(k, v));
@@ -110,6 +106,9 @@ export default {
 /**
  * Processes HTML response: fixes base href, strips disclaimer elements,
  * injects CSS and JavaScript to prevent disclaimer display.
+ *
+ * IMPORTANT: Do NOT hide #warning-bar-table — it contains the sandboxFrame
+ * iframe where the actual app runs. Only hide the warning/banner elements.
  */
 function stripDisclaimerHtml(html, gasOrigin) {
   let result = html;
@@ -118,25 +117,24 @@ function stripDisclaimerHtml(html, gasOrigin) {
   // so relative URLs (/static/...) resolve correctly
   const baseTag = '<base href="' + gasOrigin + '/">';
   result = result.replace(/<base[^>]*>/gi, baseTag);
-  // If there's no base tag, inject one
   if (!result.includes('<base')) {
     result = result.replace(/(<head[^>]*>)/i, '$1' + baseTag);
   }
 
-  // Remove the empty warning-bar div
+  // Remove the empty #warning div (initially empty, populated by warden JS)
   result = result.replace(
-    /<div[^>]*id=["']warning["'][^>]*>[\s\S]*?<\/div>/gi, ''
+    /<div[^>]*id=["']warning["'][^>]*>\s*<\/div>/gi, ''
   );
 
-  // Strip standalone disclaimer text
+  // Strip standalone disclaimer text if present in HTML source
   result = result.replace(
     /[\s]*This application was created by a Google Apps Script user[^<]*(<[^>]+>[^<]*<\/[^>]+>)*[\s]*/gi, ''
   );
 
-  // Inject CSS to hide ALL disclaimer-related elements
+  // Inject CSS to hide ONLY the disclaimer/banner elements — NOT #warning-bar-table
+  // (which contains the sandboxFrame iframe with the app content)
   const hideCss =
-    '<style id="gas-disclaimer-killer" media="print" onload="this.media=\'screen\'">'
-    + '#warning-bar-table{display:none!important}'
+    '<style id="gas-disclaimer-killer">'
     + '#warning{display:none!important}'
     + '.warning-bar{display:none!important}'
     + '.warning-banner{display:none!important}'
@@ -145,21 +143,20 @@ function stripDisclaimerHtml(html, gasOrigin) {
     + '.warning-banner-header{display:none!important}'
     + '.warning-banner-buttons{display:none!important}'
     + '.warning-banner-close-icon{display:none!important}'
-    + '[id*="warning-bar"]{display:none!important}'
-    + '[id*="warning-banner"]{display:none!important}'
+    + '[id*="warning-text"]{display:none!important}'
     + '[class*="warning-banner"]{display:none!important}'
-    + '[class*="warning-bar"]{display:none!important}'
-    + '[class*="ga-web-app-banner"]{display:none!important}'
+    + '[id*="ga-web-app-banner"]{display:none!important}'
     + '[id*="disclaimer"]{display:none!important}'
+    + '[class*="disclaimer"]{display:none!important}'
     + '</style>';
 
   result = result.replace(/(<\/head>)/i, hideCss + '$1');
 
-  // Inject JavaScript that aggressively removes disclaimer elements
+  // Inject JavaScript that removes disclaimer elements without touching the iframe
   const killScript =
     '<script>(function(){'
-    + 'var disclaimerSelectors = ['
-    + '"#warning-bar-table",'
+    + 'function killDisclaimer(){'
+    + 'var sel = ['
     + '"#warning",'
     + '".warning-bar",'
     + '".warning-banner",'
@@ -168,23 +165,22 @@ function stripDisclaimerHtml(html, gasOrigin) {
     + '".warning-banner-header",'
     + '".warning-banner-buttons",'
     + '".warning-banner-close-icon",'
-    + '"[id*=\"warning-bar\"],'
-    + '"[id*=\"warning-banner\"],'
-    + '"[class*=\"warning-banner\"]",'
-    + '"[class*=\"warning-bar\"]",'
-    + '"[id*=\"disclaimer\"],'
-    + '"[class*=\"disclaimer\"]"'
+    + '"[id*=\\"warning-text\\"]",'
+    + '"[class*=\\"warning-banner\\"]",'
+    + '"[id*=\\"disclaimer\\"]",'
+    + '"[class*=\\"disclaimer\\"]"'
     + '];'
-    + 'function killDisclaimer(){'
-    + 'disclaimerSelectors.forEach(function(sel){'
-    + 'var els=document.querySelectorAll(sel);'
+    + 'sel.forEach(function(s){'
+    + 'var els=document.querySelectorAll(s);'
     + 'for(var i=0;i<els.length;i++){'
-    + 'els[i].style.setProperty("display","none","important");'
-    + 'els[i].style.setProperty("visibility","hidden","important");'
-    + 'els[i].style.setProperty("opacity","0","important");'
-    + 'els[i].style.height="0";'
-    + 'els[i].style.overflow="hidden";'
-    + 'try{els[i].parentNode.removeChild(els[i])}catch(e){}'
+    + 'var el=els[i];'
+    + '// Only remove warning/banner elements, NOT the warning-bar-table (which has the iframe)'
+    + 'if(el.id==="warning-bar-table")return;'
+    + 'el.style.setProperty("display","none","important");'
+    + 'el.style.setProperty("visibility","hidden","important");'
+    + 'el.style.height="0";'
+    + 'el.style.overflow="hidden";'
+    + 'try{el.parentNode.removeChild(el)}catch(e){}'
     + '}'
     + '});'
     + '}'
@@ -195,10 +191,15 @@ function stripDisclaimerHtml(html, gasOrigin) {
     + 'setTimeout(killDisclaimer,500);'
     + 'setTimeout(killDisclaimer,1000);'
     + 'setTimeout(killDisclaimer,3000);'
-    + 'var mo=new MutationObserver(function(mutations){mutations.forEach(function(m){m.addedNodes.forEach(function(n){'
-    + 'if(n.nodeType===1&&(n.id||"")+(n.className||"").match(/warning|disclaimer|banner/))'
-    + '{n.style.setProperty("display","none","important");try{n.parentNode.removeChild(n)}catch(e){}}'
-    + ')})});'
+    + 'var mo=new MutationObserver(function(mutations){'
+    + 'mutations.forEach(function(m){'
+    + 'm.addedNodes.forEach(function(n){'
+    + 'if(n.nodeType===1&&((n.id||"")+(n.className||"").match(/warning|disclaimer|banner/)))'
+    + '{n.style.setProperty("display","none","important");'
+    + 'try{n.parentNode.removeChild(n)}catch(e){}}'
+    + ')'
+    + '})'
+    + '});'
     + 'mo.observe(document.body,{childList:true,subtree:true});'
     + '})();'
     + '<\/script>';
@@ -219,14 +220,11 @@ function stripDisclaimerHtml(html, gasOrigin) {
 function stripDisclaimerJs(js) {
   let result = js;
 
-  // Replace the disclaimer text string with empty string
   result = result.replace(
     /"This application was created by a Google Apps Script user"/g,
     '""'
   );
 
-  // Also strip the entire warning-banner creation block if found
-  // The function kB creates the disclaimer elements
   result = result.replace(
     /function kB\(a,b\)\{[\s\S]*?d\.appendChild\(a\);[\s\S]*?d\.appendChild\(e\);[\s\S]*?\}/g,
     'function kB(a,b){}'
