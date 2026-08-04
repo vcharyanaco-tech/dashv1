@@ -18,7 +18,7 @@ const EDITOR_USERS = [
 const VIEWER_USERS = [
 ];
 
-const USER_SHEET_HEADERS = ['Email', 'Role', 'Salt', 'PasswordHash', 'MustChange', 'CreatedBy', 'CreatedAt', 'ResetToken', 'ResetExpires', 'Group', 'Department', 'Office', 'Preferences', 'ResetRequested'];
+const USER_SHEET_HEADERS = ['Email', 'Role', 'Salt', 'PasswordHash', 'MustChange', 'CreatedBy', 'CreatedAt', 'ResetToken', 'ResetExpires', 'Group', 'Department', 'Office', 'Preferences', 'ResetRequested', 'Username'];
 
 const USER_COL = Object.freeze({
   EMAIL: 1,
@@ -34,7 +34,8 @@ const USER_COL = Object.freeze({
   DEPARTMENT: 11,
   OFFICE: 12,
   PREFERENCES: 13,
-  RESET_REQUESTED: 14
+  RESET_REQUESTED: 14,
+  USERNAME: 15
 });
 
 function getCurrentUser() {
@@ -65,6 +66,10 @@ function isBootstrapAdmin_(email) {
 
 function isValidEmail_(email) {
   return /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(String(email || '').trim());
+}
+
+function isValidUsername_(username) {
+  return /^[A-Za-z0-9._-]{3,30}$/.test(String(username || '').trim());
 }
 
 function validatePassword_(password) {
@@ -154,7 +159,8 @@ function userRecordFromRow_(row) {
     group: row[9] || '',
     department: row[10] || '',
     office: row[11] || '',
-    resetRequested: row[13] ? String(row[13]) : ''
+    resetRequested: row[13] ? String(row[13]) : '',
+    username: row[14] ? String(row[14]) : ''
   };
 }
 
@@ -169,6 +175,46 @@ function findUserRecord_(email) {
       const rec = userRecordFromRow_(rows[i]);
       rec.row = i + 2;
       rec.email = email;
+      return rec;
+    }
+  }
+
+  return null;
+}
+
+function findUserByUsername_(username) {
+  username = String(username || '').toLowerCase().trim();
+  if (!username) return null;
+
+  const rows = readUserRecords_();
+
+  for (let i = 0; i < rows.length; i++) {
+    if (String(rows[i][14] || '').toLowerCase().trim() === username) {
+      const rec = userRecordFromRow_(rows[i]);
+      rec.row = i + 2;
+      rec.email = String(rows[i][0] || '').toLowerCase().trim();
+      return rec;
+    }
+  }
+
+  return null;
+}
+
+/* Looks a user up by email or username (case-insensitive). Returns the record
+   with rec.email set to the canonical stored email. */
+function resolveUserByIdentifier_(identifier) {
+  identifier = String(identifier || '').toLowerCase().trim();
+  if (!identifier) return null;
+
+  const rows = readUserRecords_();
+
+  for (let i = 0; i < rows.length; i++) {
+    const rowEmail = String(rows[i][0] || '').toLowerCase().trim();
+    const rowUsername = String(rows[i][14] || '').toLowerCase().trim();
+    if ((rowEmail && rowEmail === identifier) || (rowUsername && rowUsername === identifier)) {
+      const rec = userRecordFromRow_(rows[i]);
+      rec.row = i + 2;
+      rec.email = rowEmail;
       return rec;
     }
   }
@@ -193,7 +239,8 @@ function setUserField_(email, field, value) {
     group: USER_COL.GROUP,
     department: USER_COL.DEPARTMENT,
     office: USER_COL.OFFICE,
-    resetRequested: USER_COL.RESET_REQUESTED
+    resetRequested: USER_COL.RESET_REQUESTED,
+    username: USER_COL.USERNAME
   };
 
   const col = colMap[field];
@@ -203,7 +250,7 @@ function setUserField_(email, field, value) {
   if (sh) sh.getRange(rec.row, col).setValue(value);
 }
 
-function addUserRecord_(email, role, salt, passwordHash, createdBy, group, department, office) {
+function addUserRecord_(email, role, salt, passwordHash, createdBy, group, department, office, username) {
   const sh = usersSheet_();
   if (!sh) return;
   const row = sh.getLastRow() + 1;
@@ -221,7 +268,8 @@ function addUserRecord_(email, role, salt, passwordHash, createdBy, group, depar
     department || '',
     office || '',
     '',
-    null
+    null,
+    username || ''
   ]]);
 }
 
@@ -254,7 +302,8 @@ function listUserRecords_() {
       group: values[i][9] || '',
       department: values[i][10] || '',
       office: values[i][11] || '',
-      resetRequested: values[i][13] ? String(values[i][13]) : ''
+      resetRequested: values[i][13] ? String(values[i][13]) : '',
+      username: values[i][14] ? String(values[i][14]) : ''
     });
   }
 
@@ -469,6 +518,7 @@ function getUserContext(email) {
   const rec = findUserRecord_(email) || {};
   return {
     email: email,
+    username: rec.username || '',
     role: getUserRole(email),
     group: rec.group || '',
     department: rec.department || '',
@@ -518,42 +568,44 @@ function requireViewer() {
  * ============================================================ */
 
 /**
- * Authenticates a user and issues a session token (6h TTL). Login failures
- * are throttled (max attempts / lock minutes in CONFIG.USERS).
- * @param {string} email User email.
+ * Authenticates a user and issues a session token (6h TTL). The identifier may
+ * be the user's email OR username. Login failures are throttled (max attempts /
+ * lock minutes in CONFIG.USERS).
+ * @param {string} identifier User email or username.
  * @param {string} password Plain-text password.
  * @returns {{success: boolean, message?: string, token?: string, mustChange?: boolean, user?: Object}}
  */
-function login(email, password) {
-  email = String(email || '').toLowerCase().trim();
+function login(identifier, password) {
+  identifier = String(identifier || '').toLowerCase().trim();
 
-  if (!isValidEmail_(email)) {
-    return { success: false, message: 'Enter a valid email address.' };
+  if (!identifier) {
+    return { success: false, message: 'Enter your email or username.' };
   }
   if (!password) {
     return { success: false, message: 'Enter your password.' };
   }
-  if (isAttemptBlocked_(email)) {
+  if (isAttemptBlocked_(identifier)) {
     return {
       success: false,
       message: 'Too many failed attempts. Try again in ' + CONFIG.USERS.LOCK_MINUTES + ' minutes.'
     };
   }
 
-  let rec = findUserRecord_(email);
+  let rec = resolveUserByIdentifier_(identifier);
 
-  if (!rec && isBootstrapAdmin_(email)) {
-    ensureUserRecord_(email);
-    rec = findUserRecord_(email);
+  if (!rec && isValidEmail_(identifier) && isBootstrapAdmin_(identifier)) {
+    ensureUserRecord_(identifier);
+    rec = findUserRecord_(identifier);
   }
 
   if (!rec || !verifyPasswordRecord_(rec, password)) {
-    recordFailedAttempt_(email);
-    return { success: false, message: 'Invalid email or password.' };
+    recordFailedAttempt_(identifier);
+    return { success: false, message: 'Invalid email, username or password.' };
   }
 
-  clearAttempts_(email);
+  clearAttempts_(identifier);
 
+  const email = rec.email;
   const token = createSession_(email);
   try { logAudit_(ACTIONS.LOGIN, '', 'Signed in', email); } catch (err) {}
 
@@ -564,6 +616,7 @@ function login(email, password) {
     mustChange: rec.mustChange === true,
     user: {
       email: email,
+      username: rec.username || '',
       role: context.role,
       loggedIn: true,
       group: context.group,
@@ -609,20 +662,21 @@ function validateSession(token) {
  * notifies the staff (admins/editors) so an administrator can reset the
  * password from Settings. No email is sent. Always returns a generic
  * response to avoid account enumeration.
- * @param {string} email User email.
+ * @param {string} identifier User email or username.
  * @returns {{success: boolean, message: string}}
  */
-function requestPasswordReset(email) {
-  email = String(email || '').toLowerCase().trim();
+function requestPasswordReset(identifier) {
+  identifier = String(identifier || '').toLowerCase().trim();
 
-  if (!isValidEmail_(email)) {
-    return { success: false, message: 'Enter a valid email address.' };
+  if (!identifier) {
+    return { success: false, message: 'Enter your email or username.' };
   }
 
-  const rec = findUserRecord_(email);
+  const rec = resolveUserByIdentifier_(identifier);
   if (!rec) {
     return { success: true, message: 'If an account exists, your administrator has been notified.' };
   }
+  const email = rec.email;
 
   runWithLock_(function () {
     setUserField_(email, 'resetRequested', new Date());
@@ -686,6 +740,7 @@ function adminGetUsers(token) {
 /**
  * Creates a new user account.
  * @param {string} email New user email.
+ * @param {string} username Optional username (3-30 chars: letters, digits, . _ -); must be unique.
  * @param {string} role One of ROLES.VIEWER / ROLES.EDITOR / ROLES.ADMIN.
  * @param {string} password Initial password (min 8 chars).
  * @param {string} group Optional comma-separated group names (USER_GROUPS).
@@ -694,23 +749,26 @@ function adminGetUsers(token) {
  * @param {string} token Session token (admin required).
  * @returns {Object[]} Updated user list.
  */
-function adminAddUser(email, role, password, group, department, office, token) {
+function adminAddUser(email, username, role, password, group, department, office, token) {
   const admin = requireAdmin_(token);
 
   return runWithLock_(function () {
     email = String(email || '').toLowerCase().trim();
+    username = String(username || '').trim();
     role = String(role || '').toUpperCase().trim();
 
     if (!isValidEmail_(email)) throw new Error('Invalid email address.');
+    if (username && !isValidUsername_(username)) throw new Error('Username must be 3-30 characters (letters, digits, dot, underscore, hyphen).');
     if ([ROLES.VIEWER, ROLES.EDITOR, ROLES.ADMIN].indexOf(role) === -1) throw new Error('Role must be VIEWER, EDITOR or ADMIN.');
 
     if (findUserRecord_(email)) throw new Error('A user with that email already exists.');
+    if (username && findUserByUsername_(username)) throw new Error('Username already taken.');
 
     const pwError = validatePassword_(password);
     if (pwError) throw new Error(pwError);
 
     const salt = generateSalt_();
-    addUserRecord_(email, role, salt, hashPassword_(password, salt), admin.email, group, department, office);
+    addUserRecord_(email, role, salt, hashPassword_(password, salt), admin.email, group, department, office, username);
 
     try { logAudit_(ACTIONS.USER_ADD, '', email + ' as ' + role, admin.email); } catch (err) {}
     try { notify_(email, NOTIFICATION_TYPES.USER, 'Account created', 'Your dashboard account was created with the ' + role + ' role. Use the credentials given by your administrator.', ''); } catch (err) {}
@@ -719,9 +777,9 @@ function adminAddUser(email, role, password, group, department, office, token) {
 }
 
 /**
- * Updates a user's group / department / office metadata.
+ * Updates a user's username / group / department / office metadata.
  * @param {string} email Email of the target user.
- * @param {Object} fields { group?, department?, office? } new values.
+ * @param {Object} fields { username?, group?, department?, office? } new values.
  * @param {string} token Session token (admin required).
  * @returns {Object[]} Updated user list.
  */
@@ -733,6 +791,13 @@ function adminUpdateUser(email, fields, token) {
     if (!findUserRecord_(email)) throw new Error('User not found.');
 
     const f = fields || {};
+    if (f.username !== undefined) {
+      const uname = String(f.username || '').trim();
+      if (uname && !isValidUsername_(uname)) throw new Error('Username must be 3-30 characters (letters, digits, dot, underscore, hyphen).');
+      const holder = uname ? findUserByUsername_(uname) : null;
+      if (holder && holder.email !== email) throw new Error('Username already taken.');
+      setUserField_(email, 'username', uname);
+    }
     if (f.group !== undefined) setUserField_(email, 'group', String(f.group || ''));
     if (f.department !== undefined) setUserField_(email, 'department', String(f.department || ''));
     if (f.office !== undefined) setUserField_(email, 'office', String(f.office || ''));
@@ -750,10 +815,11 @@ function adminUpdateUser(email, fields, token) {
 function adminExportUsers(token) {
   requireAdmin_(token);
   const users = listUserRecords_();
-  const header = ['Email', 'Role', 'Group', 'Department', 'Office', 'CreatedAt', 'MustChange'];
+  const header = ['Email', 'Username', 'Role', 'Group', 'Department', 'Office', 'CreatedAt', 'MustChange'];
   const lines = users.map(function (u) {
     return [
       u.email,
+      u.username || '',
       u.role,
       u.group || '',
       u.department || '',
@@ -798,9 +864,9 @@ function parseCsvLine_(line) {
 
 /**
  * Bulk-imports users from CSV. Expected columns:
- * Email, Role, Group, Department, Office, [Password].
+ * Email, Role, Group, Department, Office, [Password], [Username].
  * New users without a password get a random one and must change it on login;
- * existing users are updated for group/department/office (and password if given).
+ * existing users are updated for username/group/department/office (and password if given).
  * @param {string} csv CSV content (first row may be a header row).
  * @param {string} token Session token (admin required).
  * @returns {{users: Object[], added: number, updated: number, errors: string[]}}
@@ -839,10 +905,24 @@ function adminImportUsers(csv, token) {
       const department = String(cols[3] || '').trim();
       const office = String(cols[4] || '').trim();
       const password = String(cols[5] || '').trim();
+      const username = String(cols[6] || '').trim();
+
+      if (username && !isValidUsername_(username)) {
+        result.errors.push('Row ' + (r + 1) + ': invalid username "' + username + '".');
+        continue;
+      }
 
       const existing = findUserRecord_(email);
 
       if (existing) {
+        if (username) {
+          const holder = findUserByUsername_(username);
+          if (holder && holder.email !== email) {
+            result.errors.push('Row ' + (r + 1) + ': username "' + username + '" already taken.');
+            continue;
+          }
+          setUserField_(email, 'username', username);
+        }
         if (group) setUserField_(email, 'group', group);
         if (department) setUserField_(email, 'department', department);
         if (office) setUserField_(email, 'office', office);
@@ -859,8 +939,12 @@ function adminImportUsers(csv, token) {
         const pw = password || Utilities.getUuid().replace(/-/g, '').slice(0, 12);
         const pwError = validatePassword_(pw);
         if (pwError) { result.errors.push('Row ' + (r + 1) + ': ' + pwError); continue; }
+        if (username && findUserByUsername_(username)) {
+          result.errors.push('Row ' + (r + 1) + ': username "' + username + '" already taken.');
+          continue;
+        }
         const salt = generateSalt_();
-        addUserRecord_(email, role, salt, hashPassword_(pw, salt), admin.email, group, department, office);
+        addUserRecord_(email, role, salt, hashPassword_(pw, salt), admin.email, group, department, office, username);
         if (!password) setUserField_(email, 'mustChange', true);
         result.added++;
         try { notify_(email, NOTIFICATION_TYPES.USER, 'Account created', 'Your dashboard account was created with the ' + role + ' role during a bulk import.', ''); } catch (err) {}

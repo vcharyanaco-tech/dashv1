@@ -68,7 +68,7 @@ const ApiService = {
   requestPasswordReset: function (email) { return apiCall_('requestPasswordReset', email); },
   changePassword: function (currentPassword, newPassword) { return apiCall_('changePassword', currentPassword, newPassword, getAuthToken()); },
   adminGetUsers: function () { return apiCall_('adminGetUsers', getAuthToken()); },
-  adminAddUser: function (email, role, password, group, department, office) { return apiCall_('adminAddUser', email, role, password, group, department, office, getAuthToken()); },
+  adminAddUser: function (email, username, role, password, group, department, office) { return apiCall_('adminAddUser', email, username, role, password, group, department, office, getAuthToken()); },
   adminUpdateUser: function (email, fields) { return apiCall_('adminUpdateUser', email, fields, getAuthToken()); },
   adminExportUsers: function () { return apiCall_('adminExportUsers', getAuthToken()); },
   adminImportUsers: function (csv) { return apiCall_('adminImportUsers', csv, getAuthToken()); },
@@ -648,7 +648,7 @@ function handleLogin(e) {
   const email = emailEl.value.trim();
   const password = passEl.value;
   let valid = true;
-  valid = setFieldInvalid(emailEl, email ? '' : 'Enter your email address.') && valid;
+  valid = setFieldInvalid(emailEl, email ? '' : 'Enter your email or username.') && valid;
   valid = setFieldInvalid(passEl, password ? '' : 'Enter your password.') && valid;
   if (!valid) return;
 
@@ -684,7 +684,7 @@ function showLogin() {
 function handleForgotPassword(e) {
   e.preventDefault();
   const email = getEl('forgotEmail').value.trim();
-  if (!setFieldInvalid(getEl('forgotEmail'), email ? '' : 'Enter your email address.')) return;
+  if (!setFieldInvalid(getEl('forgotEmail'), email ? '' : 'Enter your email or username.')) return;
   showOverlay('Submitting reset request…');
   ApiService.requestPasswordReset(email).then(function (res) {
     hideOverlay();
@@ -1671,6 +1671,7 @@ function renderUsersTable(users) {
   const tbody = getEl('usersTable').querySelector('tbody');
   tbody.dataset.users = JSON.stringify(users);
   tbody.innerHTML = users.length ? users.map(function (u, i) {
+    const username = escapeHtml(u.username || '');
     const group = escapeHtml(u.group || '');
     const dept = escapeHtml(u.department || '');
     const office = escapeHtml(u.office || '');
@@ -1681,6 +1682,7 @@ function renderUsersTable(users) {
     return `
       <tr${resetPending ? ' class="row-reset-requested"' : ''}>
         <td class="preserve-whitespace">${escapeHtml(u.email)}${u.mustChange ? ' <em>(must change)</em>' : ''}${resetBadge}</td>
+        <td class="preserve-whitespace">${username || '<span class="badge" data-tone="muted">—</span>'}</td>
         <td>${escapeHtml(u.role)}</td>
         <td class="preserve-whitespace">${group || '<span class="badge" data-tone="muted">—</span>'}</td>
         <td class="preserve-whitespace">${dept || '<span class="badge" data-tone="muted">—</span>'}</td>
@@ -1690,7 +1692,7 @@ function renderUsersTable(users) {
         <td><button class="btn btn-secondary btn-small" type="button" data-action="edit" data-index="${i}">Edit</button></td>
         <td><button class="btn btn-danger btn-small" type="button" data-action="delete" data-index="${i}">Delete</button></td>
       </tr>`;
-  }).join('') : '<tr><td colspan="9">No users found.</td></tr>';
+  }).join('') : '<tr><td colspan="10">No users found.</td></tr>';
 }
 
 function loadUserActivity() {
@@ -1785,6 +1787,7 @@ function openEditUser(email) {
   const u = users.find(function (x) { return String(x.email).toLowerCase() === String(email).toLowerCase(); });
   if (!u) return;
   getEl('editUserEmail').value = u.email;
+  getEl('editUserUsername').value = u.username || '';
   getEl('editUserGroup').value = u.group || '';
   getEl('editUserDepartment').value = u.department || '';
   getEl('editUserOffice').value = u.office || '';
@@ -1798,6 +1801,7 @@ function closeEditUser() {
 function saveEditUser() {
   const email = getEl('editUserEmail').value.trim();
   const fields = {
+    username: getEl('editUserUsername').value.trim(),
     group: getEl('editUserGroup').value.trim(),
     department: getEl('editUserDepartment').value.trim(),
     office: getEl('editUserOffice').value.trim()
@@ -1820,12 +1824,14 @@ function handleAddUser(e) {
   e.preventDefault();
   if (!appState.isAdmin) { showToast('Admin access required', 'error'); return; }
   const emailEl = getEl('newUserEmail');
+  const usernameEl = getEl('newUserUsername');
   const roleEl = getEl('newUserRole');
   const passwordEl = getEl('newUserPassword');
   const groupEl = getEl('newUserGroup');
   const departmentEl = getEl('newUserDepartment');
   const officeEl = getEl('newUserOffice');
   const email = emailEl.value.trim();
+  const username = (usernameEl && usernameEl.value.trim()) || '';
   const role = roleEl.value;
   const password = passwordEl.value;
   const group = (groupEl && groupEl.value) || '';
@@ -1838,9 +1844,10 @@ function handleAddUser(e) {
   if (!valid) return;
 
   showOverlay('Adding user…');
-  ApiService.adminAddUser(email, role, password, group, department, office).then(function (users) {
+  ApiService.adminAddUser(email, username, role, password, group, department, office).then(function (users) {
     hideOverlay();
     emailEl.value = '';
+    if (usernameEl) usernameEl.value = '';
     passwordEl.value = '';
     if (groupEl) groupEl.value = '';
     if (departmentEl) departmentEl.value = '';
