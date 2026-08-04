@@ -18,11 +18,11 @@ Write-Host "`n=== Deploying to Apps Script ===" -ForegroundColor Cyan
 clasp push --force
 Write-Host "Code pushed to Apps Script" -ForegroundColor Green
 
-# Delete all previous deployments
+# Delete all previous deployments (skip @HEAD which is always present)
 $deployments = clasp deployments 2>&1
 $deploymentIds = @()
 foreach ($line in $deployments) {
-  if ($line -match '(\w{20,})\s') {
+  if ($line -match '^\-\s+(\S+)\s+@(\d+)') {
     $deploymentIds += $Matches[1]
   }
 }
