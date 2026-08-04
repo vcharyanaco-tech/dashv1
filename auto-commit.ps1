@@ -64,7 +64,10 @@ if ((Test-Path $sessionFile) -and ($TaskSummary -ne "")) {
     }
     $newLines | Set-Content $sessionFile
     & $git add SESSION.md
+    # Amend silently — swallow stdout+stderr, ignore exit code
+    $ErrorActionPreference = "Continue"
     & $git commit --amend --no-edit --no-verify 2>&1 | Out-Null
+    $ErrorActionPreference = "Stop"
     $newSha = (& $git rev-parse --short HEAD).Trim()
 }
 
