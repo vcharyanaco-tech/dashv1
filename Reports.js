@@ -318,20 +318,3 @@ function getReportData(token, templateKey) {
     items: filtered
   };
 }
-
-function emailReport(token, templateKey, recipient) {
-  requireLogin_(token);
-  if (!recipient) throw new Error('Recipient email is required.');
-  const report = getReportData(token, templateKey);
-  const pdfBase64 = createPdfReport(token);
-  const subject = report.title + ' — ' + (REPORT_TEMPLATES[templateKey.toUpperCase()] || REPORT_TEMPLATES.SUMMARY).label + ' report';
-  const body = 'Please find attached the ' + subject + ' generated on ' + Utilities.formatDate(new Date(), Session.getScriptTimeZone(), 'dd.MM.yyyy HH:mm') + '.';
-  const pdfBlob = Utilities.newBlob(Utilities.base64Decode(pdfBase64.base64), 'application/pdf', pdfBase64.filename);
-  MailApp.sendEmail({
-    to: recipient,
-    subject: subject,
-    body: body,
-    attachments: [pdfBlob]
-  });
-  return { success: true, sentTo: recipient, template: templateKey };
-}

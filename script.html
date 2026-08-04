@@ -66,7 +66,6 @@ const ApiService = {
   logout: function () { return apiCall_('logout', getAuthToken()); },
   validateSession: function () { return apiCall_('validateSession', getAuthToken()); },
   requestPasswordReset: function (email) { return apiCall_('requestPasswordReset', email); },
-  resetPasswordWithToken: function (email, resetToken, newPassword) { return apiCall_('resetPasswordWithToken', email, resetToken, newPassword); },
   changePassword: function (currentPassword, newPassword) { return apiCall_('changePassword', currentPassword, newPassword, getAuthToken()); },
   adminGetUsers: function () { return apiCall_('adminGetUsers', getAuthToken()); },
   adminAddUser: function (email, role, password, group, department, office) { return apiCall_('adminAddUser', email, role, password, group, department, office, getAuthToken()); },
@@ -91,7 +90,6 @@ const ApiService = {
   saveDashboardPreferences: function (prefs) { return apiCall_('saveDashboardPreferences', prefs, getAuthToken()); },
   getReportTemplates: function () { return apiCall_('getReportTemplates'); },
   getReportData: function (templateKey) { return apiCall_('getReportData', templateKey, getAuthToken()); },
-  emailReport: function (templateKey, recipient) { return apiCall_('emailReport', templateKey, recipient, getAuthToken()); },
   getRecordDocuments: function (row) { return apiCall_('getRecordDocuments', row, getAuthToken()); },
   uploadDocument: function (row, recordId, fileName, fileBytes, mimeType) { return apiCall_('uploadDocument', row, recordId, fileName, fileBytes, mimeType, getAuthToken()); },
   deleteDocument: function (docId) { return apiCall_('deleteDocument', docId, getAuthToken()); },
@@ -381,7 +379,7 @@ function handleServerFailure(err) {
 /* ---------------------------------- Screens ---------------------------------- */
 
 function showScreen(screen) {
-  ['login', 'forgot', 'reset'].forEach(name => {
+  ['login', 'forgot'].forEach(name => {
     const el = getEl(name + 'Screen');
     if (el) el.classList.add('hidden');
   });
@@ -584,15 +582,7 @@ function openTab(tabId) {
 /* ---------------------------------- Auth flows ---------------------------------- */
 
 function initApp() {
-  const params = parseQueryParams();
   const token = getAuthToken();
-
-  if (params.resetToken && params.email) {
-    getEl('resetEmail').value = params.email;
-    showScreen('reset');
-    hideSplash();
-    return;
-  }
 
   if (!token) {
     showScreen('login');
@@ -627,7 +617,6 @@ function loadApp() {
     showScreen('login');
     getEl('loginScreen').classList.add('hidden');
     getEl('forgotScreen').classList.add('hidden');
-    getEl('resetScreen').classList.add('hidden');
     renderDashboard();
     updateOfflineBanner();
     loadNotifications(true);
@@ -688,7 +677,7 @@ function showForgotPassword() {
 }
 
 function showLogin() {
-  ['loginMessage', 'forgotMessage', 'resetMessage'].forEach(id => showAuthMessage(id, ''));
+  ['loginMessage', 'forgotMessage'].forEach(id => showAuthMessage(id, ''));
   showScreen('login');
 }
 
@@ -696,49 +685,14 @@ function handleForgotPassword(e) {
   e.preventDefault();
   const email = getEl('forgotEmail').value.trim();
   if (!setFieldInvalid(getEl('forgotEmail'), email ? '' : 'Enter your email address.')) return;
-  showOverlay('Sending reset link…');
+  showOverlay('Submitting reset request…');
   ApiService.requestPasswordReset(email).then(function (res) {
     hideOverlay();
-    showAuthMessage('forgotMessage', (res && res.message) || 'Reset link sent.');
-    showToast((res && res.message) || 'Reset link sent.', 'success');
+    showAuthMessage('forgotMessage', (res && res.message) || 'A reset request has been sent to your administrator.');
+    showToast((res && res.message) || 'A reset request has been sent to your administrator.', 'success');
   }).catch(function (err) {
     hideOverlay();
-    showAuthMessage('forgotMessage', err && err.message ? err.message : 'Could not send reset link.');
-  });
-}
-
-function handleResetPassword(e) {
-  e.preventDefault();
-  const email = getEl('resetEmail').value.trim();
-  const np = getEl('resetNewPassword').value;
-  const cp = getEl('resetConfirmPassword').value;
-  const params = parseQueryParams();
-
-  let valid = true;
-  valid = setFieldInvalid(getEl('resetEmail'), email ? '' : 'Enter your email address.') && valid;
-  valid = setFieldInvalid(getEl('resetNewPassword'), np.length >= 8 ? '' : 'Password must be at least 8 characters.') && valid;
-  if (np !== cp) {
-    setFieldInvalid(getEl('resetConfirmPassword'), 'Passwords do not match.');
-    valid = false;
-  } else {
-    setFieldInvalid(getEl('resetConfirmPassword'), '');
-  }
-  if (!valid) return;
-
-  showOverlay('Setting new password…');
-  ApiService.resetPasswordWithToken(email, params.resetToken, np).then(function (res) {
-    hideOverlay();
-    if (!res || !res.success) {
-      showAuthMessage('resetMessage', (res && res.message) || 'Could not reset password.');
-      return;
-    }
-    setAuthToken(res.token);
-    appState.mustChange = false;
-    showAuthMessage('resetMessage', '');
-    loadApp();
-  }).catch(function (err) {
-    hideOverlay();
-    showAuthMessage('resetMessage', err && err.message ? err.message : 'Could not reset password.');
+    showAuthMessage('forgotMessage', err && err.message ? err.message : 'Could not submit the reset request.');
   });
 }
 
@@ -1566,36 +1520,6 @@ function renderReportPreview() {
     </div>`;
 }
 
-function openEmailReportDialog() {
-  const templateSelect = getEl('reportTemplate');
-  const emailTemplate = getEl('emailReportTemplate');
-  if (templateSelect && emailTemplate) emailTemplate.value = templateSelect.value;
-  openDialog('emailReportModal');
-}
-
-function closeEmailReportDialog() {
-  closeDialog('emailReportModal');
-}
-
-function sendEmailReport() {
-  const recipient = getEl('emailReportRecipient').value.trim();
-  const templateKey = getEl('emailReportTemplate').value;
-  if (!recipient) {
-    showToast('Recipient email is required.', 'error');
-    return;
-  }
-  showOverlay('Sending report…');
-  ApiService.emailReport(templateKey, recipient).then(function (res) {
-    hideOverlay();
-    closeEmailReportDialog();
-    showToast('Report emailed to ' + res.sentTo, 'success');
-  }).catch(function (err) {
-    hideOverlay();
-    if (handleServerFailure(err)) return;
-    showToast('Could not send report: ' + (err.message || err), 'error');
-  });
-}
-
 function downloadReportCsv() {
   const headers = ['#', 'Sector', 'Description', 'Entry Date', 'Action', 'Responsibility', 'Review Date', 'Flagged'];
   const rows = (appState.items || []).map(function (item) {
@@ -1750,9 +1674,13 @@ function renderUsersTable(users) {
     const group = escapeHtml(u.group || '');
     const dept = escapeHtml(u.department || '');
     const office = escapeHtml(u.office || '');
+    const resetPending = !!(u.resetRequested && String(u.resetRequested).trim());
+    const resetBadge = resetPending
+      ? ' <span class="badge" data-tone="warning" title="Requested at ' + escapeHtml(String(u.resetRequested)) + '">Reset request received</span>'
+      : '';
     return `
-      <tr>
-        <td class="preserve-whitespace">${escapeHtml(u.email)}${u.mustChange ? ' <em>(must change)</em>' : ''}</td>
+      <tr${resetPending ? ' class="row-reset-requested"' : ''}>
+        <td class="preserve-whitespace">${escapeHtml(u.email)}${u.mustChange ? ' <em>(must change)</em>' : ''}${resetBadge}</td>
         <td>${escapeHtml(u.role)}</td>
         <td class="preserve-whitespace">${group || '<span class="badge" data-tone="muted">—</span>'}</td>
         <td class="preserve-whitespace">${dept || '<span class="badge" data-tone="muted">—</span>'}</td>
@@ -2958,7 +2886,7 @@ function wireGlobalEvents() {
         cancelConfirmDialog();
         return;
       }
-      ['editModal', 'aboutModal', 'submissionsModal', 'recordDetailModal', 'editUserModal', 'reviewModal', 'taskModal', 'columnModal', 'emailReportModal', 'commandPalette'].forEach(function (id) {
+      ['editModal', 'aboutModal', 'submissionsModal', 'recordDetailModal', 'editUserModal', 'reviewModal', 'taskModal', 'columnModal', 'commandPalette'].forEach(function (id) {
         const el = getEl(id);
         if (el && !el.classList.contains('hidden')) closeDialog(id);
       });
@@ -3050,7 +2978,7 @@ function wireGlobalEvents() {
     });
   }
 
-  ['loginForm', 'forgotForm', 'resetForm', 'changePasswordForm', 'addUserForm', 'editForm'].forEach(function (id) {
+  ['loginForm', 'forgotForm', 'changePasswordForm', 'addUserForm', 'editForm'].forEach(function (id) {
     const form = getEl(id);
     if (form) wireFieldClearing(form);
   });
