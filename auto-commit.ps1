@@ -1,15 +1,15 @@
 # auto-commit.ps1
 # Usage:
 #   .\auto-commit.ps1                          # auto message: "auto: <timestamp>"
-#   .\auto-commit.ps1 "fix: my task summary"   # custom message
+#   .\auto-commit.ps1 "fix: my task summary"   # custom commit message
 #   .\auto-commit.ps1 -TaskSummary "fix: ..."  # named param
 #
-# What it does on every run:
+# What it does:
 #   1. Updates SESSION.md Last-updated timestamp
 #   2. git add -A
-#   3. git commit with message
-#   4. Patches SESSION.md with real commit SHA + amends
-#   5. git push origin main
+#   3. git commit
+#   4. git push origin main
+#   5. Patches SESSION.md Recent-commits with real SHA (second commit + push)
 
 param(
     [Parameter(Position=0)]
@@ -38,7 +38,7 @@ if (Test-Path $sessionFile) {
 & $git add -A
 if ($LASTEXITCODE -ne 0) { throw "git add failed" }
 
-# ── 4. Check if there is anything to commit ───────────────────────────────────
+# ── 4. Check if there is anything to commit ──────────────────────────────────
 $statusOut = & $git status --porcelain
 if (-not $statusOut) {
     Write-Host "Nothing to commit - working tree clean." -ForegroundColor Yellow
@@ -48,9 +48,13 @@ if (-not $statusOut) {
 # ── 5. Commit ─────────────────────────────────────────────────────────────────
 & $git commit -m $commitMsg
 if ($LASTEXITCODE -ne 0) { throw "git commit failed" }
-
-# ── 6. Get real SHA, prepend to Recent-commits section, amend ─────────────────
 $newSha = (& $git rev-parse --short HEAD).Trim()
+
+# ── 6. Push ───────────────────────────────────────────────────────────────────
+& $git push origin main
+if ($LASTEXITCODE -ne 0) { throw "git push failed" }
+
+# ── 7. Patch SESSION.md Recent-commits with real SHA (separate commit) ────────
 if ((Test-Path $sessionFile) -and ($TaskSummary -ne "")) {
     $lines = Get-Content $sessionFile
     $newLines = [System.Collections.Generic.List[string]]::new()
@@ -62,18 +66,16 @@ if ((Test-Path $sessionFile) -and ($TaskSummary -ne "")) {
             $inserted = $true
         }
     }
-    $newLines | Set-Content $sessionFile
-    & $git add SESSION.md
-    # Amend silently — swallow stdout+stderr, ignore exit code
-    $ErrorActionPreference = "Continue"
-    & $git commit --amend --no-edit --no-verify 2>&1 | Out-Null
-    $ErrorActionPreference = "Stop"
-    $newSha = (& $git rev-parse --short HEAD).Trim()
+    if ($inserted) {
+        $newLines | Set-Content $sessionFile
+        & $git add SESSION.md
+        $statusAfter = & $git status --porcelain
+        if ($statusAfter) {
+            & $git commit -m "session: log [$newSha] in SESSION.md"
+            & $git push origin main
+        }
+    }
 }
-
-# ── 7. Push ───────────────────────────────────────────────────────────────────
-& $git push origin main
-if ($LASTEXITCODE -ne 0) { throw "git push failed" }
 
 Write-Host ""
 Write-Host "OK Committed + pushed: [$newSha] $commitMsg" -ForegroundColor Green
