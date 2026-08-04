@@ -1953,18 +1953,60 @@ function deleteUser(email) {
 }
 
 function resetUserPassword(email) {
-  const newPassword = prompt('New password for ' + email + ' (min 8 characters):');
-  if (!newPassword) return;
+  const users = JSON.parse(getEl('usersTable').dataset.users || '[]');
+  const u = users.find(function (x) { return String(x.email).toLowerCase() === String(email).toLowerCase(); });
+  getEl('resetPasswordEmail').value = email;
+  getEl('resetPasswordUserLabel').textContent = 'Set a new password for ' + email + '.';
+  getEl('resetPasswordNew').value = '';
+  getEl('resetPasswordConfirm').value = '';
+  setFieldInvalid(getEl('resetPasswordNew'), '');
+  setFieldInvalid(getEl('resetPasswordConfirm'), '');
+  const statusEl = getEl('resetPasswordStatus');
+  statusEl.textContent = '';
+  statusEl.className = 'form-status';
+  if (u && u.resetRequested && String(u.resetRequested).trim()) {
+    showToast('Reset request received for ' + email, 'info');
+  }
+  openDialog('resetPasswordModal');
+  getEl('resetPasswordNew').focus();
+}
+
+function submitResetPassword() {
+  const email = getEl('resetPasswordEmail').value.trim();
+  const newEl = getEl('resetPasswordNew');
+  const confirmEl = getEl('resetPasswordConfirm');
+  const np = newEl.value;
+  const cp = confirmEl.value;
+  let valid = true;
+  valid = setFieldInvalid(newEl, np.length >= 8 ? '' : 'Password must be at least 8 characters.') && valid;
+  if (np !== cp) {
+    setFieldInvalid(confirmEl, 'Passwords do not match.');
+    valid = false;
+  } else {
+    setFieldInvalid(confirmEl, '');
+  }
+  if (!valid) return;
   showOverlay('Resetting password…');
-  ApiService.adminResetPassword(email, newPassword).then(function (users) {
+  ApiService.adminResetPassword(email, np).then(function (users) {
     hideOverlay();
+    closeResetPasswordDialog();
     renderUsersTable(users || []);
     showToast('Password reset for ' + email, 'success');
+    ApiService.markNotificationsRead('all').then(function (data) {
+      appState.notifications = data || { unread: 0, recent: [] };
+      renderNotifications();
+    }).catch(function () {});
   }).catch(function (err) {
     hideOverlay();
     if (handleServerFailure(err)) return;
-    showToast('Reset failed: ' + (err.message || err), 'error');
+    const status = getEl('resetPasswordStatus');
+    status.textContent = err.message || 'Reset failed';
+    status.classList.add('error');
   });
+}
+
+function closeResetPasswordDialog() {
+  closeDialog('resetPasswordModal');
 }
 
 /* ---------------------------------- Record detail dialog ---------------------------------- */
@@ -2902,7 +2944,7 @@ function wireGlobalEvents() {
         cancelConfirmDialog();
         return;
       }
-      ['editModal', 'aboutModal', 'submissionsModal', 'recordDetailModal', 'editUserModal', 'reviewModal', 'taskModal', 'columnModal', 'commandPalette'].forEach(function (id) {
+      ['editModal', 'aboutModal', 'submissionsModal', 'recordDetailModal', 'editUserModal', 'resetPasswordModal', 'reviewModal', 'taskModal', 'columnModal', 'commandPalette'].forEach(function (id) {
         const el = getEl(id);
         if (el && !el.classList.contains('hidden')) closeDialog(id);
       });
@@ -2938,6 +2980,7 @@ function wireGlobalEvents() {
         else if (backdrop.id === 'submissionsModal') closeSubmissionsModal();
         else if (backdrop.id === 'recordDetailModal') closeRecordDetail();
         else if (backdrop.id === 'editUserModal') closeEditUser();
+        else if (backdrop.id === 'resetPasswordModal') closeResetPasswordDialog();
         else if (backdrop.id === 'confirmModal') cancelConfirmDialog();
       }
     });

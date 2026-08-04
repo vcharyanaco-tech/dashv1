@@ -724,6 +724,37 @@
     </div>
   </div>
 
+  <!-- ============================ RESET PASSWORD DIALOG ============================ -->
+  <div id="resetPasswordModal" class="modal-backdrop hidden" role="dialog" aria-modal="true" aria-labelledby="resetPasswordModalTitle">
+    <div class="modal-card">
+      <div class="modal-header">
+        <h3 class="text-subheading" id="resetPasswordModalTitle">Reset password</h3>
+        <button class="icon-btn" type="button" onclick="closeResetPasswordDialog()" aria-label="Close dialog">
+          <svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><line x1="18" y1="6" x2="6" y2="18"></line><line x1="6" y1="6" x2="18" y2="18"></line></svg>
+        </button>
+      </div>
+      <form class="form" novalidate onsubmit="submitResetPassword(); return false;">
+        <input id="resetPasswordEmail" type="hidden">
+        <p class="section-copy" id="resetPasswordUserLabel"></p>
+        <div class="field">
+          <label for="resetPasswordNew">New password</label>
+          <input id="resetPasswordNew" type="password" class="input" autocomplete="new-password">
+          <span class="field-error" data-for="resetPasswordNew"></span>
+        </div>
+        <div class="field">
+          <label for="resetPasswordConfirm">Confirm new password</label>
+          <input id="resetPasswordConfirm" type="password" class="input" autocomplete="new-password">
+          <span class="field-error" data-for="resetPasswordConfirm"></span>
+        </div>
+        <div class="form-row">
+          <button class="btn btn-primary" type="submit">Reset password</button>
+          <button class="btn btn-secondary" type="button" onclick="closeResetPasswordDialog()">Cancel</button>
+          <span id="resetPasswordStatus" class="form-status" aria-live="polite"></span>
+        </div>
+      </form>
+    </div>
+  </div>
+
   <!-- ============================ EDIT USER DIALOG ============================ -->
   <div id="editUserModal" class="modal-backdrop hidden" role="dialog" aria-modal="true" aria-labelledby="editUserModalTitle">
     <div class="modal-card">
