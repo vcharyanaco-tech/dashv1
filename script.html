@@ -77,6 +77,7 @@ const ApiService = {
   adminResetPassword: function (email, newPassword) { return apiCall_('adminResetPassword', email, newPassword, getAuthToken()); },
   getMyNotifications: function () { return apiCall_('getMyNotifications', getAuthToken()); },
   markNotificationsRead: function (ids) { return apiCall_('markNotificationsRead', ids, getAuthToken()); },
+  clearMyNotifications: function () { return apiCall_('clearMyNotifications', getAuthToken()); },
   submitRecordReview: function (row, summary) { return apiCall_('submitRecordReview', row, summary, getAuthToken()); },
   getPendingApprovals: function () { return apiCall_('getPendingApprovals', getAuthToken()); },
   getMyApprovals: function () { return apiCall_('getMyApprovals', getAuthToken()); },
@@ -537,6 +538,26 @@ function markAllNotificationsRead() {
   }).catch(function (err) {
     if (handleServerFailure(err)) return;
     showToast('Could not update notifications: ' + (err.message || err), 'error');
+  });
+}
+
+function clearAllNotifications() {
+  showConfirm({
+    title: 'Clear notifications',
+    message: 'This will permanently delete all your notifications. Continue?',
+    okLabel: 'Clear all',
+    danger: true
+  }).then(function (ok) {
+    if (!ok) return;
+    ApiService.clearMyNotifications().then(function (data) {
+      appState.notifications = data || { unread: 0, recent: [] };
+      renderNotifications();
+      closeNotificationsPanel();
+      showToast('All notifications cleared.', 'success');
+    }).catch(function (err) {
+      if (handleServerFailure(err)) return;
+      showToast('Could not clear notifications: ' + (err.message || err), 'error');
+    });
   });
 }
 

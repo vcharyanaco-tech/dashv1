@@ -109,7 +109,10 @@
             <div class="notif-panel hidden" id="notifPanel" role="menu" aria-label="Notifications">
               <div class="notif-panel-head">
                 <span class="text-subheading">Notifications</span>
-                <button class="btn btn-ghost btn-small" type="button" onclick="markAllNotificationsRead()">Mark all read</button>
+                <div style="display:flex;gap:4px;">
+                  <button class="btn btn-ghost btn-small" type="button" onclick="markAllNotificationsRead()">Mark all read</button>
+                  <button class="btn btn-ghost btn-small" type="button" onclick="clearAllNotifications()" style="color:var(--danger,#dc3545);">Clear all</button>
+                </div>
               </div>
               <ul class="notif-list" id="notifList"></ul>
               <div class="notif-empty hidden" id="notifEmpty">You're all caught up.</div>

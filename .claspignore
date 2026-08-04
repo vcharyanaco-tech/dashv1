@@ -1,0 +1,8 @@
+node_modules/**
+worker.js
+wrangler.toml
+auto-commit.ps1
+.gitignore
+.git/**
+SESSION.md
+.claspignore

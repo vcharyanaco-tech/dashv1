@@ -200,3 +200,26 @@ function markNotificationsRead(ids, token) {
   }
   return getMyNotifications(token);
 }
+
+/**
+ * Deletes all of the calling user's notifications from the sheet.
+ * @param {string} token Session token (login required).
+ * @returns {{unread: number, recent: Object[], count: number}} Fresh state.
+ */
+function clearMyNotifications(token) {
+  const user = requireLogin_(token);
+  const sh = notificationsSheet_();
+  if (!sh) return getMyNotifications(token);
+  const lastRow = sh.getLastRow();
+  if (lastRow >= 2) {
+    const values = sh.getRange(2, 1, lastRow - 1, NOTIFICATION_SHEET_HEADERS.length).getValues();
+    const rowsToDelete = [];
+    for (let i = values.length - 1; i >= 0; i--) {
+      if (String(values[i][1] || '').toLowerCase() === user.email) {
+        rowsToDelete.push(i + 2);
+      }
+    }
+    rowsToDelete.forEach(function (row) { sh.deleteRow(row); });
+  }
+  return getMyNotifications(token);
+}
