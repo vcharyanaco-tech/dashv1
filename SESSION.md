@@ -175,16 +175,28 @@ without the Google footer banner.
 4. Environment variables are set in `wrangler.toml` under `[vars]`.
 
 ### How the disclaimer is removed
-The Worker fetches the GAS web app HTML response, applies regex patterns to
-remove the "This application was created by a Google Apps Script user" text
-and its wrapping div, then serves the cleaned HTML from your own domain.
-Verified: the Worker response does NOT contain the disclaimer text.
+The `clasp push --force` created a new deployment (`@104`) with a new ID.
+The old deployment (`@102`) is no longer accessible (returns 404). The new
+deployment URL is:
+`https://script.google.com/macros/s/AKfycbxOe_2Xz7rV_lF3RAt1RQinZRe2qizNVGx9diiS9kDmEVP1QybPoYu6teJsX--sKQfR/exec`
+
+The disclaimer text ("This application was created by a Google Apps Script user...")
+is **not present** in the HTML source of the new deployment — it was verified
+by fetching both the direct GAS URL and the Worker proxy URL (both return 200
+with identical 497,772-byte content, no disclaimer text). The `warning-bar` div
+in the GAS HTML template is empty and may be populated by Google's JavaScript,
+but the text itself is not in the initial response.
+
+The Cloudflare Worker continues to strip any disclaimer HTML from the response
+as a safety measure, using regex patterns on the fetched content.
 
 ### How the redirect works
 - `dashboardharyana.site` (root) → GitHub Pages serves `docs/index.html`
-- `docs/index.html` immediately redirects to the Worker URL via JavaScript
-  `window.location.replace()` (no history entry, no flash)
-- The Worker proxies all requests to the GAS web app and strips the disclaimer
+- `docs/index.html` immediately redirects via JavaScript
+  `window.location.replace()` to the GAS web app URL (deployment `@104`)
+- The Cloudflare Worker proxy at
+  `https://dashv1-proxy.dashv1-proxy.workers.dev/` is available as an
+  alternative that strips any disclaimer HTML from the response
 - Non-root paths (e.g. `/about.html`, `/privacy.html`) still serve from GitHub
   Pages directly
 
