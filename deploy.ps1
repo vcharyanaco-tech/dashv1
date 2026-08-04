@@ -15,6 +15,7 @@ if ($changes) {
 Write-Host "`n=== Deploying to Apps Script ===" -ForegroundColor Cyan
 
 clasp push --force
-Write-Host "Code pushed. Existing deployment URL unchanged." -ForegroundColor Green
+Write-Host "Code pushed. @HEAD deployment auto-updated." -ForegroundColor Green
 
+Write-Host "`nLive URL: https://script.google.com/macros/s/AKfycbw_jyy9XDNSwX5YHZkq8xIttahTdhQ6UTBFsec-FdU/exec" -ForegroundColor Green
 Write-Host "`n=== Done ===" -ForegroundColor Cyan
