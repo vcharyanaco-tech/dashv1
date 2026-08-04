@@ -194,7 +194,7 @@ Verified: the Worker response does NOT contain the disclaimer text.
 - Page title is "India Post Dashboard" ✓
 - `wrangler deploy` succeeds ✓
 - Git working tree is clean ✓
-- `clasp push --force` needed to deploy code.js changes to Apps Script
+- `clasp push --force` deployed 23 files to Apps Script ✓
 - Login ID = email (Users sheet, col 1). Password login (SHA-256 salt+hash), sessions in CacheService. `executeAs USER_DEPLOYING`, `access ANYONE_ANONYMOUS`.
 - In-app notifications: `Notifications.js` — `notify_(email,type,title,body,link)` (single user, self-locks), `notifyStaff_(...)` (ADMIN/EDITOR + APPROVER group + bootstrap ADMINS, no lock — wrap in runWithLock_), `notifyStaffLocked_(...)` (same, for inside-lock). Types: record/submission/user/system. Client `openNotification` maps type `user` → opens **Settings** tab (script.html L556). Clicking the "Password reset requested" notification will therefore land the admin on Settings where the highlight shows.
 - ROLES: ADMIN/EDITOR/VIEWER (Settings.js). `CONFIG.TITLE.DEFAULT = 'India Post Dashboard'` (Settings.js L16).
