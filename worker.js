@@ -1,15 +1,15 @@
 /**
  * Cloudflare Worker — Reverse proxy for Google Apps Script web app
  *
- * Serves the GAS web app from app.dashboardharyana.site, stripping the
+ * Serves the GAS web app at the worker URL, stripping the
  * "This application was created by a Google Apps Script user" banner that
  * Google injects via client-side JavaScript on all Apps Script web app pages.
  *
- * The disclaimer is injected by Google's warden.js script at runtime, creating
- * elements with class names like "warning-banner", "warning-banner-text",
- * "warning-banner-icon", etc. We strip the disclaimer text from the warden
- * script source and inject CSS + JavaScript to hide/remove any remaining
- * disclaimer elements WITHOUT hiding the sandbox iframe that contains the app.
+ * CSP-safe approach:
+ *   - NO <base> tag injection (blocked by Google's base-uri 'self' CSP)
+ *   - Rewrite all relative /static/... URLs to absolute script.google.com URLs
+ *   - Inject disclaimer-killer CSS/JS using the page's own nonce so it passes
+ *     Google's strict-dynamic nonce-based CSP
  */
 
 const COMMON_HEADERS = {
@@ -41,7 +41,7 @@ export default {
     const path = url.pathname;
     let targetUrl = GAS_BASE_URL;
 
-    const gasScriptOrigin = new URL(GAS_SCRIPT_URL).origin;
+    const gasScriptOrigin = new URL(GAS_SCRIPT_URL).origin; // https://script.google.com
 
     if (!path || path === '/' || path === '/index.html' || path.startsWith('/app')) {
       const suffix = (path.startsWith('/app') && path.length > 4) ? path.slice(4) : '';
@@ -72,7 +72,7 @@ export default {
 
     if (contentType.includes('text/html')) {
       let html = await response.text();
-      html = stripDisclaimerHtml(html, gasScriptOrigin);
+      html = processHtml(html, gasScriptOrigin);
       const newHeaders = new Headers(response.headers);
       newHeaders.set('Content-Type', 'text/html; charset=utf-8');
       Object.entries(COMMON_HEADERS).forEach(([k, v]) => newHeaders.set(k, v));
@@ -104,37 +104,49 @@ export default {
 };
 
 /**
- * Processes HTML response: fixes base href, strips disclaimer elements,
- * injects CSS and JavaScript to prevent disclaimer display.
- *
- * IMPORTANT: Do NOT hide #warning-bar-table — it contains the sandboxFrame
- * iframe where the actual app runs. Only hide the warning/banner elements.
+ * Main HTML processor:
+ *  1. Remove any <base> tags (we use absolute URL rewriting instead)
+ *  2. Rewrite relative /static/... and /macros/... URLs to absolute
+ *  3. Extract the page's nonce so injected scripts/styles pass CSP
+ *  4. Inject disclaimer-killer CSS and JS using that nonce
+ *  5. Strip disclaimer text from HTML
  */
-function stripDisclaimerHtml(html, gasOrigin) {
+function processHtml(html, gasOrigin) {
   let result = html;
 
-  // Fix the <base> tag to point to script.google.com root
-  // so relative URLs (/static/...) resolve correctly
-  const baseTag = '<base href="' + gasOrigin + '/">';
-  result = result.replace(/<base[^>]*>/gi, baseTag);
-  if (!result.includes('<base')) {
-    result = result.replace(/(<head[^>]*>)/i, '$1' + baseTag);
-  }
+  // 1. Remove ALL <base> tags — they violate base-uri 'self' CSP
+  result = result.replace(/<base[^>]*>/gi, '');
 
-  // Remove the empty #warning div (initially empty, populated by warden JS)
+  // 2. Rewrite relative URLs to absolute (covers href, src, action attributes)
+  //    Matches quoted: href="/...", src="/...", action="/..."
+  //    Does NOT touch already-absolute URLs (http/https/data/blob/://)
+  result = result.replace(
+    /((?:href|src|action)\s*=\s*)(["'])(\/((?!\/)([^"']*)))(["'])/gi,
+    (match, attr, openQ, slashPath, rest, inner, closeQ) => {
+      return attr + openQ + gasOrigin + slashPath + closeQ;
+    }
+  );
+
+  // 3. Extract the nonce Google put on the page (used for strict-dynamic CSP)
+  //    Google sets nonce="<value>" on <script> and <link> tags
+  const nonceMatch = result.match(/\snonce=["']([^"']+)["']/i);
+  const pageNonce = nonceMatch ? nonceMatch[1] : '';
+  const nonceAttr = pageNonce ? ` nonce="${pageNonce}"` : '';
+
+  // 4. Remove the empty #warning div (initially empty, populated by warden JS)
   result = result.replace(
     /<div[^>]*id=["']warning["'][^>]*>\s*<\/div>/gi, ''
   );
 
-  // Strip standalone disclaimer text if present in HTML source
+  // 5. Strip standalone disclaimer text
   result = result.replace(
     /[\s]*This application was created by a Google Apps Script user[^<]*(<[^>]+>[^<]*<\/[^>]+>)*[\s]*/gi, ''
   );
 
-  // Inject CSS to hide ONLY the disclaimer/banner elements — NOT #warning-bar-table
-  // (which contains the sandboxFrame iframe with the app content)
+  // 6. Inject disclaimer-killer CSS with the page nonce so it passes CSP
+  //    IMPORTANT: Do NOT hide #warning-bar-table — it contains the sandboxFrame iframe
   const hideCss =
-    '<style id="gas-disclaimer-killer">'
+    `<style${nonceAttr} id="gas-disclaimer-killer">`
     + '#warning{display:none!important}'
     + '.warning-bar{display:none!important}'
     + '.warning-banner{display:none!important}'
@@ -152,11 +164,11 @@ function stripDisclaimerHtml(html, gasOrigin) {
 
   result = result.replace(/(<\/head>)/i, hideCss + '$1');
 
-  // Inject JavaScript that removes disclaimer elements without touching the iframe
+  // 7. Inject disclaimer-killer JS with the page nonce so it passes CSP
   const killScript =
-    '<script>(function(){'
+    `<script${nonceAttr}>(function(){'use strict';`
     + 'function killDisclaimer(){'
-    + 'var sel = ['
+    + 'var sel=['
     + '"#warning",'
     + '".warning-bar",'
     + '".warning-banner",'
@@ -174,8 +186,7 @@ function stripDisclaimerHtml(html, gasOrigin) {
     + 'var els=document.querySelectorAll(s);'
     + 'for(var i=0;i<els.length;i++){'
     + 'var el=els[i];'
-    + '// Only remove warning/banner elements, NOT the warning-bar-table (which has the iframe)'
-    + 'if(el.id==="warning-bar-table")return;'
+    + 'if(el.id==="warning-bar-table")continue;'
     + 'el.style.setProperty("display","none","important");'
     + 'el.style.setProperty("visibility","hidden","important");'
     + 'el.style.height="0";'
@@ -185,37 +196,35 @@ function stripDisclaimerHtml(html, gasOrigin) {
     + '});'
     + '}'
     + 'if(document.readyState==="loading"){'
-    + 'document.addEventListener("DOMContentLoaded",killDisclaimer)'
-    + '}else{killDisclaimer()}'
+    + 'document.addEventListener("DOMContentLoaded",killDisclaimer);'
+    + '}else{killDisclaimer();}'
     + 'setTimeout(killDisclaimer,100);'
     + 'setTimeout(killDisclaimer,500);'
     + 'setTimeout(killDisclaimer,1000);'
     + 'setTimeout(killDisclaimer,3000);'
+    + 'if(window.MutationObserver){'
     + 'var mo=new MutationObserver(function(mutations){'
     + 'mutations.forEach(function(m){'
     + 'm.addedNodes.forEach(function(n){'
-    + 'if(n.nodeType===1&&((n.id||"")+(n.className||"").match(/warning|disclaimer|banner/)))'
-    + '{n.style.setProperty("display","none","important");'
-    + 'try{n.parentNode.removeChild(n)}catch(e){}}'
-    + ')'
-    + '})'
+    + 'if(n.nodeType===1&&((n.id||"")+(n.className||"")).match(/warning|disclaimer|banner/)){'
+    + 'n.style.setProperty("display","none","important");'
+    + 'try{n.parentNode.removeChild(n)}catch(e){}'
+    + '}'
     + '});'
-    + 'mo.observe(document.body,{childList:true,subtree:true});'
+    + '});'
+    + '});'
+    + 'mo.observe(document.documentElement,{childList:true,subtree:true});'
+    + '}'
     + '})();'
     + '<\/script>';
 
-  result = result.replace(/(<body)/i, killScript + '$1');
+  result = result.replace(/(<body[^>]*>)/i, '$1' + killScript);
 
   return result;
 }
 
 /**
- * Strips the disclaimer text from the warden JavaScript source.
- *
- * The warden script contains the literal string "This application was created
- * by a Google Apps Script user" as a string argument to a DOM creation
- * function. We replace it with an empty string so no disclaimer elements
- * are ever created.
+ * Strips the disclaimer text from warden JavaScript source.
  */
 function stripDisclaimerJs(js) {
   let result = js;

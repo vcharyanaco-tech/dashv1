@@ -20,5 +20,5 @@ compatibility_date = "2026-08-04"
 # https://dashv1-proxy.dashv1-proxy.workers.dev/
 
 [vars]
-GAS_URL = "https://script.google.com/macros/s/AKfycbzTQEL6w2CbVdQyLMc6JJ7YjgV8M-nml28VY_5374cCDsGFq42MUaGwdUVoGq94krqT/exec"
-GAS_SCRIPT_URL = "https://script.google.com/macros/s/AKfycbzTQEL6w2CbVdQyLMc6JJ7YjgV8M-nml28VY_5374cCDsGFq42MUaGwdUVoGq94krqT"
+GAS_URL = "https://script.google.com/macros/s/AKfycbyjnKstQvolXS9EWLThOId7XyNL6svkk365wXkyXBL2eGNal8NuifbL7fpxf8IsH5ZI/exec"
+GAS_SCRIPT_URL = "https://script.google.com/macros/s/AKfycbyjnKstQvolXS9EWLThOId7XyNL6svkk365wXkyXBL2eGNal8NuifbL7fpxf8IsH5ZI"
