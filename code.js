@@ -399,6 +399,7 @@ function getAppData(token) {
   return {
     user: {
       email: context.email,
+      username: context.username || '',
       role: context.role,
       loggedIn: true,
       group: context.group,

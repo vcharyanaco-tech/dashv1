@@ -103,9 +103,41 @@
       <a class="btn btn--ghost" href="https://www.dashboardharyana.site/support.html">Contact Support</a>
     </div>
   </section>
-</main>
+   <section class="card">
+     <h2>Access the Dashboard</h2>
+     <p>The dashboard is embedded below. It is built on Google Apps Script and
+       connects to your organization's Google Sheets data.</p>
 
-<footer class="site-footer">
+     <div class="iframe-wrapper" id="dashboard-embed">
+       <iframe
+         src="https://app.dashboardharyana.site/"
+         title="India Post Dashboard"
+         frameborder="0"
+         loading="lazy"
+         referrerpolicy="no-referrer-when-downgrade"></iframe>
+       <div class="iframe-overlay" aria-hidden="true"></div>
+     </div>
+
+     <p class="notice">
+       The embedded dashboard loads from a Cloudflare Worker reverse proxy
+       (<code>app.dashboardharyana.site</code>) that serves the Google Apps
+       Script web app from your own domain and strips the Google disclaimer
+       banner. If the proxy is not yet deployed, the dashboard will fall back
+       to loading directly from script.google.com.
+     </p>
+
+     <div class="cta-row">
+       <a class="btn btn--primary"
+          href="https://app.dashboardharyana.site/"
+          target="_blank" rel="noopener noreferrer">Open Dashboard</a>
+       <a class="btn btn--ghost"
+          href="https://script.google.com/macros/s/AKfycbzLwxHpeudnLydvoPmFry1WkRrRayBMuSWd-VqPt6zehFOJocLw1CJqCzHbt3NDOLsJ/exec"
+          target="_blank" rel="noopener noreferrer">Open via Google (direct)</a>
+     </div>
+   </section>
+ </main>
+
+ <footer class="site-footer">
   <div class="site-footer__inner">
     <span>© 2026 Circle Office, Haryana. India Post Dashboard.</span>
     <span><a href="https://www.dashboardharyana.site/privacy.html">Privacy Policy</a> · <a href="https://www.dashboardharyana.site/terms.html">Terms of Service</a> · <a href="https://www.dashboardharyana.site/data-deletion.html">Data Deletion</a> · <a href="https://www.dashboardharyana.site/support.html">Support</a></span>

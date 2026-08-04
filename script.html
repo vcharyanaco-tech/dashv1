@@ -1668,12 +1668,11 @@ function loadUsers() {
 }
 
 function renderUsersTable(users) {
-  const tbody = getEl('usersTable').querySelector('tbody');
-  tbody.dataset.users = JSON.stringify(users);
+  const table = getEl('usersTable');
+  const tbody = table.querySelector('tbody');
+  table.dataset.users = JSON.stringify(users);
   tbody.innerHTML = users.length ? users.map(function (u, i) {
     const username = escapeHtml(u.username || '');
-    const group = escapeHtml(u.group || '');
-    const dept = escapeHtml(u.department || '');
     const office = escapeHtml(u.office || '');
     const resetPending = !!(u.resetRequested && String(u.resetRequested).trim());
     const resetBadge = resetPending
@@ -1684,15 +1683,13 @@ function renderUsersTable(users) {
         <td class="preserve-whitespace">${escapeHtml(u.email)}${u.mustChange ? ' <em>(must change)</em>' : ''}${resetBadge}</td>
         <td class="preserve-whitespace">${username || '<span class="badge" data-tone="muted">—</span>'}</td>
         <td>${escapeHtml(u.role)}</td>
-        <td class="preserve-whitespace">${group || '<span class="badge" data-tone="muted">—</span>'}</td>
-        <td class="preserve-whitespace">${dept || '<span class="badge" data-tone="muted">—</span>'}</td>
         <td class="preserve-whitespace">${office || '<span class="badge" data-tone="muted">—</span>'}</td>
         <td class="preserve-whitespace">${escapeHtml(u.createdAt || '')}</td>
         <td><button class="btn btn-secondary btn-small" type="button" data-action="reset" data-index="${i}">Reset password</button></td>
         <td><button class="btn btn-secondary btn-small" type="button" data-action="edit" data-index="${i}">Edit</button></td>
         <td><button class="btn btn-danger btn-small" type="button" data-action="delete" data-index="${i}">Delete</button></td>
       </tr>`;
-  }).join('') : '<tr><td colspan="10">No users found.</td></tr>';
+  }).join('') : '<tr><td colspan="7">No users found.</td></tr>';
 }
 
 function loadUserActivity() {
@@ -1788,8 +1785,6 @@ function openEditUser(email) {
   if (!u) return;
   getEl('editUserEmail').value = u.email;
   getEl('editUserUsername').value = u.username || '';
-  getEl('editUserGroup').value = u.group || '';
-  getEl('editUserDepartment').value = u.department || '';
   getEl('editUserOffice').value = u.office || '';
   openDialog('editUserModal');
 }
@@ -1802,8 +1797,6 @@ function saveEditUser() {
   const email = getEl('editUserEmail').value.trim();
   const fields = {
     username: getEl('editUserUsername').value.trim(),
-    group: getEl('editUserGroup').value.trim(),
-    department: getEl('editUserDepartment').value.trim(),
     office: getEl('editUserOffice').value.trim()
   };
   if (!email) return;
@@ -1827,15 +1820,11 @@ function handleAddUser(e) {
   const usernameEl = getEl('newUserUsername');
   const roleEl = getEl('newUserRole');
   const passwordEl = getEl('newUserPassword');
-  const groupEl = getEl('newUserGroup');
-  const departmentEl = getEl('newUserDepartment');
   const officeEl = getEl('newUserOffice');
   const email = emailEl.value.trim();
   const username = (usernameEl && usernameEl.value.trim()) || '';
   const role = roleEl.value;
   const password = passwordEl.value;
-  const group = (groupEl && groupEl.value) || '';
-  const department = (departmentEl && departmentEl.value) || '';
   const office = (officeEl && officeEl.value) || '';
 
   let valid = true;
@@ -1844,13 +1833,11 @@ function handleAddUser(e) {
   if (!valid) return;
 
   showOverlay('Adding user…');
-  ApiService.adminAddUser(email, username, role, password, group, department, office).then(function (users) {
+  ApiService.adminAddUser(email, username, role, password, '', '', office).then(function (users) {
     hideOverlay();
     emailEl.value = '';
     if (usernameEl) usernameEl.value = '';
     passwordEl.value = '';
-    if (groupEl) groupEl.value = '';
-    if (departmentEl) departmentEl.value = '';
     if (officeEl) officeEl.value = '';
     const status = getEl('addUserStatus');
     status.textContent = 'User added';

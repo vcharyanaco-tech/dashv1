@@ -369,7 +369,7 @@
           <div id="usersAdmin" class="settings-card hidden">
             <div class="settings-card-head">
               <h3 class="text-subheading">Manage users</h3>
-              <p class="section-copy">Add, remove or reset passwords for dashboard users. Assign groups, departments and offices to control access.</p>
+              <p class="section-copy">Add, remove or reset passwords for dashboard users. Assign offices to control access.</p>
             </div>
             <div class="settings-card-actions">
               <button class="btn btn-secondary" type="button" onclick="exportUsers()">
@@ -406,14 +406,6 @@
                 <span class="field-error" data-for="newUserPassword"></span>
               </div>
               <div class="field">
-                <label for="newUserGroup">Group</label>
-                <input id="newUserGroup" type="text" class="input" placeholder="e.g. APPROVER, AUDITOR" autocomplete="off">
-              </div>
-              <div class="field">
-                <label for="newUserDepartment">Department</label>
-                <input id="newUserDepartment" type="text" class="input" placeholder="Restricts records to this sector" autocomplete="off">
-              </div>
-              <div class="field">
                 <label for="newUserOffice">Office</label>
                 <input id="newUserOffice" type="text" class="input" placeholder="Restricts records to this responsibility" autocomplete="off">
               </div>
@@ -425,7 +417,7 @@
             <div class="table-card">
               <div class="table-scroll" tabindex="0" aria-label="Users table">
                 <table class="data-table" id="usersTable">
-                  <thead><tr><th>Email</th><th>Username</th><th>Role</th><th>Group</th><th>Department</th><th>Office</th><th>Created</th><th></th><th></th><th></th></tr></thead>
+                  <thead><tr><th>Email</th><th>Username</th><th>Role</th><th>Office</th><th>Created</th><th></th><th></th><th></th></tr></thead>
                   <tbody></tbody>
                 </table>
               </div>
@@ -743,14 +735,6 @@
         <div class="field">
           <label for="editUserUsername">Username <span class="muted">(optional)</span></label>
           <input id="editUserUsername" type="text" class="input" placeholder="e.g. jane.doe" autocomplete="off">
-        </div>
-        <div class="field">
-          <label for="editUserGroup">Group</label>
-          <input id="editUserGroup" type="text" class="input" placeholder="e.g. APPROVER, AUDITOR" autocomplete="off">
-        </div>
-        <div class="field">
-          <label for="editUserDepartment">Department</label>
-          <input id="editUserDepartment" type="text" class="input" placeholder="Restricts records to this sector" autocomplete="off">
         </div>
         <div class="field">
           <label for="editUserOffice">Office</label>
