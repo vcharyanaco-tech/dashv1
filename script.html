@@ -444,8 +444,9 @@ function toggleProfileMenu() {
 function renderProfile() {
   const user = appState.user || {};
   const email = user.email || '';
+  const username = user.username || '';
   const role = user.role || 'VIEWER';
-  const name = email ? email.split('@')[0] : 'Guest';
+  const name = username || (email ? email.split('@')[0] : 'Guest');
   const initial = email ? email.charAt(0).toUpperCase() : '?';
   const tone = role === 'ADMIN' ? 'danger' : (role === 'EDITOR' ? 'accent' : 'muted');
 

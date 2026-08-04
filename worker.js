@@ -13,12 +13,6 @@
  *   The iframe in docs/index.html should point here, NOT to script.google.com
  */
 
-const GAS_BASE_URL =
-  'https://script.google.com/macros/s/AKfycbzLwxHpeudnLydvoPmFry1WkRrRayBMuSWd-VqPt6zehFOJocLw1CJqCzHbt3NDOLsJ/exec';
-
-const GAS_SCRIPT_URL =
-  'https://script.google.com/macros/s/AKfycbzLwxHpeudnLydvoPmFry1WkRrRayBMuSWd-VqPt6zehFOJocLw1CJqCzHbt3NDOLsJ';
-
 const COMMON_HEADERS = {
   'X-Frame-Options': 'ALLOWALL',
   'Access-Control-Allow-Origin': '*',
@@ -38,8 +32,18 @@ export default {
       });
     }
 
-    let targetUrl = GAS_BASE_URL;
+    const GAS_BASE_URL = env.GAS_URL;
+    const GAS_SCRIPT_URL = env.GAS_SCRIPT_URL;
+
+    if (!GAS_BASE_URL || !GAS_SCRIPT_URL) {
+      return new Response('Worker not configured: GAS_URL and GAS_SCRIPT_URL required', {
+        status: 500,
+        headers: COMMON_HEADERS,
+      });
+    }
+
     const path = url.pathname;
+    let targetUrl = GAS_BASE_URL;
 
     if (path.startsWith('/app')) {
       const suffix = path.slice(4);

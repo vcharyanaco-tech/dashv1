@@ -127,46 +127,73 @@ User clicks "Forgot password?" → enters email → `requestPasswordReset` flags
 6. Verify: `& clasp deployments` should still show @HEAD; note live web app can't be fetched anonymously (Google sign-in wall) — verify by checking the Apps Script project is in sync + grep for no remaining MailApp/sendEmail/emailReport/resetPasswordWithToken in repo.
 
 ## Embed GAS web app in site (DONE)
-Embed the Google Apps Script web app into `dashboardharyana.site` and eliminate
-the "This application was created by a Google Apps Script user" Google disclaimer.
+Embed the Google Apps Script web app directly into `dashboardharyana.site` and
+eliminate the "This application was created by a Google Apps Script user" Google
+disclaimer that appears on all Apps Script web app pages.
+
+### Approach
+The docs site is on GitHub Pages (static-only), so the root URL
+(`dashboardharyana.site`) now **redirects** to a Cloudflare Worker reverse proxy
+that serves the GAS web app from your own domain. The Worker strips the Google
+disclaimer from the HTML response, so visitors see the dashboard directly
+without the Google footer banner.
 
 ### What changed
-- `docs/index.html`: Added "Access the Dashboard" section with an iframe embed
-  pointing to `app.dashboardharyana.site` (the Cloudflare Worker reverse proxy).
-  Includes a CSS overlay (`.iframe-overlay`) at the bottom of the iframe to
-  visually mask the Google disclaimer as a fallback. Also added buttons:
-  "Open Dashboard" (proxy) and "Open via Google (direct)" (raw GAS URL).
-- `docs/assets/site.css`: Added `.iframe-wrapper`, `.iframe-overlay`, and
-  `.notice code` styles for the embedded dashboard section.
-- `worker.js` (new): Cloudflare Worker that reverse-proxies the GAS web app,
-  strips the Google disclaimer banner from the HTML response, sets CORS and
-  `X-Frame-Options: ALLOWALL` headers for iframe embedding.
+- `docs/index.html`: Replaced the landing page with a redirect page that
+  immediately navigates to the Worker URL
+  (`https://dashv1-proxy.dashv1-proxy.workers.dev/`). The page includes a
+  fallback link and a brief message in case the redirect fails.
+- `worker.js` (new): Cloudflare Worker reverse proxy that fetches the GAS web
+  app HTML, strips the disclaimer using regex patterns, and serves the
+  cleaned HTML with `X-Frame-Options: ALLOWALL` and CORS headers.
+- `wrangler.toml` (new): Wrangler configuration for Worker deployment with
+  `GAS_URL` and `GAS_SCRIPT_URL` environment variables.
+- `docs/assets/site.css`: Removed the iframe embed styles (no longer needed
+  since the redirect approach replaced the iframe).
 - `code.js`: Added `username` to the `getAppData()` return payload so the
   client receives the username alongside the email.
-- `index.html`: Removed Group and Department fields from the add-user form
-  and edit-user dialog. Updated users table to show only Email, Username,
-  Role, Office, Created columns.
+- `index.html` (root, GAS): Removed Group and Department fields from the
+  add-user form and edit-user dialog. Updated users table to show only
+  Email, Username, Role, Office, Created columns.
 - `script.html`: Removed Group and Department field handling from
   `renderUsersTable`, `openEditUser`, `saveEditUser`, and `handleAddUser`.
   Updated `adminAddUser` call to pass empty strings for group/dept.
 
 ### Cloudflare Worker deployment
-1. Go to https://dash.cloudflare.com → Workers & Pages → Create Worker
-2. Paste the contents of `worker.js`
-3. Set the route: `app.dashboardharyana.site/*`
-4. Add a CNAME record (in Cloudflare DNS) for `app` pointing to the Worker
-5. The iframe in docs/index.html loads `https://app.dashboardharyana.site/`
+1. Subdomain `dashv1-proxy` registered on Cloudflare (account
+   `a01eb877733d755cb57e25827a9c52fe`).
+2. Worker `dashv1-proxy` deployed and live at:
+   `https://dashv1-proxy.dashv1-proxy.workers.dev/`
+3. To serve at your own domain (`app.dashboardharyana.site` or root
+   `dashboardharyana.site`):
+   - Add `dashboardharyana.site` to Cloudflare (change nameservers to
+     Cloudflare's)
+   - In wrangler.toml, uncomment the `routes` section
+   - Run: `wrangler deploy`
+   - Or set the route in the Cloudflare dashboard: Worker → Trigger →
+     Add route `dashboardharyana.site/*` → Select zone
+4. Environment variables are set in `wrangler.toml` under `[vars]`.
 
 ### How the disclaimer is removed
-The Worker fetches the GAS web app HTML, applies regex patterns to strip the
-disclaimer text ("This application was created by a Google Apps Script user..."),
-and serves the cleaned HTML from your own domain. The CSS overlay in the iframe
-provides a backup visual mask if the Worker is not deployed.
+The Worker fetches the GAS web app HTML response, applies regex patterns to
+remove the "This application was created by a Google Apps Script user" text
+and its wrapping div, then serves the cleaned HTML from your own domain.
+Verified: the Worker response does NOT contain the disclaimer text.
+
+### How the redirect works
+- `dashboardharyana.site` (root) → GitHub Pages serves `docs/index.html`
+- `docs/index.html` immediately redirects to the Worker URL via JavaScript
+  `window.location.replace()` (no history entry, no flash)
+- The Worker proxies all requests to the GAS web app and strips the disclaimer
+- Non-root paths (e.g. `/about.html`, `/privacy.html`) still serve from GitHub
+  Pages directly
 
 ### Verification
-- `docs/index.html` has the iframe embed section ✓
-- `worker.js` contains the reverse proxy logic ✓
-- CSS overlay covers the bottom 70px of the iframe container ✓
+- Worker returns HTTP 200 with GAS web app content ✓
+- Disclaimer text NOT present in Worker response ✓
+- Page title is "India Post Dashboard" ✓
+- `wrangler deploy` succeeds ✓
+- Git working tree is clean ✓
 - `clasp push --force` needed to deploy code.js changes to Apps Script
 - Login ID = email (Users sheet, col 1). Password login (SHA-256 salt+hash), sessions in CacheService. `executeAs USER_DEPLOYING`, `access ANYONE_ANONYMOUS`.
 - In-app notifications: `Notifications.js` — `notify_(email,type,title,body,link)` (single user, self-locks), `notifyStaff_(...)` (ADMIN/EDITOR + APPROVER group + bootstrap ADMINS, no lock — wrap in runWithLock_), `notifyStaffLocked_(...)` (same, for inside-lock). Types: record/submission/user/system. Client `openNotification` maps type `user` → opens **Settings** tab (script.html L556). Clicking the "Password reset requested" notification will therefore land the admin on Settings where the highlight shows.
