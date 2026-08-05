@@ -13,6 +13,7 @@ const AUDIT_PAGE_SIZE = 20;
 const STORAGE_THEME = 'indiaPostDarkMode';
 const STORAGE_SIDEBAR = 'indiaPostSidebarCollapsed';
 const STORAGE_TOKEN = 'indiaPostAuthToken';
+const STORAGE_REAUTH_MSG = 'indiaPostReauthMsg';
 
 /* ---------------------------------- Event bus (pub/sub) ---------------------------------- */
 /* Lightweight publish/subscribe used across the UI. Named events follow the
@@ -594,6 +595,12 @@ function initApp() {
   if (!token) {
     showScreen('login');
     hideSplash();
+    let msg = '';
+    try {
+      msg = window.sessionStorage.getItem(STORAGE_REAUTH_MSG) || '';
+      window.sessionStorage.removeItem(STORAGE_REAUTH_MSG);
+    } catch (err) {}
+    if (msg) showAuthMessage('loginMessage', msg);
     return;
   }
 
@@ -1922,6 +1929,7 @@ function openEditUser(email) {
   if (!u) return;
   getEl('editUserEmail').value = u.email;
   getEl('editUserUsername').value = u.username || '';
+  getEl('editUserRole').value = u.role || 'VIEWER';
   getEl('editUserGroup').value = u.group || '';
   getEl('editUserDepartment').value = u.department || '';
   getEl('editUserOffice').value = u.office || '';
@@ -1933,20 +1941,29 @@ function closeEditUser() {
 }
 
 function saveEditUser() {
-  const email = getEl('editUserEmail').value.trim();
+  const emailEl = getEl('editUserEmail');
+  const email = emailEl.value.trim();
   const fields = {
+    email: email,
     username: getEl('editUserUsername').value.trim(),
+    role: getEl('editUserRole').value,
     group: getEl('editUserGroup').value.trim(),
     department: getEl('editUserDepartment').value.trim(),
     office: getEl('editUserOffice').value.trim()
   };
-  if (!email) return;
+  if (!setFieldInvalid(emailEl, email ? '' : 'Enter an email address.')) return;
   showOverlay('Saving user…');
-  ApiService.adminUpdateUser(email, fields).then(function (users) {
+  ApiService.adminUpdateUser(email, fields).then(function (res) {
     hideOverlay();
     closeEditUser();
-    renderUsersTable(users || []);
-    showToast('User updated', 'success');
+    const result = res || {};
+    renderUsersTable(result.users || []);
+    showToast(result.message || 'User updated', 'success');
+    if (result.reAuth) {
+      setAuthToken('');
+      try { window.sessionStorage.setItem(STORAGE_REAUTH_MSG, 'Your email was changed. Please log in with your new email.'); } catch (err) {}
+      window.location.reload();
+    }
   }).catch(function (err) {
     hideOverlay();
     if (handleServerFailure(err)) return;

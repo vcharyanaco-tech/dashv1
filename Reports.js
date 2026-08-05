@@ -46,11 +46,7 @@ function buildSectorReportFromSummary(summary) {
 /**
  * Returns the per-sector report sorted alphabetically.
  * @returns {Object[]} [{ sector, total }]
- */
-function getSectorReport() {
-  return buildSectorReportFromSummary(getDashboardSummary());
-}
-
+ */
 /**
  * Filters items to the flagged (review-due) ones.
  * @param {Object[]} items Display-ready record items.
@@ -63,11 +59,7 @@ function buildFlaggedItemsFromItems(items) {
 /**
  * Returns only the flagged (review-due) items.
  * @returns {Object[]} Flagged items.
- */
-function getFlaggedItemsReport() {
-  return buildFlaggedItemsFromItems((getData().items) || []);
-}
-
+ */
 /**
  * Builds a { yyyy-MM: count } trend from item entry dates.
  * @param {Object[]} items Display-ready record items.
@@ -86,11 +78,7 @@ function buildMonthlyTrendFromItems(items) {
 /**
  * Returns the monthly entry-count trend.
  * @returns {Object} Month -> count map.
- */
-function getMonthlyTrend() {
-  return buildMonthlyTrendFromItems((getData().items) || []);
-}
-
+ */
 /**
  * Builds the printable report payload (title, timestamp, summary, items).
  * @returns {{title: string, generatedOn: Date, summary: Object, items: Object[]}}

@@ -282,104 +282,18 @@ function getAuditDerivedRows_() {
   }
 }
 
-const SOURCE_SPREADSHEET_ID = "1xQaysoLjDIqNa5X_QnvA5FWp7J6lMr5r6lzLGalm-y8";
-
-function getSourceSpreadsheetId_() {
-  return SOURCE_SPREADSHEET_ID;
-}
-
+const SOURCE_SPREADSHEET_ID = "1xQaysoLjDIqNa5X_QnvA5FWp7J6lMr5r6lzLGalm-y8";
 function getPreferredSpreadsheetId_() {
   return SOURCE_SPREADSHEET_ID;
-}
-
-function bindSpreadsheet_(spreadsheetId) {
-  const id = String(spreadsheetId || "").trim();
-
-  if (!id) {
-    return null;
-  }
-
-  PropertiesService
-    .getScriptProperties()
-    .setProperty("SPREADSHEET_ID", id);
-
-  try {
-    return SpreadsheetApp.openById(id);
-  } catch (err) {
-    return null;
-  }
-}
-
-function getBoundSpreadsheetId_() {
-  return String(
-    PropertiesService
-      .getScriptProperties()
-      .getProperty("SPREADSHEET_ID") || ""
-  ).trim();
-}
-
+}
 /**
  * Debug helper: returns the configured spreadsheet id and url.
  * @returns {{spreadsheetId: string, url: string}}
- */
-function getSpreadsheetBindingInfo() {
-  const id = getPreferredSpreadsheetId_();
-
-  if (!id) {
-    return {
-      spreadsheetId: "",
-      url: ""
-    };
-  }
-
-  try {
-    const spreadsheet = SpreadsheetApp.openById(id);
-
-    return {
-      spreadsheetId: id,
-      url: spreadsheet ? spreadsheet.getUrl() : ""
-    };
-  } catch (err) {
-    return {
-      spreadsheetId: id,
-      url: ""
-    };
-  }
-}
-
+ */
 /**
  * Debug helper: binds the active spreadsheet into script properties.
  * @returns {{success: boolean, spreadsheetId?: string, url?: string, message?: string}}
- */
-function bindCurrentSpreadsheet() {
-  try {
-    const activeSpreadsheet = SpreadsheetApp.getActiveSpreadsheet();
-
-    if (!activeSpreadsheet) {
-      return {
-        success: false,
-        message: "No active spreadsheet is available."
-      };
-    }
-
-    const id = activeSpreadsheet.getId();
-    PropertiesService
-      .getScriptProperties()
-      .setProperty("SPREADSHEET_ID", id);
-
-    return {
-      success: true,
-      spreadsheetId: id,
-      url: activeSpreadsheet.getUrl()
-    };
-  } catch (err) {
-    return {
-      success: false,
-      message: err && err.message ? err.message : String(err)
-    };
-  }
-}
-
+ */
 let __spreadsheetCache__ = null;
 
 function getSpreadsheet_() {
@@ -527,37 +441,7 @@ function getDataRange_() {
 
 /* ============================================================
  * Data Helpers
- * ============================================================ */
-
-function getAllRows_() {
-
-  const range = getDataRange_();
-
-  if (!range) return [];
-
-  return range.getValues();
-
-}
-
-function writeRows_(rows) {
-
-  const sheet = getSheet_();
-
-  if (!rows.length) return;
-
-  const startRow = getDataStartRow_(sheet);
-
-  sheet
-    .getRange(
-      startRow,
-      1,
-      rows.length,
-      CONFIG.SHEET.NUM_COLS
-    )
-    .setValues(rows);
-
-}
-
+ * ============================================================ */
 
 /* ============================================================
  * Lock Helpers
@@ -584,32 +468,7 @@ function runWithLock_(callback) {
 
 /* ============================================================
  * Property Helpers
- * ============================================================ */
-
-function getProperty_(key) {
-
-  return PropertiesService
-    .getScriptProperties()
-    .getProperty(key);
-
-}
-
-function setProperty_(key, value) {
-
-  PropertiesService
-    .getScriptProperties()
-    .setProperty(key, value);
-
-}
-
-function deleteProperty_(key) {
-
-  PropertiesService
-    .getScriptProperties()
-    .deleteProperty(key);
-
-}
-
+ * ============================================================ */
 
 /* ============================================================
  * Read Cache Helpers
@@ -775,109 +634,22 @@ function now_() {
 
 /* ============================================================
  * Color Helpers
- * ============================================================ */
-
-function flagColor_() {
-
-  return CONFIG.COLORS.FLAG;
-
-}
-
-function normalColor_() {
-
-  return CONFIG.COLORS.NORMAL;
-
-}
-
-
+ * ============================================================ */
 /* ============================================================
  * Validation Helpers
- * ============================================================ */
-
-function isBlank_(value) {
-
-  return value === "" ||
-         value === null ||
-         value === undefined;
-
-}
-
-function isNumber_(value) {
-
-  return !isNaN(value);
-
-}
-
-function isDate_(value) {
-
-  return Object.prototype.toString.call(value) === "[object Date]";
-
-}
-
-
+ * ============================================================ */
 /* ============================================================
  * Response Helpers
- * ============================================================ */
-
-function success_(message, data) {
-
-  return {
-    success: true,
-    message: message || "",
-    data: data || null
-  };
-
-}
-
-function failure_(message) {
-
-  return {
-    success: false,
-    message: message || "Unknown Error"
-  };
-
-}
-
+ * ============================================================ */
 
 /* ============================================================
  * Logging
- * ============================================================ */
-
-function log_(message, object) {
-
-  if (object === undefined) {
-
-    console.log(message);
-
-  } else {
-
-    console.log(
-      message,
-      JSON.stringify(object, null, 2)
-    );
-
-  }
-
-}
-
+ * ============================================================ */
 
 /* ============================================================
  * ID Generator
- * ============================================================ */
-
-function uuid_() {
-
-  return Utilities.getUuid();
-
-}
-
+ * ============================================================ */
 
 /* ============================================================
  * JSON Helpers
- * ============================================================ */
-
-function clone_(obj) {
-
-  return JSON.parse(JSON.stringify(obj));
-
-}
+ * ============================================================ */

@@ -85,16 +85,4 @@ function buildAnalytics_(items) {
     trend: trend,
     trendPrev: trendPrev
   };
-}
-
-function getAnalyticsData(token) {
-  const user = requireLogin_(token);
-  let items = getAllRecords_();
-  if (user.role !== ROLES.ADMIN) {
-    const dept = String(user.department || '').trim();
-    const office = String(user.office || '').trim();
-    if (dept) items = items.filter(function (i) { return String(i.sector || '').trim() === dept; });
-    if (office) items = items.filter(function (i) { return String(i.responsibility || '').trim() === office; });
-  }
-  return buildAnalytics_(items);
-}
+}

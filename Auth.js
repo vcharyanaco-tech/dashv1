@@ -467,12 +467,7 @@ function isAdmin(email) {
 function isEditor(email) {
   const role = getUserRole(email);
   return role === ROLES.ADMIN || role === ROLES.EDITOR;
-}
-
-function isViewer(email) {
-  return true;
-}
-
+}
 /* ============================================================
  * Granular RBAC (permission matrix + user groups)
  * ============================================================ */
@@ -558,14 +553,7 @@ function hasModulePermission_(module) {
  * @param {string} module One of MODULES.
  * @param {string} action One of MODULE_ACTIONS.
  * @returns {boolean}
- */
-function hasPermission_(email, module, action) {
-  email = String(email || getCurrentUser() || '').toLowerCase().trim();
-  if (!hasModulePermission_(module)) return false;
-  const perms = getUserPermissions(email);
-  return (perms[module] || []).indexOf(action) !== -1;
-}
-
+ */
 /**
  * Full identity + permission context for a user.
  * @param {string} email User email.
@@ -606,12 +594,7 @@ function requireAdmin_(token) {
   const user = requireLogin_(token);
   if (!isAdmin(user.email)) throw new Error('Admin permission required.');
   return user;
-}
-
-function requireAdmin() {
-  if (!isAdmin()) throw new Error('Admin permission required.');
-}
-
+}
 function requireEditor() {
   if (!isEditor()) throw new Error('Editor permission required.');
 }
@@ -1199,20 +1182,8 @@ function getCurrentUserInfo() {
 /**
  * Debug helper: session/user/timezone/timestamp snapshot.
  * @returns {Object} Session info.
- */
-function getSessionInfo() {
-  return {
-    user: getCurrentUserInfo(),
-    effectiveUser: getEffectiveUser(),
-    timezone: Session.getScriptTimeZone(),
-    timestamp: new Date()
-  };
-}
-
+ */
 /**
  * Debug helper: alias for getCurrentUserInfo().
  * @returns {Object} Session info.
- */
-function whoAmI() {
-  return getCurrentUserInfo();
-}
+ */
