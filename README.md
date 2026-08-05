@@ -85,7 +85,6 @@ Backend (Google Apps Script):
 | `Analytics.js`      | Analytics builder: trends, sector/office breakdowns        |
 | `DashboardStudio.js`| User dashboard preferences (view mode, column visibility)  |
 | `Documents.js`      | `Documents` sheet store, Drive upload/delete, record links |
-| `Security.js`       | Input validation, sanitization, rate limiting utilities    |
 
 Frontend (served HTML):
 

@@ -77,7 +77,7 @@ the app itself with email/password login and token-based sessions.
 
 ### `Utils.js` — shared infrastructure
 - Spreadsheet binding: `SOURCE_SPREADSHEET_ID` (the bound sheet), `getSpreadsheet_`
-  (memoized `openById`), `bindSpreadsheet_`, `getSpreadsheetBindingInfo`.
+  (memoized `openById`).
 - Header detection: `isLikelyHeaderRow_`, `findHeaderRow_`,
   `getPreferredHeaderRow_` (prefers row 3), `buildFieldMap_`, and
   `getSheetDataRows_` which normalizes each row to
@@ -90,7 +90,7 @@ the app itself with email/password login and token-based sessions.
 - Caching: `cacheGet_` / `cachePut_` over `CacheService` (300 s TTL, disabled via
   `CONFIG.CACHE.ENABLED`).
 - Helpers: `preauthorize()` (forces OAuth consent as the deploying user),
-  `inspectBoundSheet_`, date/colour/validation helpers, `success_`/`failure_`.
+  `inspectBoundSheet_`, date/colour/validation helpers.
 
 ### `Audit.js` — audit log
 - The `Audit Log` sheet has columns `Timestamp | User | Action | Record ID | Details`.
