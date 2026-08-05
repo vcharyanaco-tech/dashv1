@@ -306,3 +306,35 @@ function getReportData(token, templateKey) {
     items: filtered
   };
 }
+
+/**
+ * Emails the dashboard report as a PDF attachment.
+ * Uses MailApp, which requires the `script.send_mail` OAuth scope.
+ * @param {string} token Session token (login required).
+ * @param {string} recipient Recipient email address.
+ * @param {string} templateKey Optional report template (summary|detailed|flagged).
+ * @returns {{success: boolean, sentTo: string, template: string}}
+ */
+function emailReport(token, recipient, templateKey) {
+  requireLogin_(token);
+  if (!recipient || !/^[^@\s]+@[^@\s]+\.[^@\s]+$/.test(recipient)) {
+    throw new Error('A valid recipient email is required.');
+  }
+  const key = String(templateKey || 'summary').toLowerCase();
+  const report = getReportData(token, key);
+  const pdf = createPdfReport(token);
+  const templateLabel = (REPORT_TEMPLATES[key.toUpperCase()] || REPORT_TEMPLATES.SUMMARY).label;
+  const subject = report.title + ' — ' + templateLabel + ' report';
+  const body = 'Please find attached the ' + templateLabel + ' report generated on ' +
+    Utilities.formatDate(new Date(), Session.getScriptTimeZone(), 'dd.MM.yyyy HH:mm') + '.\n\n' +
+    'Summary: ' + report.summary.total + ' total, ' + report.summary.flagged + ' flagged, ' +
+    report.summary.normal + ' normal.';
+  const pdfBlob = Utilities.newBlob(Utilities.base64Decode(pdf.base64), 'application/pdf', pdf.filename);
+  MailApp.sendEmail({
+    to: recipient,
+    subject: subject,
+    body: body,
+    attachments: [pdfBlob]
+  });
+  return { success: true, sentTo: recipient, template: key };
+}

@@ -113,7 +113,8 @@ const ApiService = {
   adminDeleteAuditRows: function (rowNumbers) { return apiCall_('adminDeleteAuditRows', rowNumbers, getAuthToken()); },
   adminClearAudit: function () { return apiCall_('adminClearAudit', getAuthToken()); },
   exportToSpreadsheet: function () { return apiCall_('exportToSpreadsheet', getAuthToken()); },
-  createPdfReport: function () { return apiCall_('createPdfReport', getAuthToken()); }
+  createPdfReport: function () { return apiCall_('createPdfReport', getAuthToken()); },
+  emailReport: function (recipient, templateKey) { return apiCall_('emailReport', getAuthToken(), recipient, templateKey); }
 };
 
 const appState = {
@@ -1789,6 +1790,51 @@ function downloadPdf() {
     hideOverlay();
     if (handleServerFailure(err)) return;
     showToast('PDF export failed: ' + (err.message || err), 'error');
+  });
+}
+
+/* ---------------------------------- Email report ---------------------------------- */
+
+function openEmailReportDialog() {
+  const templateSelect = getEl('reportTemplate');
+  const emailTemplate = getEl('emailReportTemplate');
+  if (templateSelect && emailTemplate) emailTemplate.value = templateSelect.value;
+  const recipient = getEl('emailReportRecipient');
+  const user = appState.user || {};
+  if (recipient && !recipient.value && user.email) recipient.value = user.email;
+  getEl('emailReportStatus').textContent = '';
+  openDialog('emailReportModal');
+}
+
+function closeEmailReportDialog() {
+  closeDialog('emailReportModal');
+}
+
+function sendEmailReport() {
+  const recipient = (getEl('emailReportRecipient').value || '').trim();
+  const templateKey = (getEl('emailReportTemplate') ? getEl('emailReportTemplate').value : 'summary') || 'summary';
+  const status = getEl('emailReportStatus');
+  const sendBtn = getEl('emailReportSendBtn');
+  if (!recipient) {
+    status.textContent = 'Enter a recipient email address.';
+    status.classList.add('error');
+    return;
+  }
+  status.textContent = '';
+  status.classList.remove('error');
+  if (sendBtn) sendBtn.disabled = true;
+  showOverlay('Sending report by email…');
+  ApiService.emailReport(recipient, templateKey).then(function (result) {
+    hideOverlay();
+    if (sendBtn) sendBtn.disabled = false;
+    closeEmailReportDialog();
+    showToast('Report sent to ' + result.sentTo, 'success');
+  }).catch(function (err) {
+    hideOverlay();
+    if (sendBtn) sendBtn.disabled = false;
+    if (handleServerFailure(err)) return;
+    status.textContent = 'Failed to send: ' + (err.message || err);
+    status.classList.add('error');
   });
 }
 
