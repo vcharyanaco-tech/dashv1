@@ -321,15 +321,21 @@ function getSpreadsheet_() {
 /**
  * Debug helper: resolves the bound spreadsheet and returns its id/url.
  * Run once from the Apps Script editor to force OAuth consent.
+ * Touches SpreadsheetApp, DriveApp and MailApp so that every scope declared
+ * in appsscript.json (including script.send_mail) is exercised and Google
+ * shows the approval prompt for the currently signed-in (deploying) user.
  * @returns {{success: boolean, spreadsheetId?: string, url?: string, message?: string}}
  */
 function preauthorize() {
   try {
     const ss = getSpreadsheet_();
+    let mailReady = false;
+    try { MailApp.getRemainingDailyQuota(); mailReady = true; } catch (e) { mailReady = false; }
     return {
       success: !!ss,
       spreadsheetId: ss ? ss.getId() : "",
-      url: ss ? ss.getUrl() : ""
+      url: ss ? ss.getUrl() : "",
+      mailScopeReady: mailReady
     };
   } catch (err) {
     return {
