@@ -321,21 +321,30 @@ function getSpreadsheet_() {
 /**
  * Debug helper: resolves the bound spreadsheet and returns its id/url.
  * Run once from the Apps Script editor to force OAuth consent.
- * Touches SpreadsheetApp, DriveApp and MailApp so that every scope declared
- * in appsscript.json (including script.send_mail) is exercised and Google
- * shows the approval prompt for the currently signed-in (deploying) user.
+ * Calls MailApp.sendEmail (to the deploying user) so that the
+ * script.send_mail scope declared in appsscript.json is actually exercised;
+ * only an actual sendEmail call triggers Google's authorization prompt.
  * @returns {{success: boolean, spreadsheetId?: string, url?: string, message?: string}}
  */
 function preauthorize() {
   try {
     const ss = getSpreadsheet_();
-    let mailReady = false;
-    try { MailApp.getRemainingDailyQuota(); mailReady = true; } catch (e) { mailReady = false; }
+    let mailScopeReady = false;
+    try {
+      MailApp.sendEmail({
+        to: Session.getEffectiveUser().getEmail(),
+        subject: 'Dashboard OAuth authorization test',
+        body: 'This confirms MailApp.sendEmail authorization is working for the dashboard script.'
+      });
+      mailScopeReady = true;
+    } catch (e) {
+      mailScopeReady = false;
+    }
     return {
       success: !!ss,
       spreadsheetId: ss ? ss.getId() : "",
       url: ss ? ss.getUrl() : "",
-      mailScopeReady: mailReady
+      mailScopeReady: mailScopeReady
     };
   } catch (err) {
     return {
