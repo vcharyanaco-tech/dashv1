@@ -7,7 +7,7 @@
    ========================================================================== */
 
 const APP_VERSION = '1.0.0';
-const APP_BUILD = '2026.08.02';
+const APP_BUILD = '2026.08.05';
 const PAGE_SIZE = 10;
 const AUDIT_PAGE_SIZE = 20;
 const STORAGE_THEME = 'indiaPostDarkMode';
