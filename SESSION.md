@@ -82,6 +82,7 @@ The "Edit" option in user management should allow admins to edit the full user d
 - Docs site on GitHub Pages redirects root → Worker proxy. OAuth/app-verification thread ABANDONED by user decision.
 
 ## Recent commits (git log)
+- `9bb48dd` fix: unify logo - login mark on docs/app.html, dashboard logo on landing/compliance pages, splash/about downscaled to 96x62
 - `726e419` docs: drop references to removed bindSpreadsheet_/getSpreadsheetBindingInfo/success_/failure_ and deleted Security.js
 - `8fee71b` refactor: remove dead server code, dedupe logo images, merge client edit-user flow, trim dead CSS
 - `97608c7` docs: log print feature deployment @113 + next-phase plan
