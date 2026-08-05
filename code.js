@@ -28,17 +28,10 @@ function doGet(e) {
     }
   } catch (err) {}
 
-  return HtmlService
-    .createTemplateFromFile('index')
-    .evaluate()
-    .setTitle(APP.NAME)
-    .addMetaTag(
-      'viewport',
-      'width=device-width, initial-scale=1'
-    )
-    .setXFrameOptionsMode(
-      HtmlService.XFrameOptionsMode.ALLOWALL
-    );
+  // The UI is served from GitHub Pages (no Apps Script banner). Redirect there.
+  return HtmlService.createHtmlOutput(
+    '<script>window.location.replace("https://www.dashboardharyana.site/app.html");</script>'
+  );
 
 }
 
@@ -423,4 +416,38 @@ function getAppData(token) {
  */
 function dailyDateUpdate() {
   stampTitle_();
+}
+
+/* ============================================================
+ * API Endpoint (for GitHub Pages frontend)
+ * ============================================================ */
+
+/**
+ * POST endpoint for the GitHub Pages frontend. Accepts JSON body
+ * with `{function: string, args: any[]}` and returns JSON.
+ * @param {Object} e The POST event object.
+ * @returns {GoogleAppsScript.Content.TextOutput} JSON response.
+ */
+function doPost(e) {
+  try {
+    const body = JSON.parse(e.postData.contents);
+    const fn = body.function;
+    const args = body.args || [];
+    // Resolve the global function by name. eval(fn) returns the function
+    // reference without invoking it (untrusted input only names a function).
+    const fnRef = (typeof fn === 'string') ? eval(fn) : null;
+    if (typeof fnRef !== 'function') {
+      return JsonResponse_({ error: 'Unknown function: ' + fn });
+    }
+    const result = fnRef.apply(null, args);
+    return JsonResponse_({ result: result });
+  } catch (err) {
+    return JsonResponse_({ error: err.message || String(err) });
+  }
+}
+
+function JsonResponse_(obj) {
+  return ContentService
+    .createTextOutput(JSON.stringify(obj))
+    .setMimeType(ContentService.MimeType.JSON);
 }

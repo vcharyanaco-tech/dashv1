@@ -1,4 +1,3 @@
-<script>
 'use strict';
 
 /* ==========================================================================
@@ -14,7 +13,6 @@ const AUDIT_PAGE_SIZE = 20;
 const STORAGE_THEME = 'indiaPostDarkMode';
 const STORAGE_SIDEBAR = 'indiaPostSidebarCollapsed';
 const STORAGE_TOKEN = 'indiaPostAuthToken';
-const STORAGE_REAUTH_MSG = 'indiaPostReauthMsg';
 
 /* ---------------------------------- Event bus (pub/sub) ---------------------------------- */
 /* Lightweight publish/subscribe used across the UI. Named events follow the
@@ -86,7 +84,6 @@ const ApiService = {
   adminResetPassword: function (email, newPassword) { return apiCall_('adminResetPassword', email, newPassword, getAuthToken()); },
   getMyNotifications: function () { return apiCall_('getMyNotifications', getAuthToken()); },
   markNotificationsRead: function (ids) { return apiCall_('markNotificationsRead', ids, getAuthToken()); },
-  clearMyNotifications: function () { return apiCall_('clearMyNotifications', getAuthToken()); },
   submitRecordReview: function (row, summary) { return apiCall_('submitRecordReview', row, summary, getAuthToken()); },
   getPendingApprovals: function () { return apiCall_('getPendingApprovals', getAuthToken()); },
   getMyApprovals: function () { return apiCall_('getMyApprovals', getAuthToken()); },
@@ -454,9 +451,8 @@ function toggleProfileMenu() {
 function renderProfile() {
   const user = appState.user || {};
   const email = user.email || '';
-  const username = user.username || '';
   const role = user.role || 'VIEWER';
-  const name = username || (email ? email.split('@')[0] : 'Guest');
+  const name = email ? email.split('@')[0] : 'Guest';
   const initial = email ? email.charAt(0).toUpperCase() : '?';
   const tone = role === 'ADMIN' ? 'danger' : (role === 'EDITOR' ? 'accent' : 'muted');
 
@@ -550,26 +546,6 @@ function markAllNotificationsRead() {
   });
 }
 
-function clearAllNotifications() {
-  showConfirm({
-    title: 'Clear notifications',
-    message: 'This will permanently delete all your notifications. Continue?',
-    okLabel: 'Clear all',
-    danger: true
-  }).then(function (ok) {
-    if (!ok) return;
-    ApiService.clearMyNotifications().then(function (data) {
-      appState.notifications = data || { unread: 0, recent: [] };
-      renderNotifications();
-      closeNotificationsPanel();
-      showToast('All notifications cleared.', 'success');
-    }).catch(function (err) {
-      if (handleServerFailure(err)) return;
-      showToast('Could not clear notifications: ' + (err.message || err), 'error');
-    });
-  });
-}
-
 function openNotification(id, type) {
   if (!id) {
     closeNotificationsPanel();
@@ -618,12 +594,6 @@ function initApp() {
   if (!token) {
     showScreen('login');
     hideSplash();
-    let msg = '';
-    try {
-      msg = window.sessionStorage.getItem(STORAGE_REAUTH_MSG) || '';
-      window.sessionStorage.removeItem(STORAGE_REAUTH_MSG);
-    } catch (err) {}
-    if (msg) showAuthMessage('loginMessage', msg);
     return;
   }
 
@@ -1705,11 +1675,12 @@ function loadUsers() {
 }
 
 function renderUsersTable(users) {
-  const table = getEl('usersTable');
-  const tbody = table.querySelector('tbody');
-  table.dataset.users = JSON.stringify(users);
+  const tbody = getEl('usersTable').querySelector('tbody');
+  tbody.dataset.users = JSON.stringify(users);
   tbody.innerHTML = users.length ? users.map(function (u, i) {
     const username = escapeHtml(u.username || '');
+    const group = escapeHtml(u.group || '');
+    const dept = escapeHtml(u.department || '');
     const office = escapeHtml(u.office || '');
     const resetPending = !!(u.resetRequested && String(u.resetRequested).trim());
     const resetBadge = resetPending
@@ -1720,13 +1691,15 @@ function renderUsersTable(users) {
         <td class="preserve-whitespace">${escapeHtml(u.email)}${u.mustChange ? ' <em>(must change)</em>' : ''}${resetBadge}</td>
         <td class="preserve-whitespace">${username || '<span class="badge" data-tone="muted">—</span>'}</td>
         <td>${escapeHtml(u.role)}</td>
+        <td class="preserve-whitespace">${group || '<span class="badge" data-tone="muted">—</span>'}</td>
+        <td class="preserve-whitespace">${dept || '<span class="badge" data-tone="muted">—</span>'}</td>
         <td class="preserve-whitespace">${office || '<span class="badge" data-tone="muted">—</span>'}</td>
         <td class="preserve-whitespace">${escapeHtml(u.createdAt || '')}</td>
         <td><button class="btn btn-secondary btn-small" type="button" data-action="reset" data-index="${i}">Reset password</button></td>
         <td><button class="btn btn-secondary btn-small" type="button" data-action="edit" data-index="${i}">Edit</button></td>
         <td><button class="btn btn-danger btn-small" type="button" data-action="delete" data-index="${i}">Delete</button></td>
       </tr>`;
-  }).join('') : '<tr><td colspan="7">No users found.</td></tr>';
+  }).join('') : '<tr><td colspan="10">No users found.</td></tr>';
 }
 
 function loadUserActivity() {
@@ -1822,7 +1795,8 @@ function openEditUser(email) {
   if (!u) return;
   getEl('editUserEmail').value = u.email;
   getEl('editUserUsername').value = u.username || '';
-  getEl('editUserRole').value = u.role || 'VIEWER';
+  getEl('editUserGroup').value = u.group || '';
+  getEl('editUserDepartment').value = u.department || '';
   getEl('editUserOffice').value = u.office || '';
   openDialog('editUserModal');
 }
@@ -1832,27 +1806,20 @@ function closeEditUser() {
 }
 
 function saveEditUser() {
-  const emailEl = getEl('editUserEmail');
-  const email = emailEl.value.trim();
+  const email = getEl('editUserEmail').value.trim();
   const fields = {
-    email: email,
     username: getEl('editUserUsername').value.trim(),
-    role: getEl('editUserRole').value,
+    group: getEl('editUserGroup').value.trim(),
+    department: getEl('editUserDepartment').value.trim(),
     office: getEl('editUserOffice').value.trim()
   };
-  if (!setFieldInvalid(emailEl, email ? '' : 'Enter an email address.')) return;
+  if (!email) return;
   showOverlay('Saving user…');
-  ApiService.adminUpdateUser(email, fields).then(function (res) {
+  ApiService.adminUpdateUser(email, fields).then(function (users) {
     hideOverlay();
     closeEditUser();
-    const result = res || {};
-    renderUsersTable(result.users || []);
-    showToast(result.message || 'User updated', 'success');
-    if (result.reAuth) {
-      setAuthToken('');
-      try { window.sessionStorage.setItem(STORAGE_REAUTH_MSG, 'Your email was changed. Please log in with your new email.'); } catch (err) {}
-      window.location.reload();
-    }
+    renderUsersTable(users || []);
+    showToast('User updated', 'success');
   }).catch(function (err) {
     hideOverlay();
     if (handleServerFailure(err)) return;
@@ -1867,11 +1834,15 @@ function handleAddUser(e) {
   const usernameEl = getEl('newUserUsername');
   const roleEl = getEl('newUserRole');
   const passwordEl = getEl('newUserPassword');
+  const groupEl = getEl('newUserGroup');
+  const departmentEl = getEl('newUserDepartment');
   const officeEl = getEl('newUserOffice');
   const email = emailEl.value.trim();
   const username = (usernameEl && usernameEl.value.trim()) || '';
   const role = roleEl.value;
   const password = passwordEl.value;
+  const group = (groupEl && groupEl.value) || '';
+  const department = (departmentEl && departmentEl.value) || '';
   const office = (officeEl && officeEl.value) || '';
 
   let valid = true;
@@ -1880,11 +1851,13 @@ function handleAddUser(e) {
   if (!valid) return;
 
   showOverlay('Adding user…');
-  ApiService.adminAddUser(email, username, role, password, '', '', office).then(function (users) {
+  ApiService.adminAddUser(email, username, role, password, group, department, office).then(function (users) {
     hideOverlay();
     emailEl.value = '';
     if (usernameEl) usernameEl.value = '';
     passwordEl.value = '';
+    if (groupEl) groupEl.value = '';
+    if (departmentEl) departmentEl.value = '';
     if (officeEl) officeEl.value = '';
     const status = getEl('addUserStatus');
     status.textContent = 'User added';
@@ -1978,60 +1951,18 @@ function deleteUser(email) {
 }
 
 function resetUserPassword(email) {
-  const users = JSON.parse(getEl('usersTable').dataset.users || '[]');
-  const u = users.find(function (x) { return String(x.email).toLowerCase() === String(email).toLowerCase(); });
-  getEl('resetPasswordEmail').value = email;
-  getEl('resetPasswordUserLabel').textContent = 'Set a new password for ' + email + '.';
-  getEl('resetPasswordNew').value = '';
-  getEl('resetPasswordConfirm').value = '';
-  setFieldInvalid(getEl('resetPasswordNew'), '');
-  setFieldInvalid(getEl('resetPasswordConfirm'), '');
-  const statusEl = getEl('resetPasswordStatus');
-  statusEl.textContent = '';
-  statusEl.className = 'form-status';
-  if (u && u.resetRequested && String(u.resetRequested).trim()) {
-    showToast('Reset request received for ' + email, 'info');
-  }
-  openDialog('resetPasswordModal');
-  getEl('resetPasswordNew').focus();
-}
-
-function submitResetPassword() {
-  const email = getEl('resetPasswordEmail').value.trim();
-  const newEl = getEl('resetPasswordNew');
-  const confirmEl = getEl('resetPasswordConfirm');
-  const np = newEl.value;
-  const cp = confirmEl.value;
-  let valid = true;
-  valid = setFieldInvalid(newEl, np.length >= 8 ? '' : 'Password must be at least 8 characters.') && valid;
-  if (np !== cp) {
-    setFieldInvalid(confirmEl, 'Passwords do not match.');
-    valid = false;
-  } else {
-    setFieldInvalid(confirmEl, '');
-  }
-  if (!valid) return;
+  const newPassword = prompt('New password for ' + email + ' (min 8 characters):');
+  if (!newPassword) return;
   showOverlay('Resetting password…');
-  ApiService.adminResetPassword(email, np).then(function (users) {
+  ApiService.adminResetPassword(email, newPassword).then(function (users) {
     hideOverlay();
-    closeResetPasswordDialog();
     renderUsersTable(users || []);
     showToast('Password reset for ' + email, 'success');
-    ApiService.markNotificationsRead('all').then(function (data) {
-      appState.notifications = data || { unread: 0, recent: [] };
-      renderNotifications();
-    }).catch(function () {});
   }).catch(function (err) {
     hideOverlay();
     if (handleServerFailure(err)) return;
-    const status = getEl('resetPasswordStatus');
-    status.textContent = err.message || 'Reset failed';
-    status.classList.add('error');
+    showToast('Reset failed: ' + (err.message || err), 'error');
   });
-}
-
-function closeResetPasswordDialog() {
-  closeDialog('resetPasswordModal');
 }
 
 /* ---------------------------------- Record detail dialog ---------------------------------- */
@@ -2969,7 +2900,7 @@ function wireGlobalEvents() {
         cancelConfirmDialog();
         return;
       }
-      ['editModal', 'aboutModal', 'submissionsModal', 'recordDetailModal', 'editUserModal', 'resetPasswordModal', 'reviewModal', 'taskModal', 'columnModal', 'commandPalette'].forEach(function (id) {
+      ['editModal', 'aboutModal', 'submissionsModal', 'recordDetailModal', 'editUserModal', 'reviewModal', 'taskModal', 'columnModal', 'commandPalette'].forEach(function (id) {
         const el = getEl(id);
         if (el && !el.classList.contains('hidden')) closeDialog(id);
       });
@@ -3005,7 +2936,6 @@ function wireGlobalEvents() {
         else if (backdrop.id === 'submissionsModal') closeSubmissionsModal();
         else if (backdrop.id === 'recordDetailModal') closeRecordDetail();
         else if (backdrop.id === 'editUserModal') closeEditUser();
-        else if (backdrop.id === 'resetPasswordModal') closeResetPasswordDialog();
         else if (backdrop.id === 'confirmModal') cancelConfirmDialog();
       }
     });
@@ -3062,7 +2992,7 @@ function wireGlobalEvents() {
     });
   }
 
-  ['loginForm', 'forgotForm', 'changePasswordForm', 'addUserForm', 'editUserForm', 'editForm'].forEach(function (id) {
+  ['loginForm', 'forgotForm', 'changePasswordForm', 'addUserForm', 'editForm'].forEach(function (id) {
     const form = getEl(id);
     if (form) wireFieldClearing(form);
   });
@@ -3076,4 +3006,3 @@ function wireGlobalEvents() {
 
 wireGlobalEvents();
 window.addEventListener('load', initApp);
-</script>
