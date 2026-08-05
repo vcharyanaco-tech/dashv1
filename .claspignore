@@ -5,4 +5,7 @@ auto-commit.ps1
 .gitignore
 .git/**
 SESSION.md
+SESSION_EXPORT.md
 .claspignore
+app.js
+docs/**

@@ -14,21 +14,24 @@ Serve the frontend from GitHub Pages and use Apps Script only as a backend API, 
 - Pushed to Apps Script via `clasp push --force`
 - Created deployment **@109** (`AKfycbwNiYcg4uSCLhNSO3xx0o-YdbR7S-ZBK1t5I8lhJFpNuJS5E29253V-gNZDAgti-TY1`) with public access
 
-## Blocked — root cause found, fix in progress
-- Apps Script project still contained a stale `app.js` (server file) that was the original client-side build artifact
-- That file crashes at load time with `ReferenceError: document is not defined (line 152, file "app")`
-- Deleting `app.js` locally did NOT sync to remote via `clasp push` (clasp ignores deletions)
-- Workaround attempted: wrote an empty stub `app.js` via the Apps Script REST API (`projects.updateContent`)
-- Stub write returned 200 and is confirmed stored remotely (2 lines, empty)
-- **BUT** POST to @109 still returns `ReferenceError: <base64 of stub> is not defined (line 1, file "app")`
-- `@109` is versioned (`@HEAD`) — it is read-only and cannot be repointed to serve HEAD
+## Blocked — ROOT CAUSE FOUND & FIXED (2026-08-05)
+- Apps Script project still contained a stale `app.js` (server file) that was the original client-side build artifact.
+- That file crashes at load time with `ReferenceError: document is not defined (line 152, file "app")` — and later with `ReferenceError: <base64 stub> is not defined` after an empty-stub workaround.
+- `clasp push` does NOT delete remote files, so the stale `app` kept loading on every deployment.
+- **Fix:** removed the `app` file from the Apps Script project via the REST API (`projects.updateContent`, full file list minus `app`), added `app.js` + `docs/**` + `SESSION_EXPORT.md` to `.claspignore`, then `clasp push --force` + new version **112** + redeployed **@110** to v112.
 
-## Next steps (resume here)
-1. Create a **new deployment** with `clasp deploy` so it serves HEAD (which now has the empty stub). Deployment @110 was started but not verified.
-2. Test: `POST https://script.google.com/macros/s/<NEW_DEPLOYMENT_ID>/exec` with `{"function":"getData","args":[]}` — should return JSON, not an error page.
-3. Once API is clean, verify `https://www.dashboardharyana.site/app.html` loads without the Google banner.
-4. Clean up: delete `app.js` from the Apps Script project properly (it is no longer needed there). `clasp` does not delete remote files; use the Apps Script REST API `projects.updateContent` with the full file list minus `app`, or delete in the Apps Script IDE UI.
-5. Update `docs/app.js`, `docs/app.html`, `docs/assets/styles.css` if the dashboard JS has any other stale references to `google.script.run` or `<base target="_top">`.
+## Resumed — completed
+- @110 (`AKfycbykqb0AE0a6bwHGk4Q_e5LTXhefKtjao9_r7G0zR1cODl5JP5lH_ooqrgFt2hu3oDo2`) now serves HEAD with **no** `app` file.
+- Verified: `POST .../exec {"function":"getData","args":[]}` → JSON with **19 live items** (no ReferenceError).
+- Verified: `@108`/`@109` return HTML (no working `doPost`), so they are NOT usable as the API. `@110` is the only working API deployment.
+- The frontend's `API_URL` (`script.html:49`, `docs/app.js:47`, `app.js:47`) was pointing at a **deleted** deployment (404). Repointed all three to **@110**.
+- `wrangler.toml` `GAS_URL`/`GAS_SCRIPT_URL` pointed at @108 (no `doPost`). Repointed both to **@110**.
+- `.claspignore` now excludes `app.js`, `docs/**`, `SESSION_EXPORT.md` (so the client bundle is never pushed to Apps Script again).
+
+## Remaining (resume here)
+1. `git commit` + `git push` the fixes (`.claspignore`, `script.html`, `docs/app.js`, `app.js`, `wrangler.toml`) so GitHub Pages serves the corrected frontend.
+2. `wrangler deploy` so the Worker proxy uses @110 (strips the Google banner on the proxied path).
+3. Verify `https://www.dashboardharyana.site/app.html` loads and the API returns data with no banner.
 
 ## Key facts
 - GitHub repo: `https://github.com/vcharyanaco-tech/dashv1.git`
