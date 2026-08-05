@@ -82,6 +82,7 @@ The "Edit" option in user management should allow admins to edit the full user d
 - Docs site on GitHub Pages redirects root → Worker proxy. OAuth/app-verification thread ABANDONED by user decision.
 
 ## Recent commits (git log)
+- `8fee71b` refactor: remove dead server code, dedupe logo images, merge client edit-user flow, trim dead CSS
 - `97608c7` docs: log print feature deployment @113 + next-phase plan
 - `982152e` feat: per-card print and report print with/without submissions
 - `6c2b402` test: verify auto-commit works cleanly end-to-end
