@@ -431,6 +431,10 @@ function dailyDateUpdate() {
  * @param {Object} e The POST event object.
  * @returns {GoogleAppsScript.Content.TextOutput} JSON response.
  */
+function getServerTime() {
+  return Date.now();
+}
+
 function doPost(e) {
   try {
     const body = JSON.parse(e.postData.contents);

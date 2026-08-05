@@ -94,6 +94,7 @@
             <input id="searchInput" type="search" placeholder="Search records..." aria-label="Global search" autocomplete="off">
             <kbd class="search-kbd" aria-hidden="true">Ctrl K</kbd>
           </div>
+          <div class="live-clock" id="liveClock" title="Live time (12-hour)" aria-hidden="true">--:--:-- --</div>
         </div>
 
         <div class="topbar-actions">
@@ -610,13 +611,13 @@
           <textarea id="editDescription" class="textarea" rows="3"></textarea>
         </div>
         <div class="field-row">
-          <div class="field">
+          <div class="field date-field">
             <label for="editEntryDate">Entry date</label>
-            <input id="editEntryDate" type="text" class="input" placeholder="dd.mm.yyyy">
+            <input id="editEntryDate" type="text" class="input" placeholder="dd.mm.yyyy" data-datepicker autocomplete="off">
           </div>
-          <div class="field">
+          <div class="field date-field">
             <label for="editReviewDate">Review date</label>
-            <input id="editReviewDate" type="text" class="input" placeholder="dd.mm.yyyy">
+            <input id="editReviewDate" type="text" class="input" placeholder="dd.mm.yyyy" data-datepicker autocomplete="off">
           </div>
         </div>
         <div class="field">
@@ -861,9 +862,9 @@
             </select>
           </div>
         </div>
-        <div class="field">
+        <div class="field date-field">
           <label for="taskDueDate">Due date</label>
-          <input id="taskDueDate" type="date" class="input">
+          <input id="taskDueDate" type="text" class="input" placeholder="dd.mm.yyyy" data-datepicker autocomplete="off">
         </div>
         <div class="field">
           <label for="taskRecordRow">Record row (optional)</label>

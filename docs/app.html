@@ -94,6 +94,7 @@
             <input id="searchInput" type="search" placeholder="Search records..." aria-label="Global search" autocomplete="off">
             <kbd class="search-kbd" aria-hidden="true">Ctrl K</kbd>
           </div>
+          <div class="live-clock" id="liveClock" title="Live time (12-hour)" aria-hidden="true">--:--:-- --</div>
         </div>
 
         <div class="topbar-actions">
@@ -105,7 +106,10 @@
             <div class="notif-panel hidden" id="notifPanel" role="menu" aria-label="Notifications">
               <div class="notif-panel-head">
                 <span class="text-subheading">Notifications</span>
-                <button class="btn btn-ghost btn-small" type="button" onclick="markAllNotificationsRead()">Mark all read</button>
+                <div style="display:flex;gap:4px;">
+                  <button class="btn btn-ghost btn-small" type="button" onclick="markAllNotificationsRead()">Mark all read</button>
+                  <button class="btn btn-ghost btn-small" type="button" onclick="clearAllNotifications()" style="color:var(--danger,#dc3545);">Clear all</button>
+                </div>
               </div>
               <ul class="notif-list" id="notifList"></ul>
               <div class="notif-empty hidden" id="notifEmpty">You're all caught up.</div>
@@ -371,7 +375,7 @@
           <div id="usersAdmin" class="settings-card hidden">
             <div class="settings-card-head">
               <h3 class="text-subheading">Manage users</h3>
-              <p class="section-copy">Add, remove or reset passwords for dashboard users. Assign groups, departments and offices to control access.</p>
+              <p class="section-copy">Add, remove or reset passwords for dashboard users. Assign offices to control access.</p>
             </div>
             <div class="settings-card-actions">
               <button class="btn btn-secondary" type="button" onclick="exportUsers()">
@@ -408,14 +412,6 @@
                 <span class="field-error" data-for="newUserPassword"></span>
               </div>
               <div class="field">
-                <label for="newUserGroup">Group</label>
-                <input id="newUserGroup" type="text" class="input" placeholder="e.g. APPROVER, AUDITOR" autocomplete="off">
-              </div>
-              <div class="field">
-                <label for="newUserDepartment">Department</label>
-                <input id="newUserDepartment" type="text" class="input" placeholder="Restricts records to this sector" autocomplete="off">
-              </div>
-              <div class="field">
                 <label for="newUserOffice">Office</label>
                 <input id="newUserOffice" type="text" class="input" placeholder="Restricts records to this responsibility" autocomplete="off">
               </div>
@@ -427,7 +423,7 @@
             <div class="table-card">
               <div class="table-scroll" tabindex="0" aria-label="Users table">
                 <table class="data-table" id="usersTable">
-                  <thead><tr><th>Email</th><th>Username</th><th>Role</th><th>Group</th><th>Department</th><th>Office</th><th>Created</th><th></th><th></th><th></th></tr></thead>
+                  <thead><tr><th>Email</th><th>Username</th><th>Role</th><th>Office</th><th>Created</th><th></th><th></th><th></th></tr></thead>
                   <tbody></tbody>
                 </table>
               </div>
@@ -544,8 +540,8 @@
     <div class="auth-card">
       <div class="auth-brand">
         <div class="brand-mark auth-mark" aria-label="India Post logo">
-          <img src="data:image/png;base64,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">
-        </div>
+          <img src="data:image/png;base64,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" alt="India Post logo">
+          </div>
         <div>
           <div class="brand-name auth-name">India Post Dashboard</div>
           <div class="auth-subtitle">Sign in to continue</div>
@@ -615,13 +611,13 @@
           <textarea id="editDescription" class="textarea" rows="3"></textarea>
         </div>
         <div class="field-row">
-          <div class="field">
+          <div class="field date-field">
             <label for="editEntryDate">Entry date</label>
-            <input id="editEntryDate" type="text" class="input" placeholder="dd.mm.yyyy">
+            <input id="editEntryDate" type="text" class="input" placeholder="dd.mm.yyyy" data-datepicker autocomplete="off">
           </div>
-          <div class="field">
+          <div class="field date-field">
             <label for="editReviewDate">Review date</label>
-            <input id="editReviewDate" type="text" class="input" placeholder="dd.mm.yyyy">
+            <input id="editReviewDate" type="text" class="input" placeholder="dd.mm.yyyy" data-datepicker autocomplete="off">
           </div>
         </div>
         <div class="field">
@@ -731,6 +727,37 @@
     </div>
   </div>
 
+  <!-- ============================ RESET PASSWORD DIALOG ============================ -->
+  <div id="resetPasswordModal" class="modal-backdrop hidden" role="dialog" aria-modal="true" aria-labelledby="resetPasswordModalTitle">
+    <div class="modal-card">
+      <div class="modal-header">
+        <h3 class="text-subheading" id="resetPasswordModalTitle">Reset password</h3>
+        <button class="icon-btn" type="button" onclick="closeResetPasswordDialog()" aria-label="Close dialog">
+          <svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><line x1="18" y1="6" x2="6" y2="18"></line><line x1="6" y1="6" x2="18" y2="18"></line></svg>
+        </button>
+      </div>
+      <form class="form" novalidate onsubmit="submitResetPassword(); return false;">
+        <input id="resetPasswordEmail" type="hidden">
+        <p class="section-copy" id="resetPasswordUserLabel"></p>
+        <div class="field">
+          <label for="resetPasswordNew">New password</label>
+          <input id="resetPasswordNew" type="password" class="input" autocomplete="new-password">
+          <span class="field-error" data-for="resetPasswordNew"></span>
+        </div>
+        <div class="field">
+          <label for="resetPasswordConfirm">Confirm new password</label>
+          <input id="resetPasswordConfirm" type="password" class="input" autocomplete="new-password">
+          <span class="field-error" data-for="resetPasswordConfirm"></span>
+        </div>
+        <div class="form-row">
+          <button class="btn btn-primary" type="submit">Reset password</button>
+          <button class="btn btn-secondary" type="button" onclick="closeResetPasswordDialog()">Cancel</button>
+          <span id="resetPasswordStatus" class="form-status" aria-live="polite"></span>
+        </div>
+      </form>
+    </div>
+  </div>
+
   <!-- ============================ EDIT USER DIALOG ============================ -->
   <div id="editUserModal" class="modal-backdrop hidden" role="dialog" aria-modal="true" aria-labelledby="editUserModalTitle">
     <div class="modal-card">
@@ -835,9 +862,9 @@
             </select>
           </div>
         </div>
-        <div class="field">
+        <div class="field date-field">
           <label for="taskDueDate">Due date</label>
-          <input id="taskDueDate" type="date" class="input">
+          <input id="taskDueDate" type="text" class="input" placeholder="dd.mm.yyyy" data-datepicker autocomplete="off">
         </div>
         <div class="field">
           <label for="taskRecordRow">Record row (optional)</label>

@@ -1,27 +1,29 @@
 # India Post Dashboard — Session State
 
-Last updated: 2026-08-05 16:33:48
+Last updated: 2026-08-05 16:46:22
 
-## Current Task (per-card + report print with/without submissions - DONE, deployed @113)
-Added a per-card **Print** button and report **Print report** options, each with "With submissions" / "Without submissions".
+## Current Task (date picker + live clock - DONE, deployed @117)
+Date fields across the dashboard now open a mini month calendar instead of manual typing (uniform `dd.mm.yyyy`), and the topbar shows a live 12-hour clock with seconds + AM/PM beside the search panel, synced to server time.
 
 ### What changed
+- `index.html` / `docs/app.html`:
+  - Topbar: `<div class="live-clock" id="liveClock">` added beside the search panel (hidden on mobile ≤760px).
+  - `editEntryDate` / `editReviewDate` and `taskDueDate` now have `data-datepicker`; their `.field` wrappers got `date-field` (position:relative anchor). `taskDueDate` switched `type=date` → `type=text` + `placeholder="dd.mm.yyyy"`.
 - `script.html` / `app.js` / `docs/app.js`:
-  - Card actions now include a Print dropdown → `printCard(row, true|false)`.
-  - `printReport()` → `printReport(includeSubmissions)`; new helpers `openPrintWindow`, `buildPrintPage` (A4 portrait/landscape, submission styles), `groupSubmissionsByCard_`, `countSubmissions_`.
-  - New dropdown helpers `toggleDropdown(btn)`, `closeDropdowns(exceptMenu)`; Escape/outside-click handlers close `.menu-dropdown-menu.open` (unified with review dropdown).
-- `index.html` / `docs/app.html`: Print report button wrapped in `.menu-dropdown` with With/Without submissions items.
-- `styles.html` / `docs/assets/styles.css`: new `.menu-dropdown*` styles.
-- `code.js` `doGet`: now serves the full app via `createTemplateFromFile('index')` (+ viewport, ALLOWALL) instead of redirecting to GitHub Pages.
+  - Date picker: `parseDateFieldValue` (validates, rejects rollover like 31.02), `formatDmy`, `dmyToIso`, `ensureDatePickerPopup`, `renderDatePicker`, `openDatePicker` (opens above when near card bottom), `closeDatePicker`, `initDatePicker`. Monday-start month grid, Today/Clear footer buttons.
+  - Live clock: `startLiveClock` (1s tick, server-offset via `ApiService.getServerTime`), `renderClock` (12h + AM/PM).
+  - `saveTask` sends `dueDate` via `dmyToIso` (server does `new Date()` — dd.mm.yyyy would be Invalid Date).
+- `styles.html` / `docs/assets/styles.css`: `.live-clock`, `.datepicker-popup`, `.dp-*` styles; `.live-clock` hidden in the 760px media query.
+- `code.js`: added `getServerTime()` returning `Date.now()`.
 
 ### Deploy steps
-1. `auto-commit.ps1 "feat: per-card and report print with/without submissions"` (push `982152e` → GitHub Pages docs/).
-2. `clasp push --force` (23 files); `clasp version "..."` → **@113**.
-3. `clasp redeploy <@110-id> -V 113` AND `clasp redeploy <@108-id> -V 113` (both deployment URLs now serve @113).
-4. Verified: @108/@110 GET serve new UI (menu-dropdown, printCard, printReport(true), no banner); @110 POST getData returns live data; `www.dashboardharyana.site` → @108 → new app (same URL).
+1. `auto-commit.ps1 "feat: date picker for date fields + live clock in topbar"` (push → GitHub Pages docs/).
+2. `clasp push --force`; `clasp version "date picker + live clock"` → **@117**.
+3. `clasp redeploy <@110-id> -V 117` AND `clasp redeploy <@108-id> -V 117` (both deployment URLs now serve @117).
+4. Verified: @108/@110 GET serve new UI (`datePickerPopup`, `liveClock`, `data-datepicker`), `getServerTime` POST works.
 
 ### Note on routing
-`www.dashboardharyana.site` resolves to Cloudflare IPs (104.21.x/172.67.x) and has a redirect rule → GAS @108 (NOT GitHub Pages). The OAuth token only has `zone:read` (no rules write). Keeping it working = redeploy @108 to current version (done). GitHub Pages `docs/` is still the canonical static bundle for the `vcharyanaco-tech.github.io/dashv1/app.html` CDN path.
+`www.dashboardharyana.site` resolves to Cloudflare IPs (104.21.x/172.67.x) and has a redirect rule → GAS @108 (NOT GitHub Pages). The OAuth token only has `zone:read` (no rules write). Keeping it working = redeploy @108 to current version (done). GitHub Pages `docs/` is still the canonical static bundle for the `vcharyanaco-tech.github.io/dashv1/app.html` CDN path. `docs/app.html` was STALE at HEAD (missing the notifications "Clear all" button); it is regenerated from `index.html` on sync.
 
 ## NEXT PHASE (user request)
 Audit the whole project and minimize: remove dead code, trim unused CSS/JS, speed up loading and task execution.
