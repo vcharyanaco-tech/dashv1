@@ -28,10 +28,26 @@ Serve the frontend from GitHub Pages and use Apps Script only as a backend API, 
 - `wrangler.toml` `GAS_URL`/`GAS_SCRIPT_URL` pointed at @108 (no `doPost`). Repointed both to **@110**.
 - `.claspignore` now excludes `app.js`, `docs/**`, `SESSION_EXPORT.md` (so the client bundle is never pushed to Apps Script again).
 
-## Remaining (resume here)
-1. `git commit` + `git push` the fixes (`.claspignore`, `script.html`, `docs/app.js`, `app.js`, `wrangler.toml`) so GitHub Pages serves the corrected frontend.
-2. `wrangler deploy` so the Worker proxy uses @110 (strips the Google banner on the proxied path).
+## Remaining (all done)
+1. `git commit` + `git push` the fixes (`.claspignore`, `script.html`, `docs/app.js`, `app.js`, `wrangler.toml`) — committed as `e7f69bb`.
+2. `wrangler deploy` so the Worker proxy uses @110 (strips the Google banner on the proxied path) — deployed.
 3. Verify `https://www.dashboardharyana.site/app.html` loads and the API returns data with no banner.
+
+## BANNER STILL SHOWING — ROOT CAUSE FOUND & FIXED (Cloudflare, not code)
+The Google "created by a Google Apps Script user" banner persisted because **Cloudflare Worker routes**
+intercepted the whole domain and 302-redirected it to the Apps Script web app @108:
+- `dashboardharyana.site/*`        -> worker `dashboard-redirect`
+- `www.dashboardharyana.site/*`    -> worker `dashboard-redirect`
+The `dashboard-redirect` worker issued the 302 to `script.google.com/macros/s/AKfycbwc…hkK/exec` (Apps Script HTML UI = banner).
+DNS was already correct (apex `A` -> GitHub Pages IPs; `www` CNAME -> `vcharyanaco-tech.github.io`, both proxied).
+**Fix:** deleted the two `dashboard-redirect` worker routes via Cloudflare API. The domain now serves the
+GitHub Pages frontend directly. Verified: `www.dashboardharyana.site/app.html`, `dashboardharyana.site`,
+and `www.dashboardharyana.site` all return 200 with the frontend and **no banner**.
+
+## Notes / cleanup
+- The `dashboard-redirect` worker script itself was left in place (only its routes were removed). Delete it if no longer needed.
+- `@108`/`@109` are dead API deployments (no working `doPost`); `@110` (v112) is the live API.
+- Temp diagnostic scripts: `C:\Users\admin\AppData\Local\Temp\kilo\cf-*.ps1`.
 
 ## Key facts
 - GitHub repo: `https://github.com/vcharyanaco-tech/dashv1.git`
