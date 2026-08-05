@@ -810,8 +810,15 @@ function removeChip(kind) {
 /* ---------------------------------- Dashboard: KPI cards ---------------------------------- */
 
 function monthlyTrendArray() {
-  const trend = (appState.analytics && appState.analytics.trend) || {};
-  return Object.keys(trend).sort().map(function (key) { return { key: key, value: trend[key] }; });
+  const trend = (appState.analytics && appState.analytics.trend) || [];
+  if (Array.isArray(trend)) {
+    return trend.slice().sort(function (a, b) {
+      return String(a && a.key).localeCompare(String(b && b.key));
+    });
+  }
+  return Object.keys(trend).sort().map(function (key) {
+    return { key: key, value: trend[key] };
+  });
 }
 
 function trendPill() {
