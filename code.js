@@ -28,10 +28,13 @@ function doGet(e) {
     }
   } catch (err) {}
 
-  // The UI is served from GitHub Pages (no Apps Script banner). Redirect there.
-  return HtmlService.createHtmlOutput(
-    '<script>window.location.replace("https://www.dashboardharyana.site/app.html");</script>'
-  );
+  // Serve the full app UI (index.html + inline styles/script).
+  return HtmlService
+    .createTemplateFromFile('index')
+    .evaluate()
+    .setTitle(APP.NAME)
+    .addMetaTag('viewport', 'width=device-width, initial-scale=1')
+    .setXFrameOptionsMode(HtmlService.XFrameOptionsMode.ALLOWALL);
 
 }
 

@@ -950,6 +950,13 @@ function buildCardHtml(item) {
       <button class="btn btn-secondary btn-small" onclick="openSubmissionsModal('${escAttr(item.row)}','${escAttr(item.id)}')">Submit update</button>
       ${subCount > 0 ? `<span class="submission-badge${subFlash ? ' flash' : ''}">${subCount}</span>` : ''}
     </div>
+    <div class="menu-dropdown">
+      <button class="btn btn-secondary btn-small" type="button" onclick="event.stopPropagation(); toggleDropdown(this);">Print</button>
+      <span class="menu-dropdown-menu">
+        <button class="menu-dropdown-item" type="button" onclick="event.stopPropagation(); closeDropdowns(); printCard('${escAttr(item.row)}', true);">With submissions</button>
+        <button class="menu-dropdown-item" type="button" onclick="event.stopPropagation(); closeDropdowns(); printCard('${escAttr(item.row)}', false);">Without submissions</button>
+      </span>
+    </div>
     ${appState.isEditor ? `<button class="btn btn-secondary btn-small" onclick="editItem('${escAttr(item.row)}')">Edit</button>` : ''}
     ${appState.isEditor ? `<button class="btn btn-danger btn-small" onclick="deleteItem('${escAttr(item.row)}')">Delete</button>` : ''}`;
 
@@ -1566,66 +1573,186 @@ function downloadReportCsv() {
   showToast('Report CSV downloaded', 'success');
 }
 
-function printReport() {
-  const items = appState.items || [];
-  const rowsHtml = items.length ? items.map(function (item) {
-    return `
-      <tr>
-        <td class="num">${escapeHtml(item.id)}</td>
-        <td>${escapeHtml(item.sector)}</td>
-        <td>${escapeHtml(item.description)}</td>
-        <td>${escapeHtml(item.action)}</td>
-        <td>${escapeHtml(item.responsibility)}</td>
-        <td>${escapeHtml(item.reviewDate)}</td>
-      </tr>`;
-  }).join('') : '<tr><td colspan="6" class="empty">No records to report.</td></tr>';
+function openPrintWindow(html) {
+  const win = window.open('', '_blank', 'width=980,height=720');
+  if (!win) { showToast('Pop-up blocked. Please allow pop-ups to print.', 'error'); return; }
+  win.document.open();
+  win.document.write(html);
+  win.document.close();
+}
 
-  const count = items.length;
-  const title = appState.settings.appName || 'India Post Dashboard';
+function buildPrintPage(opts) {
+  const title = opts.title || (appState.settings.appName || 'India Post Dashboard');
   const now = new Date().toLocaleString();
-
-  const html = `<!DOCTYPE html>
+  const subtitle = opts.subtitle ? ' &middot; ' + escapeHtml(opts.subtitle) : '';
+  return `<!DOCTYPE html>
 <html>
 <head>
 <meta charset="utf-8">
-<title>${escapeHtml(title)} - Report</title>
+<title>${escapeHtml(title)}</title>
 <style>
-  @page { size: A4 landscape; margin: 12mm; }
+  @page { size: ${opts.landscape ? 'A4 landscape' : 'A4 portrait'}; margin: 12mm; }
   * { box-sizing: border-box; }
   body { font-family: 'Segoe UI', Arial, sans-serif; color: #1f2937; margin: 0; font-size: 12px; }
   .report-header { border-bottom: 3px solid #1f5c2e; padding-bottom: 8px; margin-bottom: 12px; }
   .report-header h1 { margin: 0; font-size: 18px; color: #1f5c2e; }
   .report-header .meta { margin-top: 4px; color: #6b7280; font-size: 11px; }
   table { width: 100%; border-collapse: collapse; }
-  th, td { border: 1px solid #d1d5db; padding: 5px 7px; text-align: left; vertical-align: top; }
-  th { background: #1f5c2e; color: #fff; font-weight: 600; }
+  th, td { border: 1px solid #d1d5db; padding: 5px 7px; text-align: left; vertical-align: top; word-wrap: break-word; overflow-wrap: break-word; }
+  th { background: #1f5c2e; color: #fff; font-weight: 600; white-space: nowrap; }
   td.num { white-space: nowrap; }
   tr:nth-child(even) td { background: #f9fafb; }
   .empty { text-align: center; color: #6b7280; padding: 16px; }
+  .sub-block { background: #f3f7f4; border-left: 3px solid #1f5c2e; margin-top: 6px; padding: 8px 10px; }
+  .sub-block h2, .sub-block h4 { margin: 0 0 6px; font-size: 12px; color: #1f5c2e; }
+  .sub-item { padding: 4px 0; border-bottom: 1px dotted #d1d5db; }
+  .sub-item:last-child { border-bottom: none; }
+  .sub-meta { color: #6b7280; font-size: 10px; }
+  .preserve-whitespace { white-space: pre-wrap; }
   .report-footer { margin-top: 12px; color: #6b7280; font-size: 10px; }
 </style>
 </head>
 <body>
   <div class="report-header">
-    <h1>${escapeHtml(title)} - Report</h1>
-    <div class="meta">Generated ${escapeHtml(now)} &middot; ${count} record${count === 1 ? '' : 's'}</div>
+    <h1>${escapeHtml(title)}</h1>
+    <div class="meta">Generated ${escapeHtml(now)}${subtitle}</div>
   </div>
-  <table>
-    <thead>
-      <tr><th>#</th><th>Sector</th><th>Description</th><th>Action</th><th>Responsibility</th><th>Review</th></tr>
-    </thead>
-    <tbody>${rowsHtml}</tbody>
-  </table>
+  ${opts.body}
   <div class="report-footer">India Post Dashboard &middot; Circle Office Haryana</div>
   <script>window.onload = function () { window.focus(); setTimeout(function () { window.print(); }, 100); };<\/script>
 </body>
 </html>`;
+}
 
-  const win = window.open('', '_blank', 'width=980,height=720');
-  if (!win) { showToast('Pop-up blocked. Please allow pop-ups to print the report.', 'error'); return; }
-  win.document.open();
-  win.document.write(html);
-  win.document.close();
+function groupSubmissionsByCard_(list) {
+  const map = {};
+  (list || []).forEach(function (s) {
+    const key = Number(s.cardRow);
+    if (!map[key]) map[key] = [];
+    map[key].push(s);
+  });
+  return map;
+}
+
+function countSubmissions_(map) {
+  let n = 0;
+  Object.keys(map || {}).forEach(function (k) { n += map[k].length; });
+  return n;
+}
+
+function printCard(row, includeSubmissions) {
+  const item = (appState.items || []).find(function (x) { return Number(x.row) === Number(row); });
+  if (!item) { showToast('Record not found.', 'error'); return; }
+  const useSubs = includeSubmissions === true;
+
+  const build = function (subs) {
+    const fields = (item.displayFields || []).map(function (field) {
+      const label = String(field && field.label || '').trim();
+      const value = field.html ? field.html : escapeHtml(field.value);
+      return `
+        <tr>
+          <th style="width:32%">${escapeHtml(label || 'Value')}</th>
+          <td class="preserve-whitespace">${value}</td>
+        </tr>`;
+    }).join('');
+
+    const subsHtml = (subs && subs.length) ? `
+      <h2 style="margin:16px 0 6px;font-size:14px;color:#1f5c2e;">Submissions (${subs.length})</h2>
+      <div class="sub-block">
+        ${subs.map(function (s) {
+          return `
+          <div class="sub-item">
+            <div class="sub-meta">${escapeHtml(s.email)} &middot; ${escapeHtml(s.createdAt || '')}</div>
+            <div class="preserve-whitespace">${escapeHtml(s.text || '')}</div>
+          </div>`;
+        }).join('')}
+      </div>` : '';
+
+    openPrintWindow(buildPrintPage({
+      title: (appState.settings.appName || 'India Post Dashboard') + ' - Record #' + item.id,
+      subtitle: (useSubs ? 'with submissions' : 'without submissions') + ' &middot; Record #' + item.id + (item.sector ? ' &middot; ' + item.sector : ''),
+      body: `<table class="fields-table">
+        <tbody>${fields || '<tr><td colspan="2" class="empty">No details available.</td></tr>'}</tbody>
+      </table>${subsHtml}`
+    }));
+  };
+
+  if (useSubs) {
+    showOverlay('Preparing print…');
+    ApiService.getSubmissions(Number(row)).then(function (list) {
+      hideOverlay();
+      build(list || []);
+    }).catch(function (err) {
+      hideOverlay();
+      if (handleServerFailure(err)) return;
+      showToast('Could not load submissions: ' + (err.message || err), 'error');
+    });
+  } else {
+    build([]);
+  }
+}
+
+function printReport(includeSubmissions) {
+  const items = appState.items || [];
+  const useSubs = includeSubmissions === true;
+
+  const run = function (subMap) {
+    const rowsHtml = items.length ? items.map(function (item) {
+      const subs = (subMap && subMap[Number(item.row)]) || [];
+      const subsHtml = subs.length ? `
+        <tr><td colspan="6" class="sub-block">
+          <h4>Submissions (${subs.length})</h4>
+          ${subs.map(function (s) {
+            return `
+            <div class="sub-item">
+              <div class="sub-meta">${escapeHtml(s.email)} &middot; ${escapeHtml(s.createdAt || '')}</div>
+              <div class="preserve-whitespace">${escapeHtml(s.text || '')}</div>
+            </div>`;
+          }).join('')}
+        </td></tr>` : '';
+      return `
+        <tr>
+          <td class="num">${escapeHtml(item.id)}</td>
+          <td>${escapeHtml(item.sector)}</td>
+          <td>${escapeHtml(item.description)}</td>
+          <td>${escapeHtml(item.action)}</td>
+          <td>${escapeHtml(item.responsibility)}</td>
+          <td>${escapeHtml(item.reviewDate)}</td>
+        </tr>${subsHtml}`;
+    }).join('') : '<tr><td colspan="6" class="empty">No records to report.</td></tr>';
+
+    const count = items.length;
+    const subCount = useSubs ? countSubmissions_(subMap) : 0;
+    const subtitle = useSubs
+      ? count + ' record' + (count === 1 ? '' : 's') + ' &middot; with submissions (' + subCount + ')'
+      : count + ' record' + (count === 1 ? '' : 's') + ' &middot; without submissions';
+
+    openPrintWindow(buildPrintPage({
+      title: (appState.settings.appName || 'India Post Dashboard') + ' - Report',
+      landscape: true,
+      subtitle: subtitle,
+      body: `<table>
+        <thead>
+          <tr><th>#</th><th>Sector</th><th>Description</th><th>Action</th><th>Responsibility</th><th>Review</th></tr>
+        </thead>
+        <tbody>${rowsHtml}</tbody>
+      </table>`
+    }));
+  };
+
+  if (useSubs) {
+    showOverlay('Preparing report…');
+    ApiService.getSubmissions().then(function (list) {
+      hideOverlay();
+      run(groupSubmissionsByCard_(list || []));
+    }).catch(function (err) {
+      hideOverlay();
+      if (handleServerFailure(err)) return;
+      showToast('Could not load submissions: ' + (err.message || err), 'error');
+    });
+  } else {
+    run(null);
+  }
 }
 
 function downloadFromBase64(base64, filename, mimeType) {
@@ -2659,6 +2786,24 @@ function deleteItem(row) {
 
 /* ---------------------------------- Review badge ---------------------------------- */
 
+function toggleDropdown(btn) {
+  const wrap = btn.closest ? btn.closest('.menu-dropdown') : btn.parentElement;
+  const menu = wrap ? wrap.querySelector('.menu-dropdown-menu') : null;
+  if (!menu) return;
+  const isOpen = menu.classList.toggle('open');
+  closeDropdowns(menu);
+  return isOpen;
+}
+
+function closeDropdowns(exceptMenu) {
+  document.querySelectorAll('.menu-dropdown-menu.open').forEach(function (m) {
+    if (m !== exceptMenu) m.classList.remove('open');
+  });
+  document.querySelectorAll('.review-dropdown-menu.open').forEach(function (m) {
+    if (m !== exceptMenu) m.classList.remove('open');
+  });
+}
+
 function toggleReviewDropdown(btn) {
   const menu = btn.parentElement.querySelector('.review-dropdown-menu');
   if (!menu) return;
@@ -2954,9 +3099,7 @@ function wireGlobalEvents() {
       }
     }
     if (e.key === 'Escape') {
-      document.querySelectorAll('.review-dropdown-menu.open').forEach(function (menu) {
-        menu.classList.remove('open');
-      });
+      closeDropdowns();
       const profileDropdown = getEl('profileDropdown');
       if (profileDropdown && profileDropdown.classList.contains('open')) {
         profileDropdown.classList.remove('open');
@@ -2980,8 +3123,10 @@ function wireGlobalEvents() {
   });
 
   document.addEventListener('click', function (event) {
-    document.querySelectorAll('.review-dropdown-menu.open').forEach(function (menu) {
-      if (!menu.parentElement.contains(event.target)) menu.classList.remove('open');
+    ['review-dropdown-menu', 'menu-dropdown-menu'].forEach(function (cls) {
+      document.querySelectorAll('.' + cls + '.open').forEach(function (menu) {
+        if (!menu.parentElement.contains(event.target)) menu.classList.remove('open');
+      });
     });
     const profileDropdown = getEl('profileDropdown');
     const profileMenu = getEl('profileMenu');
