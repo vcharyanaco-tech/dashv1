@@ -12,13 +12,12 @@
 
 /**
  * Web-app entry point. Supports a ?inspect=1 JSON dump of the bound
- * spreadsheet for debugging, and otherwise redirects to the GitHub Pages
- * frontend (so the "created by Google Apps Script" banner never appears).
+ * spreadsheet for debugging, and otherwise serves the dashboard UI directly
+ * from GAS (template-evaluated, no redirect). CSS/JS are inlined server-side
+ * via include() so no external asset requests are needed.
  * @param {Object} e The web-app event object.
- * @returns {GoogleAppsScript.HTML.HtmlOutput} A redirect or JSON output.
+ * @returns {GoogleAppsScript.HTML.HtmlOutput} HTML output.
  */
-const FRONTEND_URL = 'https://dashboardharyana.site/app.html';
-
 function doGet(e) {
 
   // JSON inspection endpoint for debugging bound spreadsheet
@@ -31,14 +30,16 @@ function doGet(e) {
     }
   } catch (err) {}
 
-  // The dashboard UI is served from GitHub Pages so the
-  // "This application was created by a Google Apps Script user" banner never
-  // appears. This GAS deployment is now only the JSON backend (doPost).
-  // The ?inspect=1 endpoint above is preserved for debugging.
+  // Serve the dashboard UI directly from GAS using the template.
+  // index.html uses <?!= include('styles') ?> and <?!= include('script') ?>
+  // which inline the CSS/JS server-side — no external asset requests needed.
+  // This avoids the "created by Google Apps Script" banner because the banner
+  // is only injected when GAS renders the outer iframe wrapper, not when it
+  // serves a template-evaluated HtmlOutput with setXFrameOptionsMode(ALLOWALL).
   return HtmlService
-    .createHtmlOutput(
-      '<script>window.location.replace(' + JSON.stringify(FRONTEND_URL) + ');</script>'
-    )
+    .createTemplateFromFile('index')
+    .evaluate()
+    .setXFrameOptionsMode(HtmlService.XFrameOptionsMode.ALLOWALL)
     .setTitle(APP.NAME);
 
 }

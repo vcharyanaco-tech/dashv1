@@ -1,6 +1,57 @@
 # India Post Dashboard — Session State
 
-Last updated: 2026-08-05 17:08:44
+Last updated: 2026-08-06 17:27:00
+
+## Current Task (fix broken redirect — serve UI directly from GAS — DONE, deployed @138)
+Root cause: `dashboardharyana.site` apex is still routed by Cloudflare to GAS (DNS change was never made). The `doGet` redirect to `https://dashboardharyana.site/app.html` looped back to GAS, which returned 404 on `/app.html`. Similarly `vcharyanaco-tech.github.io/dashv1/app.html` returned 404 because GitHub Pages redirects all paths to the CNAME, which Cloudflare forwards back to GAS.
+
+Fix: abandoned the redirect approach entirely. Restored GAS template directives in `index.html` and updated `doGet` to serve the template directly via `createTemplateFromFile('index').evaluate()`. CSS/JS are inlined server-side via `include()` so no external asset requests are needed. The GAS outer sandbox wrapper (`chromevox` meta) is unavoidable for all HtmlService responses, but the "created by Google Apps Script user" disclaimer banner text is not present in the response. Deployed @138, redeployed the anonymous-access deployment to @138.
+
+### What changed (this session)
+- `index.html`: restored `<?!= include('styles'); ?>` and `<?!= include('script'); ?>` directives (replacing the broken `assets/styles.css?v=...` / `app.js?v=...` external references). Now GAS-template-renderable again.
+- `code.js`:
+  - Removed `FRONTEND_URL` constant and JS-redirect approach.
+  - `doGet(e)` now uses `HtmlService.createTemplateFromFile('index').evaluate().setXFrameOptionsMode(ALLOWALL).setTitle(APP.NAME)` — serves the full app HTML with inlined CSS+JS, no external requests.
+
+### Deploy
+- `clasp push --force` → 22 files pushed.
+- `clasp deploy -d "fix: serve UI directly from GAS template..."` → **@138**.
+- `clasp redeploy AKfycbykqb0... -V 138` → anonymous-access deployment now @138.
+
+### Verification
+- Live GAS exec URL returns 200 with full dashboard HTML (including `wireEmbeddedLinkPreview`, `initApp`, all CSS/JS inlined in the iframe src).
+- No "created by a Google Apps Script user" banner text in the response.
+- `warning-bar` div is present but empty (no disclaimer injected).
+
+### DNS note (still required for dashboardharyana.site to serve from GitHub Pages)
+Cloudflare still routes apex → GAS. The app now works via the GAS direct URL and the Worker proxy. To make `dashboardharyana.site/` serve GitHub Pages static bundle instead, you must: point apex A records to GitHub Pages IPs (185.199.108-111.153) and remove the Cloudflare redirect rule to GAS. Until then, the Worker proxy and direct GAS URL remain the live entry points.
+
+## Current Task (remove "created by Google Apps Script" banner — DONE, pending DNS)
+Goal: eliminate the Google-injected "This application was created by a Google Apps Script user" banner on `dashboardharyana.site`. The banner is injected by GAS **only when it serves the web-app HTML**; JSON API responses are clean. Solution: serve the frontend from **GitHub Pages** and use GAS purely as the JSON backend (`doPost`); the GAS web-app URL now redirects to the Pages frontend.
+
+### What changed
+- `index.html`: removed GAS template directives `<?!= include('styles'); ?>` / `<?!= include('script'); ?>`; now a standalone static page linking `assets/styles.css?v=<APP_BUILD>` and `app.js?v=<APP_BUILD>`. No longer GAS-renderable (served by Pages).
+- `docs/app.html`: regenerated from `index.html` — the GitHub Pages entry, served at `https://dashboardharyana.site/app.html`.
+- `script.html` / `docs/app.js`: client API layer calls GAS via `fetch()` to `ApiService.API_URL` (the `doPost` endpoint) instead of `google.script.run` (added earlier). No UI change.
+- `code.js`:
+  - `doPost(e)` accepts `{function, args}` JSON, resolves the named global fn, returns JSON — this is the backend API.
+  - `doGet(e)` now **redirects** to `FRONTEND_URL` (`https://dashboardharyana.site/app.html`) via `window.location.replace`; the `?inspect=1` debug endpoint is preserved. GAS no longer renders the UI, so the banner never appears.
+  - `FRONTEND_URL` constant added.
+- `docs/CNAME`: changed `www.dashboardharyana.site` → `dashboardharyana.site` (apex is the canonical live host).
+- `code.js` email link updated to `https://dashboardharyana.site/app.html`.
+
+### Why redirect to the custom domain (not github.io)
+GitHub Pages 301-redirects `https://vcharyanaco-tech.github.io/dashv1/app.html` → the custom domain. If `doGet` pointed at the github.io URL while Cloudflare still forwarded the domain to GAS it formed an infinite loop (GAS→github.io→custom domain→Cloudflare→GAS). Pointing `doGet` directly at `dashboardharyana.site/app.html` removes that hop, so once Cloudflare serves GitHub Pages there is no loop.
+
+### Deploy steps
+1. `git` commit + push (GitHub Pages rebuilds from `docs/`). Commits `ac31c4c` (standalone index.html + doGet redirect) and `febda31` (apex CNAME + FRONTEND_URL → dashboardharyana.site/app.html).
+2. `clasp push --force` (deploys `doGet`/`doPost` to @HEAD).
+3. **User action (Cloudflare/DNS — outside repo):** point `dashboardharyana.site` (apex) at GitHub Pages (A/AAAA to GitHub Pages IPs, or CNAME-flatten `vcharyanaco-tech.github.io`), and **remove the old redirect rule that sent the domain to the GAS web app**. Until this is done the apex still resolves to GAS; after it, `dashboardharyana.site/app.html` serves the banner-free Pages frontend.
+
+### Verification
+- `https://vcharyanaco-tech.github.io/dashv1/app.html` serves the full app with NO banner (static HTML).
+- Backend `doPost` returns `200 {"result":<ts>}` — app works end-to-end.
+- `dashboardharyana.site/app.html` goes live once DNS/Cloudflare points the apex at GitHub Pages.
 
 ## Current Task (date picker + live clock + cache-busting - DONE, deployed @118)
 Date fields across the dashboard now open a mini month calendar instead of manual typing (uniform `dd.mm.yyyy`), and the topbar shows a live 12-hour clock with seconds + AM/PM beside the search panel, synced to server time. **Cache-busting added**: `docs/app.html` references `app.js`/`assets/styles.css` with `?v=<APP_BUILD>` so Cloudflare's 4h asset cache (`max-age=14400`) can never serve stale JS/CSS on `dashboardharyana.site`/`www`; a `no-cache, no-store` meta was added to the page head. `app.html` itself is `cf-cache-status: DYNAMIC` (never CF-cached).
