@@ -7,13 +7,18 @@
    ========================================================================== */
 
 const APP_VERSION = '1.0.0';
-const APP_BUILD = '2026.08.14';
+const APP_BUILD = '2026.08.15';
 const PAGE_SIZE = 10;
 const AUDIT_PAGE_SIZE = 20;
 const STORAGE_THEME = 'indiaPostDarkMode';
 const STORAGE_SIDEBAR = 'indiaPostSidebarCollapsed';
 const STORAGE_TOKEN = 'indiaPostAuthToken';
 const STORAGE_REAUTH_MSG = 'indiaPostReauthMsg';
+
+/* Original (pre-edit) email cell of the user being edited, used as the
+   identifier for adminUpdateUser so the record is found even after the
+   admin changes the email value in the edit dialog. */
+let editUserOriginalEmail = '';
 
 /* ---------------------------------- Event bus (pub/sub) ---------------------------------- */
 /* Lightweight publish/subscribe used across the UI. Named events follow the
@@ -2081,6 +2086,7 @@ function openEditUser(email) {
   const users = JSON.parse((tbody && tbody.dataset.users) || '[]');
   const u = users.find(function (x) { return String(x.email).toLowerCase() === String(email).toLowerCase(); });
   if (!u) return;
+  editUserOriginalEmail = String(email);
   getEl('editUserEmail').value = u.email;
   getEl('editUserUsername').value = u.username || '';
   getEl('editUserRole').value = u.role || 'VIEWER';
@@ -2092,6 +2098,12 @@ function closeEditUser() {
   closeDialog('editUserModal');
 }
 
+function isValidEmailList(value) {
+  const list = String(value || '').split(',').map(function (e) { return e.trim(); }).filter(function (e) { return e; });
+  if (!list.length) return false;
+  return list.every(function (e) { return /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(e); });
+}
+
 function saveEditUser() {
   const emailEl = getEl('editUserEmail');
   const email = emailEl.value.trim();
@@ -2101,9 +2113,9 @@ function saveEditUser() {
     role: getEl('editUserRole').value,
     office: getEl('editUserOffice').value.trim()
   };
-  if (!setFieldInvalid(emailEl, email ? '' : 'Enter an email address.')) return;
+  if (!setFieldInvalid(emailEl, isValidEmailList(email) ? '' : 'Enter a valid email address.')) return;
   showOverlay('Saving user…');
-  ApiService.adminUpdateUser(email, fields).then(function (res) {
+  ApiService.adminUpdateUser(editUserOriginalEmail, fields).then(function (res) {
     hideOverlay();
     closeEditUser();
     const result = res || {};
@@ -2140,7 +2152,7 @@ function handleAddUser(e) {
   const office = (officeEl && officeEl.value) || '';
 
   let valid = true;
-  valid = setFieldInvalid(emailEl, /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email) ? '' : 'Enter a valid email address.') && valid;
+  valid = setFieldInvalid(emailEl, isValidEmailList(email) ? '' : 'Enter a valid email address.') && valid;
   valid = setFieldInvalid(passwordEl, password.length >= 8 ? '' : 'Password must be at least 8 characters.') && valid;
   if (!valid) return;
 

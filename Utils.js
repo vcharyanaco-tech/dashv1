@@ -363,7 +363,7 @@ function preauthorize() {
  * @returns {boolean} True if MailApp accepted the send.
  */
 function sendMail_(to, subject, body) {
-  to = String(to || '').toLowerCase().trim();
+  to = primaryEmail_(to);
   if (!to || !isValidEmail_(to)) return false;
   if (!subject) return false;
   try {

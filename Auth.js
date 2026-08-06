@@ -60,12 +60,54 @@ function getEffectiveUser() {
  * ============================================================ */
 
 function isBootstrapAdmin_(email) {
-  email = String(email || '').toLowerCase().trim();
-  return ADMIN_USERS.indexOf(email) !== -1;
+  const list = emailList_(email);
+  for (let i = 0; i < list.length; i++) {
+    if (ADMIN_USERS.indexOf(list[i]) !== -1) return true;
+  }
+  return false;
 }
 
 function isValidEmail_(email) {
   return /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(String(email || '').trim());
+}
+
+/* Splits a stored Email cell (comma-separated aliases) into lowercased,
+   trimmed values, dropping empties. A plain single email yields [email]. */
+function emailList_(value) {
+  return String(value || '')
+    .split(',')
+    .map(function (e) { return String(e).trim().toLowerCase(); })
+    .filter(function (e) { return e; });
+}
+
+/* First (primary) alias of a comma-separated list, or '' if none. */
+function primaryEmail_(value) {
+  const list = emailList_(value);
+  return list.length ? list[0] : '';
+}
+
+/* True when the two comma-separated email values share at least one alias. */
+function emailsOverlap_(a, b) {
+  const la = emailList_(a);
+  const lb = emailList_(b);
+  for (let i = 0; i < la.length; i++) {
+    if (lb.indexOf(la[i]) !== -1) return true;
+  }
+  return false;
+}
+
+/* True when the stored cell (comma-separated aliases) contains any alias of the
+   query value (which may itself be a comma-separated list). */
+function emailsMatch_(storedCell, query) {
+  return emailsOverlap_(storedCell, query);
+}
+
+/* Validates a possibly comma-separated email value: at least one alias, every
+   alias a valid email address. */
+function isValidEmailList_(value) {
+  const list = emailList_(value);
+  if (!list.length) return false;
+  return list.every(function (e) { return isValidEmail_(e); });
 }
 
 function isValidUsername_(username) {
@@ -165,16 +207,16 @@ function userRecordFromRow_(row) {
 }
 
 function findUserRecord_(email) {
-  email = String(email || '').toLowerCase().trim();
-  if (!email) return null;
+  if (!emailList_(email).length) return null;
 
   const rows = readUserRecords_();
 
   for (let i = 0; i < rows.length; i++) {
-    if (String(rows[i][0] || '').toLowerCase().trim() === email) {
+    if (emailsMatch_(rows[i][0], email)) {
       const rec = userRecordFromRow_(rows[i]);
       rec.row = i + 2;
-      rec.email = email;
+      rec.rawEmail = String(rows[i][0] || '').trim();
+      rec.email = primaryEmail_(rows[i][0]);
       return rec;
     }
   }
@@ -192,7 +234,8 @@ function findUserByUsername_(username) {
     if (String(rows[i][14] || '').toLowerCase().trim() === username) {
       const rec = userRecordFromRow_(rows[i]);
       rec.row = i + 2;
-      rec.email = String(rows[i][0] || '').toLowerCase().trim();
+      rec.rawEmail = String(rows[i][0] || '').trim();
+      rec.email = primaryEmail_(rows[i][0]);
       return rec;
     }
   }
@@ -200,8 +243,9 @@ function findUserByUsername_(username) {
   return null;
 }
 
-/* Looks a user up by email or username (case-insensitive). Returns the record
-   with rec.email set to the canonical stored email. */
+/* Looks a user up by email or username (case-insensitive). The identifier may
+   be any comma-separated alias of a stored email cell or the username. Returns
+   the record with rec.email set to the canonical primary email. */
 function resolveUserByIdentifier_(identifier) {
   identifier = String(identifier || '').toLowerCase().trim();
   if (!identifier) return null;
@@ -209,12 +253,12 @@ function resolveUserByIdentifier_(identifier) {
   const rows = readUserRecords_();
 
   for (let i = 0; i < rows.length; i++) {
-    const rowEmail = String(rows[i][0] || '').toLowerCase().trim();
     const rowUsername = String(rows[i][14] || '').toLowerCase().trim();
-    if ((rowEmail && rowEmail === identifier) || (rowUsername && rowUsername === identifier)) {
+    if (emailsMatch_(rows[i][0], identifier) || (rowUsername && rowUsername === identifier)) {
       const rec = userRecordFromRow_(rows[i]);
       rec.row = i + 2;
-      rec.email = rowEmail;
+      rec.rawEmail = String(rows[i][0] || '').trim();
+      rec.email = primaryEmail_(rows[i][0]);
       return rec;
     }
   }
@@ -286,11 +330,20 @@ function deleteUserRecord_(email) {
    email is referenced functionally: Submissions (submitter + editor lock),
    Tasks (assignee + creator), Notifications (recipient), Approvals workflow
    (submitter + reviewer) and Users.createdBy. Historical Audit Log rows are
-   intentionally left unchanged so the audit trail is not rewritten. */
+   intentionally left unchanged so the audit trail is not rewritten.
+   oldEmail may be a single email or a comma-separated list; every alias is
+   replaced. newEmail is the full comma-separated list stored in the Users
+   EMAIL cell; the new primary email is written to reference columns. */
 function renameUserEmail_(oldEmail, newEmail) {
   oldEmail = String(oldEmail || '').toLowerCase().trim();
   newEmail = String(newEmail || '').toLowerCase().trim();
-  if (!oldEmail || !newEmail || oldEmail === newEmail) return;
+  if (!oldEmail || !newEmail) return;
+
+  const oldList = emailList_(oldEmail);
+  const newPrimary = primaryEmail_(newEmail);
+  const matches = function (value) {
+    return emailList_(value).some(function (e) { return oldList.indexOf(e) !== -1; });
+  };
 
   const ss = getSpreadsheet_();
   const replaceColumn = function (sheetName, colIndex) {
@@ -303,8 +356,8 @@ function renameUserEmail_(oldEmail, newEmail) {
       const values = range.getValues();
       let changed = false;
       for (let i = 0; i < values.length; i++) {
-        if (String(values[i][0] || '').toLowerCase().trim() === oldEmail) {
-          values[i][0] = newEmail;
+        if (matches(values[i][0])) {
+          values[i][0] = newPrimary;
           changed = true;
         }
       }
@@ -323,20 +376,30 @@ function renameUserEmail_(oldEmail, newEmail) {
   replaceColumn(CONFIG.WORKFLOW.APPROVALS_SHEET_NAME, WORKFLOW_COL.REVIEWED_BY);
 
   const sh = usersSheet_();
-  if (sh) {
-    const lastRow = sh.getLastRow();
-    if (lastRow >= 2) {
-      const range = sh.getRange(2, USER_COL.CREATED_BY, lastRow - 1, 1);
-      const values = range.getValues();
-      let changed = false;
-      for (let i = 0; i < values.length; i++) {
-        if (String(values[i][0] || '').toLowerCase().trim() === oldEmail) {
-          values[i][0] = newEmail;
-          changed = true;
-        }
+  if (!sh) return;
+
+  const lastRow = sh.getLastRow();
+  if (lastRow >= 2) {
+    const emRange = sh.getRange(2, USER_COL.EMAIL, lastRow - 1, 1);
+    const emValues = emRange.getValues();
+    for (let i = 0; i < emValues.length; i++) {
+      if (matches(emValues[i][0])) {
+        emValues[i][0] = newEmail;
+        emRange.setValues(emValues);
+        break;
       }
-      if (changed) range.setValues(values);
     }
+
+    const cbRange = sh.getRange(2, USER_COL.CREATED_BY, lastRow - 1, 1);
+    const cbValues = cbRange.getValues();
+    let changed = false;
+    for (let i = 0; i < cbValues.length; i++) {
+      if (matches(cbValues[i][0])) {
+        cbValues[i][0] = newPrimary;
+        changed = true;
+      }
+    }
+    if (changed) cbRange.setValues(cbValues);
   }
 }
 
@@ -353,7 +416,9 @@ function listUserRecords_() {
   for (let i = 0; i < values.length; i++) {
     if (!String(values[i][0] || '').trim()) continue;
     out.push({
-      email: values[i][0],
+      email: String(values[i][0] || '').trim(),
+      emailList: emailList_(values[i][0]),
+      primaryEmail: primaryEmail_(values[i][0]),
       role: values[i][1] || ROLES.VIEWER,
       mustChange: values[i][4] === true || String(values[i][4]).toLowerCase() === 'true',
       createdAt: values[i][6] ? String(values[i][6]) : '',
@@ -818,7 +883,7 @@ function adminAddUser(email, username, role, password, group, department, office
     username = String(username || '').trim();
     role = String(role || '').toUpperCase().trim();
 
-    if (!isValidEmail_(email)) throw new Error('Invalid email address.');
+    if (!isValidEmailList_(email)) throw new Error('Invalid email address(es).');
     if (username && !isValidUsername_(username)) throw new Error('Username must be 3-30 characters (letters, digits, dot, underscore, hyphen).');
     if ([ROLES.VIEWER, ROLES.EDITOR, ROLES.ADMIN].indexOf(role) === -1) throw new Error('Role must be VIEWER, EDITOR or ADMIN.');
 
@@ -876,15 +941,24 @@ function adminUpdateUser(email, fields, token) {
 
     if (f.email !== undefined) {
       const newEmail = String(f.email || '').toLowerCase().trim();
-      if (newEmail !== email) {
-        if (isBootstrapAdmin_(email)) throw new Error('The primary admin account email cannot be changed.');
-        if (!isValidEmail_(newEmail)) throw new Error('Invalid email address.');
-        if (findUserRecord_(newEmail)) throw new Error('A user with that email already exists.');
+      const currentRec = findUserRecord_(email);
+      const oldRaw = currentRec ? currentRec.rawEmail : email;
+      const oldPrimary = primaryEmail_(oldRaw);
+      const changed = (emailList_(newEmail).join(',') !== emailList_(oldRaw).join(','));
+      if (changed) {
+        if (!isValidEmailList_(newEmail)) throw new Error('Invalid email address(es).');
+        if (isBootstrapAdmin_(oldPrimary) && primaryEmail_(newEmail) !== oldPrimary) {
+          throw new Error('The primary admin account email cannot be changed.');
+        }
+        const collides = findUserRecord_(newEmail);
+        if (collides && (!currentRec || collides.row !== currentRec.row)) {
+          throw new Error('A user with that email already exists.');
+        }
 
-        renameUserEmail_(email, newEmail);
-        changes.push('email ' + email + ' -> ' + newEmail);
-        try { notify_(newEmail, NOTIFICATION_TYPES.USER, 'Account updated', 'Your dashboard login email was changed to ' + newEmail + ' by an administrator.', ''); } catch (err) {}
-        if (email === admin.email) {
+        renameUserEmail_(oldRaw, newEmail);
+        changes.push('email ' + oldRaw + ' -> ' + newEmail);
+        try { notify_(primaryEmail_(newEmail), NOTIFICATION_TYPES.USER, 'Account updated', 'Your dashboard login email was changed to ' + newEmail + ' by an administrator.', ''); } catch (err) {}
+        if (oldPrimary === admin.email) {
           destroySession_(token);
           reAuth = true;
         }
@@ -896,7 +970,7 @@ function adminUpdateUser(email, fields, token) {
       const role = String(f.role || '').toUpperCase().trim();
       if ([ROLES.VIEWER, ROLES.EDITOR, ROLES.ADMIN].indexOf(role) === -1) throw new Error('Role must be VIEWER, EDITOR or ADMIN.');
       if (isBootstrapAdmin_(email)) throw new Error('The primary admin account role cannot be changed.');
-      if (email === admin.email && role !== ROLES.ADMIN) throw new Error('You cannot change your own role.');
+      if (primaryEmail_(email) === admin.email && role !== ROLES.ADMIN) throw new Error('You cannot change your own role.');
       if (role !== ROLES.ADMIN && getUserRole(email) === ROLES.ADMIN) {
         const adminCount = listUserRecords_().filter(function (u) { return u.role === ROLES.ADMIN; }).length;
         if (adminCount <= 1) throw new Error('Cannot demote the last admin.');
@@ -912,7 +986,7 @@ function adminUpdateUser(email, fields, token) {
       const uname = String(f.username || '').trim();
       if (uname && !isValidUsername_(uname)) throw new Error('Username must be 3-30 characters (letters, digits, dot, underscore, hyphen).');
       const holder = uname ? findUserByUsername_(uname) : null;
-      if (holder && holder.email !== email) throw new Error('Username already taken.');
+      if (holder && primaryEmail_(holder.email) !== primaryEmail_(email)) throw new Error('Username already taken.');
       setUserField_(email, 'username', uname);
       changes.push('username updated');
     }
@@ -1016,10 +1090,10 @@ function adminImportUsers(csv, token) {
       const email = String(cols[0] || '').toLowerCase().trim();
       const role = String(cols[1] || '').toUpperCase().trim();
 
-      if (r === 0 && !isValidEmail_(email)) continue;
+      if (r === 0 && !isValidEmailList_(email)) continue;
 
       if (!email) { result.errors.push('Row ' + (r + 1) + ': missing email.'); continue; }
-      if (!isValidEmail_(email)) { result.errors.push('Row ' + (r + 1) + ': invalid email "' + email + '".'); continue; }
+      if (!isValidEmailList_(email)) { result.errors.push('Row ' + (r + 1) + ': invalid email "' + email + '".'); continue; }
       if ([ROLES.VIEWER, ROLES.EDITOR, ROLES.ADMIN].indexOf(role) === -1) {
         result.errors.push('Row ' + (r + 1) + ': invalid role "' + (role || '') + '".');
         continue;
@@ -1162,7 +1236,7 @@ function adminDeleteUser(email, token) {
   return runWithLock_(function () {
     email = String(email || '').toLowerCase().trim();
 
-    if (email === admin.email) throw new Error('You cannot delete your own account.');
+    if (primaryEmail_(email) === admin.email) throw new Error('You cannot delete your own account.');
     if (isBootstrapAdmin_(email)) throw new Error('The primary admin account cannot be deleted.');
     if (!deleteUserRecord_(email)) throw new Error('User not found.');
 
@@ -1223,7 +1297,7 @@ function adminEmailAllUsers(subject, body, token) {
   const recipients = [];
   const seen = {};
   users.forEach(function (u) {
-    const email = String(u.email || '').toLowerCase().trim();
+    const email = primaryEmail_(u.primaryEmail || u.email);
     if (!email || seen[email]) return;
     seen[email] = true;
     recipients.push(email);

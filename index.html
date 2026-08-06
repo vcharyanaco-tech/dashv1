@@ -407,7 +407,7 @@
             <form id="addUserForm" class="form form-inline" novalidate onsubmit="handleAddUser(event)">
               <div class="field">
                 <label for="newUserEmail">Email</label>
-                <input id="newUserEmail" type="email" class="input">
+                <input id="newUserEmail" type="text" class="input" placeholder="a@x.com, b@x.com" autocomplete="off">
                 <span class="field-error" data-for="newUserEmail"></span>
               </div>
               <div class="field">
@@ -849,8 +849,8 @@
       </div>
       <form id="editUserForm" class="form" novalidate onsubmit="saveEditUser(); return false;">
         <div class="field">
-          <label for="editUserEmail">Email <span class="muted">(login ID)</span></label>
-          <input id="editUserEmail" type="email" class="input" autocomplete="off">
+          <label for="editUserEmail">Email <span class="muted">(login IDs, comma-separated)</span></label>
+          <input id="editUserEmail" type="text" class="input" autocomplete="off">
           <span class="field-error" data-for="editUserEmail"></span>
         </div>
         <div class="field">

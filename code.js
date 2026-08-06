@@ -548,7 +548,7 @@ function sendReviewReminders(token) {
     if (days !== 1) return;
 
     users.forEach(function (user) {
-      const email = String(user.email || '').trim().toLowerCase();
+      const email = String(user.primaryEmail || '').trim().toLowerCase();
       if (!email || !isValidEmail_(email)) return;
       if (!responsibilityMatchesUser_(responsibility, user)) return;
 

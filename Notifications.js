@@ -56,9 +56,10 @@ function notificationRecordFromRow_(row) {
 }
 
 /* Appends a notification row. Call inside runWithLock_ when already inside a
-   locked write path. */
+   locked write path. The recipient email is normalized to the account's
+   primary email so notifications are always found for any alias. */
 function appendNotification_(email, type, title, body, link) {
-  email = String(email || '').toLowerCase().trim();
+  email = primaryEmail_(email);
   if (!isValidEmail_(email)) return;
   const sh = notificationsSheet_();
   if (!sh) return;
@@ -96,11 +97,11 @@ function pruneNotifications_(email) {
    APPROVER group), excluding the actor. Bootstrap admins are included even
    when their record has not been created yet. */
 function notifyStaff_(type, title, body, link, excludeEmail) {
-  excludeEmail = String(excludeEmail || '').toLowerCase().trim();
+  excludeEmail = primaryEmail_(excludeEmail);
   const recipients = {};
   const users = listUserRecords_();
   users.forEach(function (u) {
-    const email = String(u.email || '').toLowerCase().trim();
+    const email = String(u.primaryEmail || '').toLowerCase().trim();
     if (!email || email === excludeEmail) return;
     if (u.role === ROLES.ADMIN || u.role === ROLES.EDITOR) recipients[email] = true;
     const groups = String(u.group || '').split(',').map(function (g) { return g.trim().toUpperCase(); });
@@ -117,11 +118,11 @@ function notifyStaff_(type, title, body, link, excludeEmail) {
 
 /* Calls inside a locked write path: broadcasts to staff without re-locking. */
 function notifyStaffLocked_(type, title, body, link, excludeEmail) {
-  excludeEmail = String(excludeEmail || '').toLowerCase().trim();
+  excludeEmail = primaryEmail_(excludeEmail);
   const recipients = {};
   const users = listUserRecords_();
   users.forEach(function (u) {
-    const email = String(u.email || '').toLowerCase().trim();
+    const email = String(u.primaryEmail || '').toLowerCase().trim();
     if (!email || email === excludeEmail) return;
     if (u.role === ROLES.ADMIN || u.role === ROLES.EDITOR) recipients[email] = true;
     const groups = String(u.group || '').split(',').map(function (g) { return g.trim().toUpperCase(); });
