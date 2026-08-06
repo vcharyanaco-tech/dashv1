@@ -7,7 +7,7 @@
    ========================================================================== */
 
 const APP_VERSION = '1.0.0';
-const APP_BUILD = '2026.08.06';
+const APP_BUILD = '2026.08.07';
 const PAGE_SIZE = 10;
 const AUDIT_PAGE_SIZE = 20;
 const STORAGE_THEME = 'indiaPostDarkMode';
@@ -84,6 +84,7 @@ const ApiService = {
   adminGetUserActivity: function () { return apiCall_('adminGetUserActivity', getAuthToken()); },
   adminDeleteUser: function (email) { return apiCall_('adminDeleteUser', email, getAuthToken()); },
   adminResetPassword: function (email, newPassword) { return apiCall_('adminResetPassword', email, newPassword, getAuthToken()); },
+  adminEmailAllUsers: function (subject, body) { return apiCall_('adminEmailAllUsers', subject, body, getAuthToken()); },
   getMyNotifications: function () { return apiCall_('getMyNotifications', getAuthToken()); },
   markNotificationsRead: function (ids) { return apiCall_('markNotificationsRead', ids, getAuthToken()); },
   submitRecordReview: function (row, summary) { return apiCall_('submitRecordReview', row, summary, getAuthToken()); },
@@ -1829,6 +1830,55 @@ function sendEmailReport() {
     if (sendBtn) sendBtn.disabled = false;
     closeEmailReportDialog();
     showToast('Report sent to ' + result.sentTo, 'success');
+  }).catch(function (err) {
+    hideOverlay();
+    if (sendBtn) sendBtn.disabled = false;
+    if (handleServerFailure(err)) return;
+    status.textContent = 'Failed to send: ' + (err.message || err);
+    status.classList.add('error');
+  });
+}
+
+/* ---------------------------------- Email all users (broadcast) ---------------------------------- */
+
+function openEmailAllUsersDialog() {
+  const subjectEl = getEl('emailAllUsersSubject');
+  const bodyEl = getEl('emailAllUsersBody');
+  if (subjectEl) subjectEl.value = '';
+  if (bodyEl) bodyEl.value = '';
+  getEl('emailAllUsersStatus').textContent = '';
+  getEl('emailAllUsersStatus').classList.remove('error', 'success');
+  openDialog('emailAllUsersModal');
+}
+
+function closeEmailAllUsersDialog() {
+  closeDialog('emailAllUsersModal');
+}
+
+function sendEmailAllUsers() {
+  const subject = (getEl('emailAllUsersSubject').value || '').trim();
+  const body = (getEl('emailAllUsersBody').value || '').trim();
+  const status = getEl('emailAllUsersStatus');
+  const sendBtn = getEl('emailAllUsersSendBtn');
+  if (!subject) {
+    status.textContent = 'Enter a subject.';
+    status.classList.add('error');
+    return;
+  }
+  if (!body) {
+    status.textContent = 'Enter a message body.';
+    status.classList.add('error');
+    return;
+  }
+  status.textContent = '';
+  status.classList.remove('error');
+  if (sendBtn) sendBtn.disabled = true;
+  showOverlay('Sending to all users…');
+  ApiService.adminEmailAllUsers(subject, body).then(function (result) {
+    hideOverlay();
+    if (sendBtn) sendBtn.disabled = false;
+    closeEmailAllUsersDialog();
+    showToast('Email sent to ' + result.sent + ' user(s)', 'success');
   }).catch(function (err) {
     hideOverlay();
     if (sendBtn) sendBtn.disabled = false;

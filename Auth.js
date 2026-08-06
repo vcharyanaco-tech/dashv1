@@ -726,7 +726,22 @@ function requestPasswordReset(identifier) {
     notifyStaff_(NOTIFICATION_TYPES.USER, 'Password reset requested', 'The user ' + email + ' requested a password reset. Open Settings to review the request.', '');
   });
 
-  try { logAudit_(ACTIONS.PASSWORD_RESET_REQUESTED, '', 'Reset requested; administrator notified', email); } catch (err) {}
+  try {
+    logAudit_(ACTIONS.PASSWORD_RESET_REQUESTED, '', 'Reset requested; administrator notified', email);
+  } catch (err) {}
+
+  // Email notification to the primary admin account(s) so the request is not
+  // missed when nobody has the dashboard open.
+  const resetBody = 'A password reset was requested for the dashboard user:\n\n' +
+    '  Email: ' + email + '\n' +
+    '  Time:  ' + Utilities.formatDate(new Date(), Session.getScriptTimeZone(), 'dd.MM.yyyy HH:mm') + '\n\n' +
+    'Open the dashboard Settings → Manage users to review and reset the password.';
+  ADMIN_USERS.forEach(function (adminEmail) {
+    adminEmail = String(adminEmail || '').toLowerCase().trim();
+    if (adminEmail && adminEmail !== email) {
+      try { sendMail_(adminEmail, 'Password reset requested — India Post Dashboard', resetBody); } catch (err) {}
+    }
+  });
 
   return { success: true, message: 'A reset request has been sent to your administrator.' };
 }
@@ -813,6 +828,21 @@ function adminAddUser(email, username, role, password, group, department, office
 
     try { logAudit_(ACTIONS.USER_ADD, '', email + ' as ' + role, admin.email); } catch (err) {}
     try { notify_(email, NOTIFICATION_TYPES.USER, 'Account created', 'Your dashboard account was created with the ' + role + ' role. Use the credentials given by your administrator.', ''); } catch (err) {}
+
+    // Email the new user their account credentials so they can sign in.
+    try {
+      sendMail_(
+        email,
+        'Your India Post Dashboard account',
+        'An administrator created a dashboard account for you.\n\n' +
+        '  Email: ' + email + '\n' +
+        (username ? '  Username: ' + username + '\n' : '') +
+        '  Role: ' + role + '\n' +
+        '  Password: ' + password + '\n\n' +
+        'Sign in at https://www.dashboardharyana.site/app.html and change your password after first login.'
+      );
+    } catch (err) {}
+
     return listUserRecords_();
   });
 }
@@ -1037,6 +1067,20 @@ function adminImportUsers(csv, token) {
         if (!password) setUserField_(email, 'mustChange', true);
         result.added++;
         try { notify_(email, NOTIFICATION_TYPES.USER, 'Account created', 'Your dashboard account was created with the ' + role + ' role during a bulk import.', ''); } catch (err) {}
+
+        // Email the imported user their credentials so they can sign in.
+        try {
+          sendMail_(
+            email,
+            'Your India Post Dashboard account',
+            'An administrator created a dashboard account for you (bulk import).\n\n' +
+            '  Email: ' + email + '\n' +
+            (username ? '  Username: ' + username + '\n' : '') +
+            '  Role: ' + role + '\n' +
+            '  Password: ' + pw + '\n\n' +
+            'Sign in at https://www.dashboardharyana.site/app.html and change your password after first login.'
+          );
+        } catch (err) {}
       }
     }
 
@@ -1152,6 +1196,42 @@ function adminResetPassword(email, newPassword, token) {
     try { notify_(email, NOTIFICATION_TYPES.USER, 'Password reset', 'An administrator reset your dashboard password. Please sign in with the new password.', ''); } catch (err) {}
     return listUserRecords_();
   });
+}
+
+/**
+ * Emails every registered dashboard user (admin only). Used for broadcast
+ * announcements (e.g. maintenance windows, holidays).
+ * @param {string} subject Email subject.
+ * @param {string} body Plain-text email body.
+ * @param {string} token Session token (admin required).
+ * @returns {{success: boolean, sent: number, recipients: string[]}}
+ */
+function adminEmailAllUsers(subject, body, token) {
+  const admin = requireAdmin_(token);
+  subject = String(subject || '').trim();
+  body = String(body || '').trim();
+
+  if (!subject) throw new Error('A subject is required.');
+  if (!body) throw new Error('A message body is required.');
+
+  const users = listUserRecords_();
+  const recipients = [];
+  const seen = {};
+  users.forEach(function (u) {
+    const email = String(u.email || '').toLowerCase().trim();
+    if (!email || seen[email]) return;
+    seen[email] = true;
+    recipients.push(email);
+  });
+
+  let sent = 0;
+  recipients.forEach(function (email) {
+    if (sendMail_(email, subject, body)) sent++;
+  });
+
+  try { logAudit_(ACTIONS.USER_UPDATE, '', 'Broadcast email sent to ' + sent + '/' + recipients.length + ' users', admin.email); } catch (err) {}
+
+  return { success: true, sent: sent, recipients: recipients };
 }
 
 

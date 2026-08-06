@@ -391,6 +391,10 @@
                 <svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"></path><polyline points="17 8 12 3 7 8"></polyline><line x1="12" y1="3" x2="12" y2="15"></line></svg>
                 Import CSV
               </button>
+              <button class="btn btn-secondary" type="button" onclick="openEmailAllUsersDialog()">
+                <svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M4 4h16c1.1 0 2 .9 2 2v12c0 1.1-.9 2-2 2H4c-1.1 0-2-.9-2-2V6c0-1.1.9-2 2-2z"></path><polyline points="22,6 12,13 2,6"></polyline></svg>
+                Email all users
+              </button>
               <input type="file" id="userImportFile" accept=".csv,text/csv" class="hidden" onchange="importUsersFile(this.files[0])">
             </div>
             <form id="addUserForm" class="form form-inline" novalidate onsubmit="handleAddUser(event)">
@@ -760,6 +764,35 @@
           <button class="btn btn-primary" type="submit" id="emailReportSendBtn">Send</button>
           <button class="btn btn-secondary" type="button" onclick="closeEmailReportDialog()">Cancel</button>
           <span id="emailReportStatus" class="form-status" aria-live="polite"></span>
+        </div>
+      </form>
+    </div>
+  </div>
+
+  <!-- ============================ EMAIL ALL USERS DIALOG ============================ -->
+  <div id="emailAllUsersModal" class="modal-backdrop hidden" role="dialog" aria-modal="true" aria-labelledby="emailAllUsersModalTitle">
+    <div class="modal-card">
+      <div class="modal-header">
+        <h3 class="text-subheading" id="emailAllUsersModalTitle">Email all users</h3>
+        <button class="icon-btn" type="button" onclick="closeEmailAllUsersDialog()" aria-label="Close dialog">
+          <svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><line x1="18" y1="6" x2="6" y2="18"></line><line x1="6" y1="6" x2="18" y2="18"></line></svg>
+        </button>
+      </div>
+      <form class="form" novalidate onsubmit="sendEmailAllUsers(); return false;">
+        <p class="section-copy">This sends an email to every registered dashboard user.</p>
+        <div class="field">
+          <label for="emailAllUsersSubject">Subject</label>
+          <input id="emailAllUsersSubject" type="text" class="input" autocomplete="off" placeholder="e.g. Scheduled maintenance">
+          <span class="field-error" data-for="emailAllUsersSubject"></span>
+        </div>
+        <div class="field">
+          <label for="emailAllUsersBody">Message</label>
+          <textarea id="emailAllUsersBody" class="input" rows="5" placeholder="Type your message…"></textarea>
+        </div>
+        <div class="form-row">
+          <button class="btn btn-primary" type="submit" id="emailAllUsersSendBtn">Send</button>
+          <button class="btn btn-secondary" type="button" onclick="closeEmailAllUsersDialog()">Cancel</button>
+          <span id="emailAllUsersStatus" class="form-status" aria-live="polite"></span>
         </div>
       </form>
     </div>

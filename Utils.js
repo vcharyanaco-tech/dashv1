@@ -354,6 +354,30 @@ function preauthorize() {
   }
 }
 
+/**
+ * Sends a plain-text email via MailApp. Never throws: returns false on
+ * failure so callers can keep auditing/notifying regardless.
+ * @param {string} to Recipient email.
+ * @param {string} subject Email subject.
+ * @param {string} body Plain-text body.
+ * @returns {boolean} True if MailApp accepted the send.
+ */
+function sendMail_(to, subject, body) {
+  to = String(to || '').toLowerCase().trim();
+  if (!to || !isValidEmail_(to)) return false;
+  if (!subject) return false;
+  try {
+    MailApp.sendEmail({
+      to: to,
+      subject: String(subject),
+      body: String(body || '')
+    });
+    return true;
+  } catch (err) {
+    return false;
+  }
+}
+
 function inspectBoundSheet_() {
   const spreadsheet = getSpreadsheet_();
   const sheets = spreadsheet.getSheets();

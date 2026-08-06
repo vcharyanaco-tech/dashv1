@@ -7,7 +7,7 @@
    ========================================================================== */
 
 const APP_VERSION = '1.0.0';
-const APP_BUILD = '2026.08.06';
+const APP_BUILD = '2026.08.07';
 const PAGE_SIZE = 10;
 const AUDIT_PAGE_SIZE = 20;
 const STORAGE_THEME = 'indiaPostDarkMode';
@@ -84,6 +84,7 @@ const ApiService = {
   adminGetUserActivity: function () { return apiCall_('adminGetUserActivity', getAuthToken()); },
   adminDeleteUser: function (email) { return apiCall_('adminDeleteUser', email, getAuthToken()); },
   adminResetPassword: function (email, newPassword) { return apiCall_('adminResetPassword', email, newPassword, getAuthToken()); },
+  adminEmailAllUsers: function (subject, body) { return apiCall_('adminEmailAllUsers', subject, body, getAuthToken()); },
   getMyNotifications: function () { return apiCall_('getMyNotifications', getAuthToken()); },
   markNotificationsRead: function (ids) { return apiCall_('markNotificationsRead', ids, getAuthToken()); },
   submitRecordReview: function (row, summary) { return apiCall_('submitRecordReview', row, summary, getAuthToken()); },
