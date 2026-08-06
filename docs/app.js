@@ -98,6 +98,7 @@ const ApiService = {
   reviewApproval: function (id, approve, comment) { return apiCall_('reviewApproval', id, approve, comment, getAuthToken()); },
   createTask: function (params) { return apiCall_('createTask', params, getAuthToken()); },
   getTasks: function (filters) { return apiCall_('getTasks', filters || {}, getAuthToken()); },
+  getAssignableUsers: function () { return apiCall_('getAssignableUsers', getAuthToken()); },
   getMyTasks: function () { return apiCall_('getMyTasks', getAuthToken()); },
   updateTask: function (id, fields) { return apiCall_('updateTask', id, fields, getAuthToken()); },
   deleteTask: function (id) { return apiCall_('deleteTask', id, getAuthToken()); },
@@ -2796,7 +2797,7 @@ function openTaskModal() {
   
   // Load and populate users dropdown
   if (!appState.allUsers) {
-    ApiService.adminGetUsers().then(function (users) {
+    ApiService.getAssignableUsers().then(function (users) {
       appState.allUsers = users;
       populateTaskAssigneeDropdown();
     }).catch(function (err) {

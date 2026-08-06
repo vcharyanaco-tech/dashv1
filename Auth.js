@@ -864,6 +864,22 @@ function adminGetUsers(token) {
 }
 
 /**
+ * Gets a list of users who can be assigned tasks.
+ * @param {string} token Session token (editor+ required).
+ * @returns {Object[]} User records with email and username for assignment.
+ */
+function getAssignableUsers(token) {
+  requireEditor_(token);
+  return listUserRecords_().map(function (u) {
+    return {
+      email: u.email,
+      username: u.username || '',
+      role: u.role
+    };
+  });
+}
+
+/**
  * Creates a new user account.
  * @param {string} email New user email.
  * @param {string} username Optional username (3-30 chars: letters, digits, . _ -); must be unique.
