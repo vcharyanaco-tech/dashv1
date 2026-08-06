@@ -2732,13 +2732,6 @@ function saveTask() {
     });
   }
 }
-    renderTasks();
-  }).catch(function (err) {
-    hideOverlay();
-    if (handleServerFailure(err)) return;
-    showToast('Could not create task: ' + (err.message || err), 'error');
-  });
-}
 
 function completeTask(id) {
   showConfirm({
