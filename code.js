@@ -389,16 +389,25 @@ function responsibilityMatchesOffice_(responsibility, office) {
 }
 
 /**
- * Distinct, sorted responsibility values across all records (used to fill the
- * edit-dialog responsibility dropdown).
+ * Distinct, sorted responsibility values across all records plus the office
+ * values configured on users (used to fill the edit-dialog responsibility
+ * dropdown). The user office values are merged in so every office named on a
+ * user record is selectable even before any record uses it as responsibility.
  * @param {Object[]} items Display-ready items from getData().
+ * @param {Object[]} users User records from listUserRecords_().
  * @returns {string[]}
  */
-function getDistinctResponsibilities_(items) {
+function getDistinctResponsibilities_(items, users) {
   const seen = {};
   const out = [];
   (items || []).forEach(function (item) {
     const v = String(item.responsibility || '').trim();
+    if (!v || seen[v]) return;
+    seen[v] = 1;
+    out.push(v);
+  });
+  (users || []).forEach(function (user) {
+    const v = String(user.office || '').trim();
     if (!v || seen[v]) return;
     seen[v] = 1;
     out.push(v);
@@ -471,7 +480,7 @@ function getAppData(token) {
     summary: summary,
     analytics: analytics,
     settings: settings,
-    responsibilities: getDistinctResponsibilities_(data.items || []),
+    responsibilities: getDistinctResponsibilities_(data.items || [], listUserRecords_()),
     reminders: getReviewReminders_(items, context),
     submissionCounts: submissionOverview.counts,
     submissionFlash: submissionOverview.flash,

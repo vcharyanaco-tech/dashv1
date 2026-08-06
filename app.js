@@ -7,7 +7,7 @@
    ========================================================================== */
 
 const APP_VERSION = '1.0.0';
-const APP_BUILD = '2026.08.09';
+const APP_BUILD = '2026.08.10';
 const PAGE_SIZE = 10;
 const AUDIT_PAGE_SIZE = 20;
 const STORAGE_THEME = 'indiaPostDarkMode';
@@ -1984,7 +1984,9 @@ function triggerUserImport() {
 }
 
 function openEditUser(email) {
-  const users = JSON.parse(getEl('usersTable').dataset.users || '[]');
+  const usersTable = getEl('usersTable');
+  const tbody = usersTable ? usersTable.querySelector('tbody') : null;
+  const users = JSON.parse((tbody && tbody.dataset.users) || '[]');
   const u = users.find(function (x) { return String(x.email).toLowerCase() === String(email).toLowerCase(); });
   if (!u) return;
   getEl('editUserEmail').value = u.email;
