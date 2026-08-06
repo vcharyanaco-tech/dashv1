@@ -7,7 +7,7 @@
    ========================================================================== */
 
 const APP_VERSION = '1.0.0';
-const APP_BUILD = '2026.08.12';
+const APP_BUILD = '2026.08.13';
 const PAGE_SIZE = 10;
 const AUDIT_PAGE_SIZE = 20;
 const STORAGE_THEME = 'indiaPostDarkMode';
@@ -459,9 +459,10 @@ function toggleProfileMenu() {
 function renderProfile() {
   const user = appState.user || {};
   const email = user.email || '';
+  const username = (user.username || '').trim();
   const role = user.role || 'VIEWER';
-  const name = email ? email.split('@')[0] : 'Guest';
-  const initial = email ? email.charAt(0).toUpperCase() : '?';
+  const name = username || (email ? email.split('@')[0] : 'Guest');
+  const initial = (username || email) ? (username || email).charAt(0).toUpperCase() : '?';
   const tone = role === 'ADMIN' ? 'danger' : (role === 'EDITOR' ? 'accent' : 'muted');
 
   const avatar = getEl('profileAvatar');
@@ -1968,8 +1969,6 @@ function renderUsersTable(users) {
   tbody.dataset.users = JSON.stringify(users);
   tbody.innerHTML = users.length ? users.map(function (u, i) {
     const username = escapeHtml(u.username || '');
-    const group = escapeHtml(u.group || '');
-    const dept = escapeHtml(u.department || '');
     const office = escapeHtml(u.office || '');
     const resetPending = !!(u.resetRequested && String(u.resetRequested).trim());
     const resetBadge = resetPending
@@ -1980,15 +1979,13 @@ function renderUsersTable(users) {
         <td class="preserve-whitespace">${escapeHtml(u.email)}${u.mustChange ? ' <em>(must change)</em>' : ''}${resetBadge}</td>
         <td class="preserve-whitespace">${username || '<span class="badge" data-tone="muted">—</span>'}</td>
         <td>${escapeHtml(u.role)}</td>
-        <td class="preserve-whitespace">${group || '<span class="badge" data-tone="muted">—</span>'}</td>
-        <td class="preserve-whitespace">${dept || '<span class="badge" data-tone="muted">—</span>'}</td>
         <td class="preserve-whitespace">${office || '<span class="badge" data-tone="muted">—</span>'}</td>
         <td class="preserve-whitespace">${escapeHtml(u.createdAt || '')}</td>
         <td><button class="btn btn-secondary btn-small" type="button" data-action="reset" data-index="${i}">Reset password</button></td>
         <td><button class="btn btn-secondary btn-small" type="button" data-action="edit" data-index="${i}">Edit</button></td>
         <td><button class="btn btn-danger btn-small" type="button" data-action="delete" data-index="${i}">Delete</button></td>
       </tr>`;
-  }).join('') : '<tr><td colspan="10">No users found.</td></tr>';
+  }).join('') : '<tr><td colspan="8">No users found.</td></tr>';
 }
 
 function loadUserActivity() {
@@ -2087,8 +2084,6 @@ function openEditUser(email) {
   getEl('editUserEmail').value = u.email;
   getEl('editUserUsername').value = u.username || '';
   getEl('editUserRole').value = u.role || 'VIEWER';
-  getEl('editUserGroup').value = u.group || '';
-  getEl('editUserDepartment').value = u.department || '';
   getEl('editUserOffice').value = u.office || '';
   openDialog('editUserModal');
 }
@@ -2104,8 +2099,6 @@ function saveEditUser() {
     email: email,
     username: getEl('editUserUsername').value.trim(),
     role: getEl('editUserRole').value,
-    group: getEl('editUserGroup').value.trim(),
-    department: getEl('editUserDepartment').value.trim(),
     office: getEl('editUserOffice').value.trim()
   };
   if (!setFieldInvalid(emailEl, email ? '' : 'Enter an email address.')) return;

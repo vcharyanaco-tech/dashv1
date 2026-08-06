@@ -371,14 +371,19 @@ function listUserRecords_() {
 function ensureUserRecord_(email) {
   email = String(email || '').toLowerCase().trim();
   if (!email) return;
-  if (findUserRecord_(email)) return;
   if (!isBootstrapAdmin_(email)) return;
 
   runWithLock_(function () {
-    if (findUserRecord_(email)) return;
-    const salt = generateSalt_();
-    addUserRecord_(email, ROLES.ADMIN, salt, hashPassword_(DEFAULT_ADMIN_PASSWORD, salt), 'system');
-    setUserField_(email, 'mustChange', true);
+    let rec = findUserRecord_(email);
+    if (!rec) {
+      const salt = generateSalt_();
+      addUserRecord_(email, ROLES.ADMIN, salt, hashPassword_(DEFAULT_ADMIN_PASSWORD, salt), 'system');
+      setUserField_(email, 'mustChange', true);
+      rec = findUserRecord_(email);
+    }
+    if (rec && !String(rec.username || '').trim()) {
+      setUserField_(email, 'username', 'co_admin');
+    }
   });
 }
 
