@@ -7,7 +7,7 @@
    ========================================================================== */
 
 const APP_VERSION = '1.0.0';
-const APP_BUILD = '2026.08.17';
+const APP_BUILD = '2026.08.18';
 const PAGE_SIZE = 10;
 const AUDIT_PAGE_SIZE = 20;
 const STORAGE_THEME = 'indiaPostDarkMode';
@@ -360,6 +360,8 @@ function openLinkPreview(url, title) {
   const titleEl = getEl('previewModalTitle');
   if (titleEl) titleEl.textContent = title || 'Preview';
   if (openNew) openNew.href = url;
+  previewZoom = 100;
+  applyPreviewZoom();
   frame.src = toEmbeddableUrl(url) || '';
   openDialog('previewModal');
 }
@@ -368,6 +370,40 @@ function closeLinkPreview() {
   const frame = getEl('previewFrame');
   if (frame) frame.src = 'about:blank';
   closeDialog('previewModal');
+}
+
+/* ---------------------------------- Preview zoom ---------------------------------- */
+/* Scales the embedded iframe so Sheets/Docs/Presentations (and any other
+   preview) can be zoomed in/out. Zoom buttons call these directly; trackpad
+   pinch (browsers send Ctrl+wheel) is wired by wirePreviewPinch(). */
+
+let previewZoom = 100;
+
+function applyPreviewZoom() {
+  const frame = getEl('previewFrame');
+  const value = getEl('previewZoomValue');
+  if (frame) frame.style.zoom = previewZoom / 100;
+  if (value) value.textContent = previewZoom + '%';
+}
+
+function adjustPreviewZoom(delta) {
+  previewZoom = Math.min(300, Math.max(50, previewZoom + delta));
+  applyPreviewZoom();
+}
+
+function previewZoomIn() { adjustPreviewZoom(10); }
+function previewZoomOut() { adjustPreviewZoom(-10); }
+function previewZoomReset() { previewZoom = 100; applyPreviewZoom(); }
+
+/* Trackpad pinch-to-zoom (and Ctrl+scroll on a mouse) scales the preview. */
+function wirePreviewPinch() {
+  const stage = getEl('previewStage');
+  if (!stage) return;
+  stage.addEventListener('wheel', function (e) {
+    if (!e.ctrlKey) return;
+    e.preventDefault();
+    adjustPreviewZoom(e.deltaY < 0 ? 10 : -10);
+  }, { passive: false });
 }
 
 /* Preview handler for Drive attachments: file id -> /preview embed host. */
@@ -3509,4 +3545,5 @@ function wireGlobalEvents() {
 
 wireGlobalEvents();
 wireEmbeddedLinkPreview();
+wirePreviewPinch();
 window.addEventListener('load', initApp);
