@@ -108,9 +108,33 @@ function createTask(params, token) {
       now,
       null
     ]);
+    const recipientEmail = assignee || user.email;
+    const dueDateStr = dueDate ? ' (due ' + Utilities.formatDate(dueDate, Session.getScriptTimeZone(), 'dd.MM.yyyy') + ')' : '';
+
+    // In-panel notification
     try {
-      notify_(assignee || user.email, NOTIFICATION_TYPES.USER, 'Task assigned', 'You were assigned: ' + title + (dueDate ? ' (due ' + Utilities.formatDate(dueDate, Session.getScriptTimeZone(), 'dd.MM.yyyy') + ')' : ''), '');
+      notify_(recipientEmail, NOTIFICATION_TYPES.USER, 'Task assigned', 'You were assigned: ' + title + dueDateStr, '');
     } catch (err) {}
+
+    // Email notification
+    try {
+      if (recipientEmail) {
+        const subject = '[India Post Dashboard] New task assigned: ' + title;
+        const body = 'Hello,\n\n' +
+          'A new task has been assigned to you on the India Post Dashboard.\n\n' +
+          'Task: ' + title + '\n' +
+          (String(params.description || '').trim() ? 'Description: ' + String(params.description || '').trim() + '\n' : '') +
+          'Priority: ' + priority + '\n' +
+          (dueDate ? 'Due date: ' + Utilities.formatDate(dueDate, Session.getScriptTimeZone(), 'dd.MM.yyyy') + '\n' : '') +
+          'Assigned by: ' + user.email + '\n\n' +
+          'Please log in to the dashboard to view and update this task.\n\n' +
+          '— India Post Dashboard, Circle Office Haryana';
+        GmailApp.sendEmail(recipientEmail, subject, body);
+      }
+    } catch (emailErr) {
+      // Email failure is non-critical; log but don't block task creation
+      console.error('Task assignment email failed: ' + emailErr.message);
+    }
     return taskRecordFromRow_([id, recordRow, String(params.recordId || ''), title, String(params.description || ''), assignee, TASK_STATUS.OPEN, priority, dueDate ? dueDate.getTime() : 0, user.email, now, now, 0]);
   });
 }
@@ -182,10 +206,31 @@ function updateTask(id, fields, token) {
     range.setValues([row]);
 
     if (updates.assignee && updates.assignee !== existing.assignee) {
-      try { notify_(updates.assignee, NOTIFICATION_TYPES.USER, 'Task reassigned', 'Task "' + (updates.title || existing.title) + '" was reassigned to you.', ''); } catch (err) {}
+      const taskTitle = updates.title || existing.title;
+      // In-panel notification
+      try { notify_(updates.assignee, NOTIFICATION_TYPES.USER, 'Task reassigned', 'Task "' + taskTitle + '" was reassigned to you.', ''); } catch (err) {}
+      // Email notification
+      try {
+        GmailApp.sendEmail(
+          updates.assignee,
+          '[India Post Dashboard] Task reassigned to you: ' + taskTitle,
+          'Hello,\n\nThe task "' + taskTitle + '" has been reassigned to you by ' + user.email + '.\n\nPlease log in to the dashboard to view and update this task.\n\n— India Post Dashboard, Circle Office Haryana'
+        );
+      } catch (emailErr) { console.error('Reassign email failed: ' + emailErr.message); }
     }
     if (updates.status && updates.status !== existing.status) {
+      // In-panel notification
       try { notify_(existing.assignee, NOTIFICATION_TYPES.USER, 'Task status changed', 'Task "' + existing.title + '" is now ' + updates.status + '.', ''); } catch (err) {}
+      // Email notification for completion
+      if (updates.status === TASK_STATUS.DONE && existing.assignee) {
+        try {
+          GmailApp.sendEmail(
+            existing.createdBy || existing.assignee,
+            '[India Post Dashboard] Task completed: ' + existing.title,
+            'Hello,\n\nThe task "' + existing.title + '" assigned to ' + existing.assignee + ' has been marked as completed.\n\n— India Post Dashboard, Circle Office Haryana'
+          );
+        } catch (emailErr) { console.error('Completion email failed: ' + emailErr.message); }
+      }
     }
 
     return taskRecordFromRow_(row);

@@ -3,21 +3,12 @@ main = "worker.js"
 account_id = "a01eb877733d755cb57e25827a9c52fe"
 compatibility_date = "2026-08-04"
 
-# Route: app.dashboardharyana.site/*
-# To serve the web app at the root domain (dashboardharyana.site):
-#   1. Add dashboardharyana.site to Cloudflare (change nameservers)
-#   2. Uncomment the routes below
-#   3. Add a CNAME record: app → dashv1-proxy.dashv1-proxy.workers.dev
-#   OR route the root domain to the Worker
-
-# Root redirect route (for when domain is on Cloudflare):
-# routes = [
-#   { pattern = "dashboardharyana.site/*", zone_name = "dashboardharyana.site" },
-#   { pattern = "app.dashboardharyana.site/*", zone_name = "dashboardharyana.site" }
-# ]
-
-# Current deployment URL (workers.dev):
-# https://dashv1-proxy.dashv1-proxy.workers.dev/
+# Routes: serve the Worker at dashboardharyana.site
+# Requires the domain to be active on Cloudflare (nameservers pointing to Cloudflare)
+routes = [
+  { pattern = "dashboardharyana.site/*", zone_name = "dashboardharyana.site" },
+  { pattern = "www.dashboardharyana.site/app*", zone_name = "dashboardharyana.site" }
+]
 
 [vars]
 GAS_URL = "https://script.google.com/macros/s/AKfycbykqb0AE0a6bwHGk4Q_e5LTXhefKtjao9_r7G0zR1cODl5JP5lH_ooqrgFt2hu3oDo2/exec"

@@ -1,25 +1,28 @@
-name: Deploy compliance site to GitHub Pages
+name: Deploy to dashboardharyana.site
 
 on:
   push:
     branches: [main]
   workflow_dispatch:
 
-permissions:
-  contents: read
-  pages: write
-  id-token: write
-
 concurrency:
-  group: pages
+  group: deploy
   cancel-in-progress: true
 
 jobs:
-  deploy:
+  # ─────────────────────────────────────────────────────────────────────────
+  # Job 1: Deploy docs/ to GitHub Pages (www.dashboardharyana.site)
+  # ─────────────────────────────────────────────────────────────────────────
+  deploy-pages:
+    name: GitHub Pages (www.dashboardharyana.site)
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      pages: write
+      id-token: write
     environment:
       name: github-pages
       url: ${{ steps.deployment.outputs.page_url }}
-    runs-on: ubuntu-latest
     steps:
       - name: Checkout
         uses: actions/checkout@v4
@@ -35,3 +38,27 @@ jobs:
       - name: Deploy to GitHub Pages
         id: deployment
         uses: actions/deploy-pages@v4
+
+  # ─────────────────────────────────────────────────────────────────────────
+  # Job 2: Deploy Cloudflare Worker (dashboardharyana.site/app.html)
+  # ─────────────────────────────────────────────────────────────────────────
+  deploy-worker:
+    name: Cloudflare Worker (dashboardharyana.site)
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+
+      - name: Deploy Worker via Wrangler
+        uses: cloudflare/wrangler-action@v3
+        with:
+          apiToken: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+          accountId: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+          wranglerVersion: '3'

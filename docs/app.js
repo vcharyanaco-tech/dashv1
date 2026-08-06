@@ -2603,24 +2603,68 @@ function renderTaskList() {
   const tasks = appState.tasks || [];
   const tbody = getEl('tasksBody');
   const empty = getEl('tasksEmpty');
+  const user = appState.session;
+  const isAdminOrEditor = user && (user.role === 'ADMIN' || user.role === 'EDITOR');
+  
   if (tbody) {
     tbody.innerHTML = tasks.map(function (t) {
       const statusClass = t.status === 'DONE' ? 'badge-success' : t.status === 'IN_PROGRESS' ? 'badge-warning' : t.status === 'CANCELLED' ? 'badge-muted' : 'badge-danger';
       const priorityClass = t.priority === 'URGENT' ? 'badge-danger' : t.priority === 'HIGH' ? 'badge-warning' : t.priority === 'MEDIUM' ? 'badge-info' : 'badge-muted';
+      
+      // Build action buttons
+      let actionButtons = '';
+      if (t.status !== 'DONE' && t.status !== 'CANCELLED') {
+        actionButtons += '<button class="btn btn-ghost btn-small" type="button" onclick="completeTask(\'' + escAttr(t.id) + '\')">Complete</button>';
+      }
+      if (isAdminOrEditor) {
+        actionButtons += '<button class="btn btn-ghost btn-small" type="button" onclick="editTask(\'' + escAttr(t.id) + '\')" style="margin-left:4px;">Edit</button>';
+        actionButtons += '<button class="btn btn-ghost btn-small" type="button" onclick="deleteTaskConfirm(\'' + escAttr(t.id) + '\')" style="margin-left:4px;color:var(--danger,#dc3545);">Delete</button>';
+      }
+      
       return '<tr>' +
         '<td class="preserve-whitespace">' + escapeHtml(t.title || '') + '</td>' +
         '<td>' + escapeHtml(t.assignee || '') + '</td>' +
         '<td><span class="badge ' + statusClass + '">' + escapeHtml(t.status || '') + '</span></td>' +
         '<td><span class="badge ' + priorityClass + '">' + escapeHtml(t.priority || '') + '</span></td>' +
         '<td>' + (t.dueDate ? escapeHtml(formatDate(t.dueDate)) : '') + '</td>' +
-        '<td><button class="btn btn-ghost btn-small" type="button" onclick="completeTask(' + escAttr(t.id) + ')">Complete</button></td>' +
+        '<td>' + actionButtons + '</td>' +
         '</tr>';
     }).join('') || '<tr><td colspan="6">No tasks found.</td></tr>';
   }
   if (empty) empty.classList.toggle('hidden', !!tasks.length);
 }
 
+function populateTaskAssigneeDropdown() {
+  const select = getEl('taskAssignee');
+  if (!select) return;
+  
+  const users = appState.allUsers || [];
+  select.innerHTML = '<option value="">Select assignee...</option>' +
+    users.map(function (u) {
+      return '<option value="' + escAttr(u.email) + '">' + escapeHtml(u.email) + (u.username ? ' (' + escapeHtml(u.username) + ')' : '') + '</option>';
+    }).join('');
+}
+
 function openTaskModal() {
+  // Reset editing state if opening fresh
+  if (!appState.editingTaskId) {
+    getEl('taskModalTitle').textContent = 'New task';
+    closeTaskModal(); // Clear all fields
+  }
+  
+  // Load and populate users dropdown
+  if (!appState.allUsers) {
+    ApiService.adminGetUsers().then(function (users) {
+      appState.allUsers = users;
+      populateTaskAssigneeDropdown();
+    }).catch(function (err) {
+      console.error('Could not load users for assignee dropdown:', err);
+      showToast('Could not load users list.', 'warning');
+    });
+  } else {
+    populateTaskAssigneeDropdown();
+  }
+  
   openDialog('taskModal');
   const modal = getEl('taskModal');
   const firstInput = modal.querySelector('input:not([type=hidden]):not([readonly])');
@@ -2629,6 +2673,8 @@ function openTaskModal() {
 
 function closeTaskModal() {
   closeDialog('taskModal');
+  appState.editingTaskId = null;
+  getEl('taskModalTitle').textContent = 'New task';
   getEl('taskTitle').value = '';
   getEl('taskDescription').value = '';
   getEl('taskAssignee').value = '';
@@ -2643,19 +2689,49 @@ function saveTask() {
     showToast('Task title is required.', 'error');
     return;
   }
+  
+  const assignee = getEl('taskAssignee').value.trim();
+  if (!assignee) {
+    showToast('Please select an assignee.', 'error');
+    return;
+  }
+  
   const params = {
     title: title,
     description: getEl('taskDescription').value.trim(),
-    assignee: getEl('taskAssignee').value.trim(),
+    assignee: assignee,
     priority: getEl('taskPriority').value,
     dueDate: dmyToIso(getEl('taskDueDate').value),
     recordRow: getEl('taskRecordRow').value ? Number(getEl('taskRecordRow').value) : 0
   };
-  showOverlay('Creating task…');
-  ApiService.createTask(params).then(function () {
-    hideOverlay();
-    closeTaskModal();
-    showToast('Task created.', 'success');
+  
+  // Check if we're editing or creating
+  if (appState.editingTaskId) {
+    showOverlay('Updating task…');
+    ApiService.updateTask(appState.editingTaskId, params).then(function () {
+      hideOverlay();
+      closeTaskModal();
+      showToast('Task updated.', 'success');
+      renderTasks();
+    }).catch(function (err) {
+      hideOverlay();
+      if (handleServerFailure(err)) return;
+      showToast('Could not update task: ' + (err.message || err), 'error');
+    });
+  } else {
+    showOverlay('Creating task…');
+    ApiService.createTask(params).then(function () {
+      hideOverlay();
+      closeTaskModal();
+      showToast('Task created.', 'success');
+      renderTasks();
+    }).catch(function (err) {
+      hideOverlay();
+      if (handleServerFailure(err)) return;
+      showToast('Could not create task: ' + (err.message || err), 'error');
+    });
+  }
+}
     renderTasks();
   }).catch(function (err) {
     hideOverlay();
@@ -2667,20 +2743,79 @@ function saveTask() {
 function completeTask(id) {
   showConfirm({
     title: 'Mark task complete',
-    body: 'Mark this task as done?',
-    confirmLabel: 'Done',
-    onConfirm: function () {
-      showOverlay('Updating task…');
-      ApiService.updateTask(id, { status: 'DONE' }).then(function () {
-        hideOverlay();
-        showToast('Task marked complete.', 'success');
-        renderTasks();
-      }).catch(function (err) {
-        hideOverlay();
-        if (handleServerFailure(err)) return;
-        showToast('Could not update task: ' + (err.message || err), 'error');
-      });
-    }
+    message: 'Mark this task as done?',
+    okLabel: 'Done'
+  }).then(function (confirmed) {
+    if (!confirmed) return;
+    showOverlay('Updating task…');
+    ApiService.updateTask(id, { status: 'DONE' }).then(function () {
+      hideOverlay();
+      showToast('Task marked complete.', 'success');
+      renderTasks();
+    }).catch(function (err) {
+      hideOverlay();
+      if (handleServerFailure(err)) return;
+      showToast('Could not update task: ' + (err.message || err), 'error');
+    });
+  });
+}
+
+function editTask(id) {
+  const task = (appState.tasks || []).find(function (t) { return t.id === id; });
+  if (!task) {
+    showToast('Task not found.', 'error');
+    return;
+  }
+  
+  // Store the task ID for editing
+  appState.editingTaskId = id;
+  
+  // Populate the modal
+  getEl('taskTitle').value = task.title || '';
+  getEl('taskDescription').value = task.description || '';
+  getEl('taskPriority').value = task.priority || 'MEDIUM';
+  getEl('taskDueDate').value = task.dueDate ? formatDate(task.dueDate) : '';
+  getEl('taskRecordRow').value = task.recordRow || '';
+  
+  // Update modal title
+  getEl('taskModalTitle').textContent = 'Edit task';
+  
+  // Populate assignee (will be populated after users are loaded)
+  if (appState.allUsers) {
+    populateTaskAssigneeDropdown();
+    getEl('taskAssignee').value = task.assignee || '';
+  } else {
+    // Load users if not already loaded
+    ApiService.adminGetUsers().then(function (users) {
+      appState.allUsers = users;
+      populateTaskAssigneeDropdown();
+      getEl('taskAssignee').value = task.assignee || '';
+    }).catch(function (err) {
+      console.error('Could not load users:', err);
+    });
+  }
+  
+  openTaskModal();
+}
+
+function deleteTaskConfirm(id) {
+  showConfirm({
+    title: 'Delete task',
+    message: 'Permanently delete this task?',
+    okLabel: 'Delete',
+    danger: true
+  }).then(function (confirmed) {
+    if (!confirmed) return;
+    showOverlay('Deleting task…');
+    ApiService.deleteTask(id).then(function () {
+      hideOverlay();
+      showToast('Task deleted.', 'success');
+      renderTasks();
+    }).catch(function (err) {
+      hideOverlay();
+      if (handleServerFailure(err)) return;
+      showToast('Could not delete task: ' + (err.message || err), 'error');
+    });
   });
 }
 
