@@ -8,7 +8,7 @@ const path = require('path');
 const https = require('https');
 
 const ACCOUNT_ID = 'a01eb877733d755cb57e25827a9c52fe';
-const WORKER_NAME = 'dashboard-redirect';
+const WORKER_NAME = 'dashv1-proxy';
 const TOKEN = process.argv[2] || process.env.CLOUDFLARE_API_TOKEN;
 
 if (!TOKEN) { console.error('Usage: node deploy-worker-api.js <API_TOKEN>'); process.exit(1); }
