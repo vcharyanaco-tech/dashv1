@@ -11,11 +11,14 @@
  * ============================================================ */
 
 /**
- * Web-app entry point. Serves the dashboard UI; supports a ?inspect=1
- * JSON dump of the bound spreadsheet for debugging.
+ * Web-app entry point. Supports a ?inspect=1 JSON dump of the bound
+ * spreadsheet for debugging, and otherwise redirects to the GitHub Pages
+ * frontend (so the "created by Google Apps Script" banner never appears).
  * @param {Object} e The web-app event object.
- * @returns {GoogleAppsScript.HTML.HtmlOutput} The evaluated dashboard page.
+ * @returns {GoogleAppsScript.HTML.HtmlOutput} A redirect or JSON output.
  */
+const FRONTEND_URL = 'https://vcharyanaco-tech.github.io/dashv1/app.html';
+
 function doGet(e) {
 
   // JSON inspection endpoint for debugging bound spreadsheet
@@ -28,13 +31,15 @@ function doGet(e) {
     }
   } catch (err) {}
 
-  // Serve the full app UI (index.html + inline styles/script).
+  // The dashboard UI is served from GitHub Pages so the
+  // "This application was created by a Google Apps Script user" banner never
+  // appears. This GAS deployment is now only the JSON backend (doPost).
+  // The ?inspect=1 endpoint above is preserved for debugging.
   return HtmlService
-    .createTemplateFromFile('index')
-    .evaluate()
-    .setTitle(APP.NAME)
-    .addMetaTag('viewport', 'width=device-width, initial-scale=1')
-    .setXFrameOptionsMode(HtmlService.XFrameOptionsMode.ALLOWALL);
+    .createHtmlOutput(
+      '<script>window.location.replace(' + JSON.stringify(FRONTEND_URL) + ');</script>'
+    )
+    .setTitle(APP.NAME);
 
 }
 
