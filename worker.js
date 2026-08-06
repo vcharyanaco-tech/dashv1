@@ -89,8 +89,8 @@ async function fetchFromPages(path, search) {
   let filePath = path;
   if (!filePath || filePath === '/') filePath = '/index.html';
 
-  // Strip query string from path for file lookup (pass it through on redirect)
-  const rawUrl = GITHUB_RAW + filePath;
+  // Include query string when fetching from GitHub Raw to bypass CDN caching
+  const rawUrl = GITHUB_RAW + filePath + (search || '');
 
   const resp = await fetch(rawUrl, { redirect: 'follow' });
 
