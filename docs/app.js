@@ -3193,8 +3193,6 @@ function closeEditModal() {
 }
 
 const linkFields_ = {
-  sector: 'editSector',
-  description: 'editDescription',
   action: 'editAction'
 };
 
@@ -3354,8 +3352,6 @@ function saveEditModal(e) {
     reviewDate: getEl('editReviewDate').value.trim(),
     flagged: getEl('editFlagged').checked,
     links: {
-      sector: appState.fieldLinks && appState.fieldLinks.sector ? appState.fieldLinks.sector : null,
-      description: appState.fieldLinks && appState.fieldLinks.description ? appState.fieldLinks.description : null,
       action: appState.fieldLinks && appState.fieldLinks.action ? appState.fieldLinks.action : null
     }
   };
