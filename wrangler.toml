@@ -11,5 +11,5 @@ routes = [
 ]
 
 [vars]
-GAS_URL = "https://script.google.com/macros/s/AKfycbw_jyy9XDNSwX5YHZkq8xIttahTdhQ6UTBFsec-FdU/exec"
-GAS_SCRIPT_URL = "https://script.google.com/macros/s/AKfycbw_jyy9XDNSwX5YHZkq8xIttahTdhQ6UTBFsec-FdU"
+GAS_URL = "https://script.google.com/macros/s/AKfycbykqb0AE0a6bwHGk4Q_e5LTXhefKtjao9_r7G0zR1cODl5JP5lH_ooqrgFt2hu3oDo2/exec"
+GAS_SCRIPT_URL = "https://script.google.com/macros/s/AKfycbykqb0AE0a6bwHGk4Q_e5LTXhefKtjao9_r7G0zR1cODl5JP5lH_ooqrgFt2hu3oDo2"
