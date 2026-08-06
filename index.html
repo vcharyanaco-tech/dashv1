@@ -618,12 +618,18 @@
           <input id="editId" type="text" class="input" readonly>
         </div>
         <div class="field">
-          <label for="editSector">Sector</label>
+          <div class="field-label-row">
+            <label for="editSector">Sector</label>
+            <button class="field-link-btn" type="button" data-link-field="sector" onclick="openLinkModal('sector')" aria-label="Add hyperlink to Sector">Link</button>
+          </div>
           <input id="editSector" type="text" class="input">
           <span class="field-error" data-for="editSector"></span>
         </div>
         <div class="field">
-          <label for="editDescription">Description</label>
+          <div class="field-label-row">
+            <label for="editDescription">Description</label>
+            <button class="field-link-btn" type="button" data-link-field="description" onclick="openLinkModal('description')" aria-label="Add hyperlink to Description">Link</button>
+          </div>
           <textarea id="editDescription" class="textarea" rows="3"></textarea>
         </div>
         <div class="field-row">
@@ -637,7 +643,10 @@
           </div>
         </div>
         <div class="field">
-          <label for="editAction">Action to be taken</label>
+          <div class="field-label-row">
+            <label for="editAction">Action to be taken</label>
+            <button class="field-link-btn" type="button" data-link-field="action" onclick="openLinkModal('action')" aria-label="Add hyperlink to Action">Link</button>
+          </div>
           <textarea id="editAction" class="textarea" rows="3"></textarea>
         </div>
         <div class="field">
@@ -653,6 +662,40 @@
           <button class="btn btn-primary" type="submit">Save changes</button>
           <button class="btn btn-secondary" type="button" onclick="closeEditModal()">Cancel</button>
           <span id="editStatus" class="form-status" aria-live="polite"></span>
+        </div>
+      </form>
+    </div>
+  </div>
+
+  <!-- ============================ LINK MODAL ============================ -->
+  <div id="linkModal" class="modal-backdrop hidden" role="dialog" aria-modal="true" aria-labelledby="linkModalTitle">
+    <div class="modal-card">
+      <div class="modal-header">
+        <h3 class="text-subheading" id="linkModalTitle">Add hyperlink</h3>
+        <button class="icon-btn" type="button" onclick="closeLinkModal()" aria-label="Close dialog">
+          <svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><line x1="18" y1="6" x2="6" y2="18"></line><line x1="6" y1="6" x2="18" y2="18"></line></svg>
+        </button>
+      </div>
+      <form id="linkForm" class="form" novalidate onsubmit="saveLinkModal(event)">
+        <input id="linkField" type="hidden">
+        <div class="field">
+          <label for="linkText">Display text</label>
+          <input id="linkText" type="text" class="input" placeholder="Link text shown in the field">
+          <span class="field-error" data-for="linkText"></span>
+        </div>
+        <div class="field">
+          <label for="linkUrl">Link URL</label>
+          <input id="linkUrl" type="text" class="input" placeholder="https://example.com">
+          <span class="field-error" data-for="linkUrl"></span>
+        </div>
+        <div class="field">
+          <p class="field-hint">Applies a hyperlink to the field text, like Google Sheets. https:// is added automatically when missing.</p>
+        </div>
+        <div class="form-row">
+          <button class="btn btn-primary" type="submit">Apply link</button>
+          <button class="btn btn-danger" type="button" onclick="removeFieldLink()" id="removeLinkBtn">Remove link</button>
+          <button class="btn btn-secondary" type="button" onclick="closeLinkModal()">Cancel</button>
+          <span id="linkStatus" class="form-status" aria-live="polite"></span>
         </div>
       </form>
     </div>

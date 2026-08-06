@@ -19,7 +19,8 @@ function normalizeItemForSheet_(item) {
     entryDate: item && item.entryDate !== undefined && item.entryDate !== null ? item.entryDate : "",
     action: item && item.action !== undefined && item.action !== null ? item.action : "",
     responsibility: item && item.responsibility !== undefined && item.responsibility !== null ? item.responsibility : "",
-    reviewDate: item && item.reviewDate !== undefined && item.reviewDate !== null ? item.reviewDate : ""
+    reviewDate: item && item.reviewDate !== undefined && item.reviewDate !== null ? item.reviewDate : "",
+    links: item && item.links && typeof item.links === "object" ? item.links : {}
   };
 }
 
@@ -185,6 +186,11 @@ function getSheetDataRows_(sheet) {
     }
 
     const rowNumber = startRow + index;
+    const fieldIndexByKey = Object.keys(fieldMap).reduce(function (acc, key) {
+      acc[fieldMap[key]] = key;
+      return acc;
+    }, {});
+    const linkUrls = {};
     const displayFields = (headerValues || []).reduce(function (fields, header, headerIndex) {
       const label = String(header || "").trim();
       if (!label) {
@@ -194,6 +200,7 @@ function getSheetDataRows_(sheet) {
       const value = normalizedRow[headerIndex] !== undefined ? normalizedRow[headerIndex] : "";
 
       let html = "";
+      let linkUrl = "";
       const richValue = (richValues[rowNumber - 1] || [])[headerIndex];
       if (richValue) {
         try {
@@ -201,12 +208,21 @@ function getSheetDataRows_(sheet) {
         } catch (err) {
           html = "";
         }
+        try {
+          linkUrl = extractLinkUrl_(richValue);
+        } catch (err2) {
+          linkUrl = "";
+        }
+      }
+      if (linkUrl && fieldIndexByKey[headerIndex] !== undefined) {
+        linkUrls[fieldIndexByKey[headerIndex]] = linkUrl;
       }
 
       fields.push({
         label: label,
         value: value,
-        html: html
+        html: html,
+        linkUrl: linkUrl
       });
 
       return fields;
@@ -221,7 +237,8 @@ function getSheetDataRows_(sheet) {
       action: getFieldValue_(fieldMap, normalizedRow, "action", 4),
       responsibility: getFieldValue_(fieldMap, normalizedRow, "responsibility", 5),
       reviewDate: getFieldValue_(fieldMap, normalizedRow, "reviewDate", 6),
-      displayFields: displayFields
+      displayFields: displayFields,
+      linkUrls: linkUrls
     });
 
     return rows;

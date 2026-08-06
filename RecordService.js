@@ -8,6 +8,21 @@
  */
 
 /**
+ * Builds a RichTextValue whose full text carries a hyperlink.
+ * @param {string} text Display text.
+ * @param {string} url Link URL (empty to build plain text).
+ * @returns {GoogleAppsScript.Spreadsheet.RichTextValue}
+ */
+function buildRichTextValue_(text, url) {
+  const t = String(text == null ? "" : text);
+  const builder = SpreadsheetApp.newRichTextValue().setText(t);
+  if (url) {
+    try { builder.setLinkUrl(String(url)); } catch (e) {}
+  }
+  return builder.build();
+}
+
+/**
  * Appends a new record to the sheet with an auto-incremented ID, borders
  * and a review-date flag background.
  * @param {Object} item The record payload.
@@ -49,6 +64,19 @@ function addRecord_(item, token) {
       normalized.responsibility,
       normalized.reviewDate
     ]]);
+
+    const links = normalized.links || {};
+    [
+      [COL.SECTOR, "sector"],
+      [COL.DESCRIPTION, "description"],
+      [COL.ACTION, "action"]
+    ].forEach(function (pair) {
+      const link = links[pair[1]];
+      const url = link && link.url ? String(link.url) : "";
+      if (url) {
+        sheet.getRange(row, pair[0]).setRichTextValue(buildRichTextValue_(normalized[pair[1]], url));
+      }
+    });
 
     rowRange.setBorder(
       true,
@@ -111,12 +139,34 @@ function updateRecord_(item, token) {
       }
     }
 
+    function readCellState(col) {
+      const range = sheet.getRange(row, col);
+      let rt = null;
+      try { rt = range.getRichTextValue(); } catch (e) { rt = null; }
+      const plain = rt ? String(rt.getText()) : String(range.getValue() == null ? "" : range.getValue());
+      return { plain: plain, link: extractLinkUrl_(rt) };
+    }
+
+    function writeLinkedField(col, state, newVal, linkUrl) {
+      const o = state.plain.replace(/\r\n/g, "\n");
+      const n = String(newVal == null ? "" : newVal).replace(/\r\n/g, "\n");
+      const newLink = String(linkUrl == null ? "" : linkUrl);
+      if (o === n && state.link === newLink) return;
+      const range = sheet.getRange(row, col);
+      if (newLink) {
+        range.setRichTextValue(buildRichTextValue_(newVal, newLink));
+      } else {
+        range.setValue(newVal);
+      }
+    }
+
     // Read old values and only write changed cells to preserve rich text / hyperlinks
+    const links = normalized.links || {};
     writeIfChanged(COL.ID, sheet.getRange(row, COL.ID).getValue(), normalized.id);
-    writeIfChanged(COL.SECTOR, sheet.getRange(row, COL.SECTOR).getValue(), normalized.sector);
-    writeIfChanged(COL.DESCRIPTION, sheet.getRange(row, COL.DESCRIPTION).getValue(), normalized.description);
+    writeLinkedField(COL.SECTOR, readCellState(COL.SECTOR), normalized.sector, links.sector ? links.sector.url : "");
+    writeLinkedField(COL.DESCRIPTION, readCellState(COL.DESCRIPTION), normalized.description, links.description ? links.description.url : "");
     writeIfChanged(COL.ENTRY_DATE, sheet.getRange(row, COL.ENTRY_DATE).getValue(), normalized.entryDate);
-    writeIfChanged(COL.ACTION, sheet.getRange(row, COL.ACTION).getValue(), normalized.action);
+    writeLinkedField(COL.ACTION, readCellState(COL.ACTION), normalized.action, links.action ? links.action.url : "");
     writeIfChanged(COL.RESPONSIBILITY, sheet.getRange(row, COL.RESPONSIBILITY).getValue(), normalized.responsibility);
     writeIfChanged(COL.REVIEW_DATE, sheet.getRange(row, COL.REVIEW_DATE).getValue(), normalized.reviewDate);
 

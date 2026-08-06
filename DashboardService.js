@@ -138,7 +138,8 @@ function buildDashboardItems_(rows, sheet) {
       reviewDate: formatDate_(rowSpec.reviewDate),
       flagged: flagged,
       reviewStatus: reviewStatus,
-      displayFields: displayFields
+      displayFields: displayFields,
+      linkUrls: rowSpec.linkUrls || {}
     };
   });
 }

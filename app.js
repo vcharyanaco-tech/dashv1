@@ -7,7 +7,7 @@
    ========================================================================== */
 
 const APP_VERSION = '1.0.0';
-const APP_BUILD = '2026.08.18';
+const APP_BUILD = '2026.08.19';
 const PAGE_SIZE = 10;
 const AUDIT_PAGE_SIZE = 20;
 const STORAGE_THEME = 'indiaPostDarkMode';
@@ -134,6 +134,7 @@ const appState = {
   isEditor: false,
   mustChange: false,
   editMode: 'edit',
+  fieldLinks: {},
   submissions: [],
   submissionCardRow: '',
   submissionCardId: '',
@@ -2968,6 +2969,86 @@ function closeEditModal() {
   closeDialog('editModal');
 }
 
+const linkFields_ = {
+  sector: 'editSector',
+  description: 'editDescription',
+  action: 'editAction'
+};
+
+function updateFieldLinkButton(fieldKey) {
+  const btn = document.querySelector('.field-link-btn[data-link-field="' + fieldKey + '"]');
+  if (!btn) return;
+  const hasLink = !!(appState.fieldLinks && appState.fieldLinks[fieldKey]);
+  btn.classList.toggle('is-linked', hasLink);
+  btn.textContent = hasLink ? 'Edit link' : 'Link';
+  btn.setAttribute('aria-label', (hasLink ? 'Edit hyperlink for ' : 'Add hyperlink to ') + fieldKey);
+}
+
+function openLinkModal(fieldKey) {
+  if (!appState.isEditor) { showToast('Admin/editor access required', 'warning'); return; }
+  const inputId = linkFields_[fieldKey];
+  if (!inputId) return;
+  appState.linkField = fieldKey;
+  const existing = (appState.fieldLinks && appState.fieldLinks[fieldKey]) || null;
+  const fieldEl = getEl(inputId);
+  getEl('linkField').value = fieldKey;
+  getEl('linkText').value = existing ? existing.text : (fieldEl ? fieldEl.value : '');
+  getEl('linkUrl').value = existing ? existing.url : '';
+  const status = getEl('linkStatus');
+  if (status) { status.textContent = ''; status.classList.remove('success', 'error'); }
+  setFieldInvalid(getEl('linkText'), '');
+  setFieldInvalid(getEl('linkUrl'), '');
+  const removeBtn = getEl('removeLinkBtn');
+  if (removeBtn) removeBtn.style.display = existing ? '' : 'none';
+  openDialog('linkModal');
+  const firstInput = getEl('linkText');
+  if (firstInput) firstInput.focus();
+}
+
+function closeLinkModal() {
+  closeDialog('linkModal');
+}
+
+function normalizeLinkUrl_(url) {
+  const value = String(url || '').trim();
+  if (!value) return '';
+  if (/^https?:\/\//i.test(value) || /^mailto:/i.test(value)) return value;
+  if (/^www\./i.test(value)) return 'https://' + value;
+  return 'https://' + value;
+}
+
+function saveLinkModal(e) {
+  e.preventDefault();
+  if (!appState.isEditor) { showToast('Admin/editor access required', 'warning'); return; }
+  const fieldKey = getEl('linkField').value;
+  const textEl = getEl('linkText');
+  const urlEl = getEl('linkUrl');
+  let valid = true;
+  valid = setFieldInvalid(textEl, textEl.value.trim() ? '' : 'Display text is required.') && valid;
+  valid = setFieldInvalid(urlEl, urlEl.value.trim() ? '' : 'Link URL is required.') && valid;
+  if (!valid) return;
+  if (!appState.fieldLinks) appState.fieldLinks = {};
+  appState.fieldLinks[fieldKey] = {
+    text: textEl.value.trim(),
+    url: normalizeLinkUrl_(urlEl.value)
+  };
+  const inputId = linkFields_[fieldKey];
+  const fieldEl = getEl(inputId);
+  if (fieldEl) fieldEl.value = appState.fieldLinks[fieldKey].text;
+  updateFieldLinkButton(fieldKey);
+  closeLinkModal();
+  showToast('Hyperlink applied to ' + fieldKey, 'success');
+}
+
+function removeFieldLink() {
+  const fieldKey = getEl('linkField').value;
+  if (!fieldKey) return;
+  if (appState.fieldLinks) delete appState.fieldLinks[fieldKey];
+  updateFieldLinkButton(fieldKey);
+  closeLinkModal();
+  showToast('Hyperlink removed', 'info');
+}
+
 function resetEditForm() {
   getEl('editRow').value = '';
   getEl('editId').value = '';
@@ -2979,6 +3060,8 @@ function resetEditForm() {
   getEl('editResponsibility').value = '';
   getEl('editReviewDate').value = '';
   getEl('editFlagged').checked = false;
+  appState.fieldLinks = {};
+  Object.keys(linkFields_).forEach(function (fieldKey) { updateFieldLinkButton(fieldKey); });
   const status = getEl('editStatus');
   if (status) { status.textContent = ''; status.classList.remove('success', 'error'); }
   ['editSector', 'editDescription'].forEach(function (id) {
@@ -3008,6 +3091,15 @@ function editItem(row) {
   getEl('editResponsibility').value = item.responsibility || '';
   getEl('editReviewDate').value = item.reviewDate || '';
   getEl('editFlagged').checked = !!item.flagged;
+  appState.fieldLinks = {};
+  Object.keys(linkFields_).forEach(function (fieldKey) {
+    const url = item.linkUrls && item.linkUrls[fieldKey];
+    if (url) {
+      const text = item[fieldKey] || '';
+      appState.fieldLinks[fieldKey] = { text: text, url: url };
+    }
+    updateFieldLinkButton(fieldKey);
+  });
   const status = getEl('editStatus');
   if (status) { status.textContent = ''; status.classList.remove('success', 'error'); }
   ['editSector', 'editDescription'].forEach(function (id) {
@@ -3037,7 +3129,12 @@ function saveEditModal(e) {
     action: getEl('editAction').value,
     responsibility: getEl('editResponsibility').value.trim(),
     reviewDate: getEl('editReviewDate').value.trim(),
-    flagged: getEl('editFlagged').checked
+    flagged: getEl('editFlagged').checked,
+    links: {
+      sector: appState.fieldLinks && appState.fieldLinks.sector ? appState.fieldLinks.sector : null,
+      description: appState.fieldLinks && appState.fieldLinks.description ? appState.fieldLinks.description : null,
+      action: appState.fieldLinks && appState.fieldLinks.action ? appState.fieldLinks.action : null
+    }
   };
 
   if (appState.editMode === 'add') {
@@ -3435,7 +3532,7 @@ function wireGlobalEvents() {
         cancelConfirmDialog();
         return;
       }
-      ['editModal', 'aboutModal', 'submissionsModal', 'recordDetailModal', 'editUserModal', 'reviewModal', 'taskModal', 'columnModal', 'commandPalette', 'previewModal'].forEach(function (id) {
+      ['editModal', 'aboutModal', 'submissionsModal', 'recordDetailModal', 'editUserModal', 'reviewModal', 'taskModal', 'columnModal', 'commandPalette', 'previewModal', 'linkModal'].forEach(function (id) {
         const el = getEl(id);
         if (el && !el.classList.contains('hidden')) closeDialog(id);
       });
@@ -3475,6 +3572,7 @@ function wireGlobalEvents() {
         else if (backdrop.id === 'editUserModal') closeEditUser();
         else if (backdrop.id === 'confirmModal') cancelConfirmDialog();
         else if (backdrop.id === 'previewModal') closeLinkPreview();
+        else if (backdrop.id === 'linkModal') closeLinkModal();
       }
     });
   });

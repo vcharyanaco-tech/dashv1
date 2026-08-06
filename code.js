@@ -324,6 +324,33 @@ function richToHtml_(rt, fallback) {
   return out.join('');
 }
 
+/**
+ * Returns the first link URL found in a rich-text value (or the value's own
+ * link URL), or an empty string when there is no link.
+ * @param {Object} rt A RichTextValue object (or null/undefined).
+ * @returns {string}
+ */
+function extractLinkUrl_(rt) {
+  if (!rt) return "";
+  var runs = null;
+  try { runs = rt.getRuns(); } catch (e) { runs = null; }
+  if (runs && runs.length) {
+    for (var i = 0; i < runs.length; i++) {
+      var u = null;
+      try { u = runs[i].getLinkUrl(); } catch (e2) { u = null; }
+      if (u) return String(u);
+    }
+    return "";
+  }
+  try {
+    if (typeof rt.getLinkUrl === "function") {
+      var direct = rt.getLinkUrl();
+      return direct ? String(direct) : "";
+    }
+  } catch (e3) {}
+  return "";
+}
+
 
 
 
