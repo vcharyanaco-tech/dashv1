@@ -47,24 +47,37 @@ export default {
 
     const path = url.pathname;
 
-    // ── Route: /app.html → GAS proxy (banner-stripped) ──────────────────────
-    if (path === '/app.html' || path === '/app') {
-      return fetchFromGas(request, GAS_BASE_URL, GAS_SCRIPT_URL);
-    }
-
-    // ── Route: GAS static assets (/static/*, /macros/*) ─────────────────────
-    // These are fetched when the GAS sandbox iframe loads its own sub-resources.
-    // The browser sends them to the custom domain; forward them to script.google.com.
+    // ── Route: /static/* → script.google.com (GAS warden sub-resources) ──────
+    // ── Route: /macros/* → script.google.com (API calls from docs/app.js) ────
+    // Passes through method + body so POST API calls work with CORS headers.
     const gasScriptOrigin = new URL(GAS_SCRIPT_URL).origin;
     if (path.startsWith('/static/') || path.startsWith('/macros/')) {
       const targetUrl = gasScriptOrigin + path + (url.search || '');
-      const resp = await fetch(targetUrl, { headers: { 'User-Agent': 'Mozilla/5.0' } });
+      const proxyHeaders = new Headers();
+      // Copy safe headers only — avoid sending Host/Origin which confuse GAS
+      const ct = request.headers.get('Content-Type');
+      if (ct) proxyHeaders.set('Content-Type', ct);
+      proxyHeaders.set('User-Agent', 'Mozilla/5.0');
+      // Read body as text to avoid ReadableStream-passthrough issues in Workers
+      const isGetHead = request.method === 'GET' || request.method === 'HEAD';
+      const bodyText = isGetHead ? undefined : await request.text();
+      const resp = await fetch(targetUrl, {
+        method: request.method,
+        headers: proxyHeaders,
+        body: bodyText,
+        redirect: 'follow',
+      });
       const newHeaders = new Headers(resp.headers);
       Object.entries(COMMON_HEADERS).forEach(([k, v]) => newHeaders.set(k, v));
-      return new Response(resp.body, { status: resp.status, headers: newHeaders });
+      const respBody = await resp.arrayBuffer();
+      return new Response(respBody, { status: resp.status, headers: newHeaders });
     }
 
     // ── Route: everything else → GitHub Pages static bundle (docs/) ─────────
+    // /app.html is served as docs/app.html (standalone static page, no GAS wrapper).
+    // The GAS proxy approach can't work cross-domain: googleusercontent.com's
+    // maeInit_ only accepts postMessage from script.google.com, so proxying the
+    // GAS outer wrapper from dashboardharyana.site always produces a blank page.
     return fetchFromPages(path, url.search);
   },
 };
