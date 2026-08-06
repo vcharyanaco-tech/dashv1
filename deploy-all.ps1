@@ -7,6 +7,11 @@
 # Usage:
 #   .\deploy-all.ps1                             # auto commit message
 #   .\deploy-all.ps1 "fix: task management"      # custom commit message
+#
+# First-time setup:
+#   Set CLOUDFLARE_API_TOKEN env var:
+#     [System.Environment]::SetEnvironmentVariable("CLOUDFLARE_API_TOKEN","<token>","User")
+#   Or run: npx wrangler login
 
 param(
     [Parameter(Position=0)]
@@ -41,12 +46,17 @@ if ($statusOut) {
     $newSha = (& $git rev-parse --short HEAD).Trim()
     Write-Host "  OK  Committed: [$newSha] $commitMsg" -ForegroundColor Green
 
+    # Pull + rebase to handle any remote-ahead scenario
+    & $git pull --rebase origin main 2>&1 | Out-Null
+
     & $git push origin main
     if ($LASTEXITCODE -ne 0) { throw "git push failed" }
     Write-Host "  OK  Pushed to origin/main" -ForegroundColor Green
-    Write-Host "      GitHub Actions will auto-deploy docs/ to www.dashboardharyana.site" -ForegroundColor Gray
+    Write-Host "      GitHub Actions auto-deploys docs/ to www.dashboardharyana.site" -ForegroundColor Gray
 } else {
     Write-Host "  --  Nothing to commit (working tree clean)" -ForegroundColor Gray
+    # Still push in case of unpushed commits
+    & $git push origin main 2>&1 | Out-Null
 }
 
 Write-Host ""
@@ -64,7 +74,7 @@ try {
         Write-Host "  OK  Code pushed to Apps Script" -ForegroundColor Green
         Write-Host "      GAS @HEAD deployment updated automatically" -ForegroundColor Gray
     } else {
-        Write-Host "  WARN  clasp push returned non-zero (may need: clasp login)" -ForegroundColor Red
+        Write-Host "  WARN  clasp push returned non-zero. Run: clasp login" -ForegroundColor Red
         Write-Host ($claspResult | Out-String) -ForegroundColor DarkGray
     }
 } catch {
@@ -79,37 +89,56 @@ Write-Host ""
 # ============================================================
 Write-Host "[3/3] Deploying Cloudflare Worker..." -ForegroundColor Yellow
 
-$workerOk = $false
-try {
-    $wranglerOut = npx wrangler deploy 2>&1
-    if ($LASTEXITCODE -eq 0) {
-        $workerOk = $true
-        Write-Host "  OK  Worker deployed successfully" -ForegroundColor Green
-        $liveUrl = $wranglerOut | Select-String -Pattern "https://[^\s]+" | `
-            ForEach-Object { $_.Matches.Value } | Select-Object -First 1
-        if ($liveUrl) {
-            Write-Host "      Worker URL: $liveUrl" -ForegroundColor Gray
+# Check for token in User or Machine env vars
+$cfToken = [System.Environment]::GetEnvironmentVariable("CLOUDFLARE_API_TOKEN", "User")
+if (-not $cfToken) {
+    $cfToken = [System.Environment]::GetEnvironmentVariable("CLOUDFLARE_API_TOKEN", "Machine")
+}
+if (-not $cfToken) {
+    $cfToken = $env:CLOUDFLARE_API_TOKEN
+}
+
+if (-not $cfToken) {
+    Write-Host "  SKIP  CLOUDFLARE_API_TOKEN not set." -ForegroundColor Yellow
+    Write-Host "  Set it once with:" -ForegroundColor Yellow
+    Write-Host '    [System.Environment]::SetEnvironmentVariable("CLOUDFLARE_API_TOKEN","<token>","User")' -ForegroundColor DarkYellow
+    Write-Host "  Get a token at: https://dash.cloudflare.com/profile/api-tokens" -ForegroundColor DarkYellow
+    Write-Host "  Required permissions: Workers Scripts:Edit, Workers Routes:Edit" -ForegroundColor DarkYellow
+    Write-Host ""
+    Write-Host "  NOTE: Cloudflare Worker is also deployed automatically by GitHub Actions" -ForegroundColor Gray
+    Write-Host "  on every push (uses CLOUDFLARE_API_TOKEN secret in repo settings)." -ForegroundColor Gray
+    $workerOk = $false
+} else {
+    $env:CLOUDFLARE_API_TOKEN = $cfToken
+    $workerOk = $false
+    try {
+        $wranglerOut = npx wrangler deploy 2>&1
+        if ($LASTEXITCODE -eq 0) {
+            $workerOk = $true
+            Write-Host "  OK  Worker deployed successfully" -ForegroundColor Green
+            $liveUrl = ($wranglerOut | Out-String) -split '\n' |
+                Where-Object { $_ -match 'https://' } |
+                Select-Object -First 1
+            if ($liveUrl) { Write-Host "      $($liveUrl.Trim())" -ForegroundColor Gray }
+            Write-Host "      Live: https://dashboardharyana.site/app.html" -ForegroundColor Cyan
+        } else {
+            Write-Host "  WARN  wrangler deploy failed:" -ForegroundColor Red
+            Write-Host ($wranglerOut | Out-String) -ForegroundColor DarkGray
         }
-        Write-Host "      Live: https://dashboardharyana.site/app.html" -ForegroundColor Cyan
-    } else {
-        Write-Host "  WARN  wrangler deploy failed" -ForegroundColor Red
-        Write-Host ($wranglerOut | Out-String) -ForegroundColor DarkGray
-        Write-Host "  Fix: npx wrangler login  (first-time auth)" -ForegroundColor Yellow
+    } catch {
+        Write-Host "  WARN  wrangler error: $($_.Exception.Message)" -ForegroundColor Red
     }
-} catch {
-    Write-Host "  WARN  wrangler not found: $($_.Exception.Message)" -ForegroundColor Red
-    Write-Host "  Install: npm install -g wrangler  OR use: npx wrangler deploy" -ForegroundColor Yellow
 }
 
 Write-Host ""
 Write-Host "===================================================" -ForegroundColor Cyan
-Write-Host " Deployment summary" -ForegroundColor Cyan
+Write-Host " Deployment Summary" -ForegroundColor Cyan
 Write-Host "===================================================" -ForegroundColor Cyan
-Write-Host "  Git push + GitHub Pages : OK" -ForegroundColor $(if ($statusOut -or !$statusOut) { "Green" } else { "Gray" })
-Write-Host "  Google Apps Script      : $(if ($claspOk) { 'OK' } else { 'WARN - check above' })" -ForegroundColor $(if ($claspOk) { "Green" } else { "Red" })
-Write-Host "  Cloudflare Worker       : $(if ($workerOk) { 'OK' } else { 'WARN - check above' })" -ForegroundColor $(if ($workerOk) { "Green" } else { "Red" })
+Write-Host "  Git + GitHub Pages    : OK" -ForegroundColor Green
+Write-Host "  Google Apps Script    : $(if ($claspOk) { 'OK' } else { 'WARN (check above)' })" -ForegroundColor $(if ($claspOk) { "Green" } else { "Red" })
+Write-Host "  Cloudflare Worker     : $(if ($workerOk) { 'OK' } else { 'Pending (set token or wait for CI)' })" -ForegroundColor $(if ($workerOk) { "Green" } else { "Yellow" })
 Write-Host ""
 Write-Host "Live URLs:" -ForegroundColor White
-Write-Host "  App    -> https://dashboardharyana.site/app.html" -ForegroundColor Cyan
-Write-Host "  Site   -> https://www.dashboardharyana.site" -ForegroundColor Cyan
+Write-Host "  App   -> https://dashboardharyana.site/app.html" -ForegroundColor Cyan
+Write-Host "  Site  -> https://www.dashboardharyana.site" -ForegroundColor Cyan
 Write-Host ""
