@@ -943,6 +943,127 @@ body.sidebar-collapsed .nav-item.active { box-shadow: inset 0 0 0 2px var(--seco
 .reminder-banner-list .reminder-item strong { color: var(--text); }
 .reminder-banner-close { margin-left: auto; flex-shrink: 0; color: inherit; }
 
+/* ============================ REVIEW DATE REMINDER BANNER ============================ */
+.review-date-banner {
+  position: sticky;
+  top: 0;
+  z-index: 95;
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 10px 16px;
+  margin-bottom: var(--sp-2);
+  border-radius: var(--radius-md);
+  border: 1px solid color-mix(in srgb, var(--info) 30%, transparent);
+  background: var(--info-soft);
+  color: var(--info);
+  font-size: 13px;
+  font-weight: 500;
+  box-shadow: var(--shadow-sm);
+  overflow: hidden;
+}
+
+.review-date-banner-track {
+  display: flex;
+  flex: 1;
+  overflow: hidden;
+  white-space: nowrap;
+}
+
+.review-date-banner-text {
+  display: inline-flex;
+  align-items: center;
+  gap: 16px;
+  min-width: 100%;
+  animation: reviewDateScroll 30s linear infinite;
+  will-change: transform;
+}
+
+.review-date-banner-text-clone {
+  flex-shrink: 0;
+}
+
+.review-date-banner-item {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  padding: 4px 12px;
+  background: rgba(255, 255, 255, 0.15);
+  border-radius: var(--radius-sm);
+  font-size: 12px;
+}
+
+.review-date-banner-item .review-id {
+  font-weight: 700;
+  color: var(--text);
+}
+
+.review-date-banner-item .review-sector {
+  color: inherit;
+  opacity: 0.9;
+}
+
+.review-date-banner-item .review-due {
+  font-weight: 600;
+  color: var(--warning);
+}
+
+.review-date-banner-item .review-due.today {
+  color: var(--danger);
+}
+
+.review-date-banner-item .review-due.tomorrow {
+  color: var(--warning);
+}
+
+.review-date-banner-dismiss {
+  flex-shrink: 0;
+  margin-left: 12px;
+  padding: 4px;
+  border: none;
+  background: transparent;
+  color: inherit;
+  opacity: 0.6;
+  border-radius: var(--radius-sm);
+  cursor: pointer;
+  transition: opacity 0.2s, background 0.2s;
+}
+
+.review-date-banner-dismiss:hover {
+  opacity: 1;
+  background: rgba(255, 255, 255, 0.15);
+}
+
+.review-date-banner.dismissed {
+  display: none;
+}
+
+@keyframes reviewDateScroll {
+  0% {
+    transform: translateX(0);
+  }
+  100% {
+    transform: translateX(-50%);
+  }
+}
+
+/* Pause animation on hover */
+.review-date-banner:hover .review-date-banner-text {
+  animation-play-state: paused;
+}
+
+/* Hide for admin users */
+body.is-admin .review-date-banner {
+  display: none !important;
+}
+
+/* Pause animation when reduced motion is preferred */
+@media (prefers-reduced-motion: reduce) {
+  .review-date-banner-text {
+    animation: none !important;
+  }
+}
+
 /* ---------------------------------- KPI cards ---------------------------------- */
 .kpi-grid {
   display: grid;

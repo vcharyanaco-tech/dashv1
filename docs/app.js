@@ -719,6 +719,7 @@ function initApp() {
 
 function loadApp() {
   showOverlay('Loading app…');
+  resetReviewDateBannerDismissed();
   ApiService.getAppData().then(function (data) {
     hideOverlay();
     hideSplash();
@@ -736,8 +737,9 @@ function loadApp() {
 
     populateFilters();
     populateResponsibilitySelect();
-    renderReviewReminders();
-    renderProfile();
+renderReviewReminders();
+  renderReviewDateBanner();
+  renderProfile();
     applyTheme();
     applySidebarPref();
     showScreen('login');
@@ -903,6 +905,145 @@ function renderReviewReminders() {
 function dismissReminderBanner() {
   const banner = getEl('reminderBanner');
   if (banner) banner.classList.add('hidden');
+}
+
+/* ============================ REVIEW DATE REMINDER BANNER ============================ */
+
+/**
+ * Renders the review date reminder banner with right-to-left scrolling animation.
+ * Shows upcoming review dates for tasks and records.
+ * Hidden for admin users.
+ */
+function renderReviewDateBanner() {
+  const banner = getEl('reviewDateBanner');
+  const textEl = getEl('reviewDateBannerText');
+  const cloneEl = getEl('reviewDateBannerTextClone');
+  if (!banner || !textEl || !cloneEl) return;
+
+  // Hide for admin users
+  const user = appState.session;
+  if (user && user.role === 'ADMIN') {
+    banner.classList.add('hidden');
+    return;
+  }
+
+  // Check if dismissed this session
+  if (isReviewDateBannerDismissed()) {
+    banner.classList.add('hidden');
+    banner.classList.add('dismissed');
+    return;
+  }
+
+  // Collect review date reminders from tasks and records
+  const now = new Date();
+  const today = new Date(now.getFullYear(), now.getMonth(), now.getDate());
+  const tomorrow = new Date(today);
+  tomorrow.setDate(tomorrow.getDate() + 1);
+  const tomorrowEnd = new Date(tomorrow);
+  tomorrowEnd.setHours(23, 59, 59, 999);
+
+  const items = [];
+
+  // Check tasks with review dates (due date or review date)
+  (appState.tasks || []).forEach(function (task) {
+    if (!task.dueDate) return;
+    const dueDate = new Date(task.dueDate);
+    if (dueDate < today) return;
+    if (dueDate <= tomorrowEnd) {
+      const diffDays = Math.ceil((dueDate - today) / (1000 * 60 * 60 * 24));
+      items.push({
+        type: 'task',
+        id: task.id,
+        text: task.title,
+        dueDate: dueDate,
+        diffDays: diffDays,
+        isToday: diffDays === 0
+      });
+    }
+  });
+
+  // Check records with review dates
+  (appState.items || []).forEach(function (item) {
+    if (!item.reviewDate) return;
+    const reviewDate = parseDate_(item.reviewDate);
+    if (!reviewDate) return;
+    if (reviewDate < today) return;
+    if (reviewDate <= tomorrowEnd) {
+      const diffDays = Math.ceil((reviewDate - today) / (1000 * 60 * 60 * 24));
+      items.push({
+        type: 'record',
+        id: item.id,
+        text: item.action || item.description || item.sector,
+        dueDate: reviewDate,
+        diffDays: diffDays,
+        isToday: diffDays === 0
+      });
+    }
+  });
+
+  if (!items.length) {
+    banner.classList.add('hidden');
+    return;
+  }
+
+  // Sort: today first, then by date
+  items.sort(function (a, b) {
+    if (a.isToday && !b.isToday) return -1;
+    if (!a.isToday && b.isToday) return 1;
+    return a.dueDate - b.dueDate;
+  });
+
+  // Build the scrolling text
+  const parts = items.map(function (item) {
+    const dueLabel = item.isToday ? 'TODAY' : 'TOMORROW';
+    const dueClass = item.isToday ? 'today' : 'tomorrow';
+    const typeIcon = item.type === 'task' ? '📋' : '📄';
+    return `<span class="review-date-banner-item">
+      <span class="review-id">${typeIcon} #${escapeHtml(item.id)}</span>
+      <span class="review-sector">${escapeHtml(item.text)}</span>
+      <span class="review-due ${item.isToday ? 'today' : 'tomorrow'}">${dueLabel}</span>
+    </span>`;
+  }).join(' ');
+
+  textEl.innerHTML = parts;
+  cloneEl.innerHTML = parts;
+
+  // Show banner
+  banner.classList.remove('hidden');
+}
+
+/**
+ * Dismisses the review date banner (persists in sessionStorage for the session).
+ */
+function dismissReviewDateBanner() {
+  const banner = getEl('reviewDateBanner');
+  if (banner) {
+    banner.classList.add('hidden');
+    banner.classList.add('dismissed');
+    try {
+      sessionStorage.setItem('reviewDateBannerDismissed', 'true');
+    } catch (err) {}
+  }
+}
+
+/**
+ * Checks if review date banner was dismissed this session.
+ */
+function isReviewDateBannerDismissed() {
+  try {
+    return sessionStorage.getItem('reviewDateBannerDismissed') === 'true';
+  } catch (err) {
+    return false;
+  }
+}
+
+/**
+ * Resets the dismissed state (e.g., on new login).
+ */
+function resetReviewDateBannerDismissed() {
+  try {
+    sessionStorage.removeItem('reviewDateBannerDismissed');
+  } catch (err) {}
 }
 
 function applyFilters() {
@@ -1293,8 +1434,9 @@ function refreshData() {
     applyAppData(data);
     populateFilters();
     populateResponsibilitySelect();
-    renderReviewReminders();
-    renderDashboard();
+renderReviewReminders();
+  renderReviewDateBanner();
+  renderDashboard();
     loadNotifications(true);
     auditLoaded = false;
     const auditPanel = getEl('audit');
