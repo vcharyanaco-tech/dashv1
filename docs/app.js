@@ -3211,9 +3211,8 @@ function openLinkModal(fieldKey) {
   if (!inputId) return;
   appState.linkField = fieldKey;
   const existing = (appState.fieldLinks && appState.fieldLinks[fieldKey]) || null;
-  const fieldEl = getEl(inputId);
   getEl('linkField').value = fieldKey;
-  getEl('linkText').value = existing ? existing.text : (fieldEl ? fieldEl.value : '');
+  getEl('linkText').value = existing ? existing.text : '';
   getEl('linkUrl').value = existing ? existing.url : '';
   const status = getEl('linkStatus');
   if (status) { status.textContent = ''; status.classList.remove('success', 'error'); }
