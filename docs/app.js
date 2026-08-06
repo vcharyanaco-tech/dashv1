@@ -3212,7 +3212,7 @@ function openLinkModal(fieldKey) {
   appState.linkField = fieldKey;
   const existing = (appState.fieldLinks && appState.fieldLinks[fieldKey]) || null;
   getEl('linkField').value = fieldKey;
-  getEl('linkText').value = existing ? existing.text : '';
+  getEl('linkText').value = existing ? existing.text : (getEl(inputId) ? getEl(inputId).value : '');
   getEl('linkUrl').value = existing ? existing.url : '';
   const status = getEl('linkStatus');
   if (status) { status.textContent = ''; status.classList.remove('success', 'error'); }
