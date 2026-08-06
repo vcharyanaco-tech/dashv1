@@ -7,7 +7,7 @@
    ========================================================================== */
 
 const APP_VERSION = '1.0.0';
-const APP_BUILD = '2026.08.05';
+const APP_BUILD = '2026.08.06';
 const PAGE_SIZE = 10;
 const AUDIT_PAGE_SIZE = 20;
 const STORAGE_THEME = 'indiaPostDarkMode';
@@ -45,7 +45,7 @@ const EventBus = {
     order and token injection, and turns results into Promises. No UI code
     calls fetch directly. */
 
-var API_URL = 'https://script.google.com/macros/s/AKfycbykqb0AE0a6bwHGk4Q_e5LTXhefKtjao9_r7G0zR1cODl5JP5lH_ooqrgFt2hu3oDo2/exec';
+var API_URL = 'https://script.google.com/macros/s/AKfycbzVWcFmpyL1WonxJaaunXugpNnLyigb0ZUsegVYrKM-47jLNX2_DCuBsZkGIQOpAq62/exec';
 
 function apiCall_(fn) {
   const args = Array.prototype.slice.call(arguments, 1);
