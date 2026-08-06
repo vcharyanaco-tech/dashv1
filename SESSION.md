@@ -1,6 +1,22 @@
 # India Post Dashboard — Session State
 
-Last updated: 2026-08-06 17:27:00
+Last updated: 2026-08-06 17:45:00
+
+## Current Task (split-routing Worker: / → GitHub Pages, /app.html → GAS — DONE, deployed)
+Worker (`dashv1-proxy`) rewritten to split traffic on `dashboardharyana.site`:
+- `/app.html` → fetches from GAS exec URL, strips disclaimer banner via `processHtml`
+- `/*` (everything else) → fetches from `raw.githubusercontent.com/vcharyanaco-tech/dashv1/main/docs/` (GitHub Pages static bundle); correct Content-Type set per extension; 404 fallback serves `index.html`
+- `/static/*`, `/macros/*` → forwarded to `script.google.com` (GAS sandbox sub-resources)
+
+Why raw CDN instead of github.io: `vcharyanaco-tech.github.io/dashv1/*` 301-redirects to the custom domain → Cloudflare → Worker → infinite loop. Raw CDN has no redirect.
+
+Previous conflicting routes (`dashboard-redirect` Worker owning `dashboardharyana.site/*` and `www.dashboardharyana.site/app*`) were deleted via Cloudflare API before deploying.
+
+### Verified live
+- `dashboardharyana.site/` → 200, `<!DOCTYPE html>` GitHub Pages landing (no GAS wrapper)
+- `dashboardharyana.site/assets/styles.css` → 200, `text/css`, 55KB
+- `dashboardharyana.site/app.html` → 200, GAS sandbox with `gas-disclaimer-killer` injected, no "created by" banner text
+- Worker version: `5d0ad545-8c4a-4af8-9946-45e8413bfd1a`
 
 ## Current Task (fix broken redirect — serve UI directly from GAS — DONE, deployed @138)
 Root cause: `dashboardharyana.site` apex is still routed by Cloudflare to GAS (DNS change was never made). The `doGet` redirect to `https://dashboardharyana.site/app.html` looped back to GAS, which returned 404 on `/app.html`. Similarly `vcharyanaco-tech.github.io/dashv1/app.html` returned 404 because GitHub Pages redirects all paths to the CNAME, which Cloudflare forwards back to GAS.

@@ -1,16 +1,23 @@
 /**
- * Cloudflare Worker — Reverse proxy for Google Apps Script web app
+ * Cloudflare Worker — Split-routing proxy
  *
- * Serves the GAS web app at the worker URL, stripping the
- * "This application was created by a Google Apps Script user" banner that
- * Google injects via client-side JavaScript on all Apps Script web app pages.
+ * Routing:
+ *   dashboardharyana.site/app.html  → GAS exec URL (banner-stripped via processHtml)
+ *   dashboardharyana.site/*         → GitHub Pages static bundle (docs/ via raw CDN)
  *
- * CSP-safe approach:
+ * Why raw CDN for GitHub Pages:
+ *   vcharyanaco-tech.github.io/dashv1/* 301-redirects to the custom domain,
+ *   which Cloudflare forwards back to this Worker — an infinite loop.
+ *   raw.githubusercontent.com serves the same files with correct Content-Type
+ *   and no redirect.
+ *
+ * GAS CSP-safe approach (for /app.html):
  *   - NO <base> tag injection (blocked by Google's base-uri 'self' CSP)
  *   - Rewrite all relative /static/... URLs to absolute script.google.com URLs
- *   - Inject disclaimer-killer CSS/JS using the page's own nonce so it passes
- *     Google's strict-dynamic nonce-based CSP
+ *   - Inject disclaimer-killer CSS/JS using the page's own nonce
  */
+
+const GITHUB_RAW = 'https://raw.githubusercontent.com/vcharyanaco-tech/dashv1/main/docs';
 
 const COMMON_HEADERS = {
   'X-Frame-Options': 'ALLOWALL',
@@ -39,69 +46,125 @@ export default {
     }
 
     const path = url.pathname;
-    let targetUrl = GAS_BASE_URL;
 
-    const gasScriptOrigin = new URL(GAS_SCRIPT_URL).origin; // https://script.google.com
-
-    if (!path || path === '/' || path === '/index.html' || path.startsWith('/app')) {
-      const suffix = (path.startsWith('/app') && path.length > 4) ? path.slice(4) : '';
-      let p = suffix;
-      if (p && p !== '/') {
-        targetUrl = GAS_SCRIPT_URL + p + '/exec';
-      }
-    } else if (path.startsWith('/static/')) {
-      targetUrl = gasScriptOrigin + path;
-    } else if (path.startsWith('/favicon.ico')) {
-      targetUrl = gasScriptOrigin + '/favicon.ico';
-    } else {
-      targetUrl = GAS_SCRIPT_URL + path;
+    // ── Route: /app.html → GAS proxy (banner-stripped) ──────────────────────
+    if (path === '/app.html' || path === '/app') {
+      return fetchFromGas(request, GAS_BASE_URL, GAS_SCRIPT_URL);
     }
 
-    const gasHeaders = new Headers(request.headers);
-    gasHeaders.delete('Host');
-    gasHeaders.delete('Referer');
-
-    const response = await fetch(targetUrl, {
-      method: request.method,
-      headers: gasHeaders,
-      body: request.method === 'GET' ? undefined : request.body,
-      redirect: 'manual',
-    });
-
-    const contentType = response.headers.get('Content-Type') || '';
-
-    if (contentType.includes('text/html')) {
-      let html = await response.text();
-      html = processHtml(html, gasScriptOrigin);
-      const newHeaders = new Headers(response.headers);
-      newHeaders.set('Content-Type', 'text/html; charset=utf-8');
+    // ── Route: GAS static assets (/static/*, /macros/*) ─────────────────────
+    // These are fetched when the GAS sandbox iframe loads its own sub-resources.
+    // The browser sends them to the custom domain; forward them to script.google.com.
+    const gasScriptOrigin = new URL(GAS_SCRIPT_URL).origin;
+    if (path.startsWith('/static/') || path.startsWith('/macros/')) {
+      const targetUrl = gasScriptOrigin + path + (url.search || '');
+      const resp = await fetch(targetUrl, { headers: { 'User-Agent': 'Mozilla/5.0' } });
+      const newHeaders = new Headers(resp.headers);
       Object.entries(COMMON_HEADERS).forEach(([k, v]) => newHeaders.set(k, v));
-      return new Response(html, { status: response.status, headers: newHeaders });
+      return new Response(resp.body, { status: resp.status, headers: newHeaders });
     }
 
-    if (contentType.includes('javascript') || path.endsWith('.js')) {
-      let js = await response.text();
-      js = stripDisclaimerJs(js);
-      const newHeaders = new Headers(response.headers);
-      newHeaders.set('Content-Type', 'application/javascript; charset=utf-8');
-      Object.entries(COMMON_HEADERS).forEach(([k, v]) => newHeaders.set(k, v));
-      return new Response(js, { status: response.status, headers: newHeaders });
-    }
-
-    if (contentType.includes('text/css') || path.endsWith('.css')) {
-      const css = await response.text();
-      const newHeaders = new Headers(response.headers);
-      newHeaders.set('Content-Type', 'text/css; charset=utf-8');
-      Object.entries(COMMON_HEADERS).forEach(([k, v]) => newHeaders.set(k, v));
-      return new Response(css, { status: response.status, headers: newHeaders });
-    }
-
-    const body = await response.arrayBuffer();
-    const newHeaders = new Headers(response.headers);
-    Object.entries(COMMON_HEADERS).forEach(([k, v]) => newHeaders.set(k, v));
-    return new Response(body, { status: response.status, headers: newHeaders });
+    // ── Route: everything else → GitHub Pages static bundle (docs/) ─────────
+    return fetchFromPages(path, url.search);
   },
 };
+
+// ── GitHub Pages static bundle fetcher ──────────────────────────────────────
+async function fetchFromPages(path, search) {
+  // Map request path to a docs/ file on the raw GitHub CDN.
+  // / and /index.html → docs/index.html (the landing page)
+  let filePath = path;
+  if (!filePath || filePath === '/') filePath = '/index.html';
+
+  // Strip query string from path for file lookup (pass it through on redirect)
+  const rawUrl = GITHUB_RAW + filePath;
+
+  const resp = await fetch(rawUrl, { redirect: 'follow' });
+
+  if (resp.status === 404) {
+    // Fallback: serve index.html for unknown paths (SPA-style)
+    const fallback = await fetch(GITHUB_RAW + '/index.html');
+    const html = await fallback.text();
+    return new Response(html, {
+      status: 200,
+      headers: {
+        ...COMMON_HEADERS,
+        'Content-Type': 'text/html; charset=utf-8',
+        'Cache-Control': 'public, max-age=300',
+      },
+    });
+  }
+
+  // Determine content-type from path extension since raw CDN may not set it
+  const ct = guessContentType(filePath) || resp.headers.get('Content-Type') || 'application/octet-stream';
+  const body = await resp.arrayBuffer();
+
+  const headers = {
+    ...COMMON_HEADERS,
+    'Content-Type': ct,
+    'Cache-Control': filePath.match(/\.(js|css|png|ico|jpg|svg|woff2?)(\?|$)/)
+      ? 'public, max-age=3600'
+      : 'public, max-age=300',
+  };
+
+  return new Response(body, { status: resp.status, headers });
+}
+
+function guessContentType(path) {
+  const p = path.split('?')[0];
+  if (p.endsWith('.html')) return 'text/html; charset=utf-8';
+  if (p.endsWith('.js'))   return 'application/javascript; charset=utf-8';
+  if (p.endsWith('.css'))  return 'text/css; charset=utf-8';
+  if (p.endsWith('.json')) return 'application/json; charset=utf-8';
+  if (p.endsWith('.png'))  return 'image/png';
+  if (p.endsWith('.ico'))  return 'image/x-icon';
+  if (p.endsWith('.svg'))  return 'image/svg+xml';
+  if (p.endsWith('.jpg') || p.endsWith('.jpeg')) return 'image/jpeg';
+  if (p.endsWith('.woff2')) return 'font/woff2';
+  if (p.endsWith('.woff'))  return 'font/woff';
+  return null;
+}
+
+// ── GAS proxy fetcher (banner-stripped) ─────────────────────────────────────
+async function fetchFromGas(request, GAS_BASE_URL, GAS_SCRIPT_URL) {
+  const gasScriptOrigin = new URL(GAS_SCRIPT_URL).origin;
+
+  const gasHeaders = new Headers(request.headers);
+  gasHeaders.delete('Host');
+  gasHeaders.delete('Referer');
+
+  const response = await fetch(GAS_BASE_URL, {
+    method: request.method,
+    headers: gasHeaders,
+    body: request.method === 'GET' ? undefined : request.body,
+    redirect: 'manual',
+  });
+
+  const contentType = response.headers.get('Content-Type') || '';
+
+  if (contentType.includes('text/html')) {
+    let html = await response.text();
+    html = processHtml(html, gasScriptOrigin);
+    const newHeaders = new Headers(response.headers);
+    newHeaders.set('Content-Type', 'text/html; charset=utf-8');
+    Object.entries(COMMON_HEADERS).forEach(([k, v]) => newHeaders.set(k, v));
+    return new Response(html, { status: response.status, headers: newHeaders });
+  }
+
+  if (contentType.includes('javascript') || request.url.endsWith('.js')) {
+    let js = await response.text();
+    js = stripDisclaimerJs(js);
+    const newHeaders = new Headers(response.headers);
+    newHeaders.set('Content-Type', 'application/javascript; charset=utf-8');
+    Object.entries(COMMON_HEADERS).forEach(([k, v]) => newHeaders.set(k, v));
+    return new Response(js, { status: response.status, headers: newHeaders });
+  }
+
+  const body = await response.arrayBuffer();
+  const newHeaders = new Headers(response.headers);
+  Object.entries(COMMON_HEADERS).forEach(([k, v]) => newHeaders.set(k, v));
+  return new Response(body, { status: response.status, headers: newHeaders });
+}
 
 /**
  * Main HTML processor:
