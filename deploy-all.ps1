@@ -85,48 +85,36 @@ try {
 Write-Host ""
 
 # ============================================================
-# 3. CLOUDFLARE WORKER  (wrangler deploy)
+# 3. CLOUDFLARE WORKER  (REST API via deploy-worker-api.js)
 # ============================================================
 Write-Host "[3/3] Deploying Cloudflare Worker..." -ForegroundColor Yellow
 
 # Check for token in User or Machine env vars
 $cfToken = [System.Environment]::GetEnvironmentVariable("CLOUDFLARE_API_TOKEN", "User")
-if (-not $cfToken) {
-    $cfToken = [System.Environment]::GetEnvironmentVariable("CLOUDFLARE_API_TOKEN", "Machine")
-}
-if (-not $cfToken) {
-    $cfToken = $env:CLOUDFLARE_API_TOKEN
-}
+if (-not $cfToken) { $cfToken = [System.Environment]::GetEnvironmentVariable("CLOUDFLARE_API_TOKEN", "Machine") }
+if (-not $cfToken) { $cfToken = $env:CLOUDFLARE_API_TOKEN }
 
 if (-not $cfToken) {
     Write-Host "  SKIP  CLOUDFLARE_API_TOKEN not set." -ForegroundColor Yellow
     Write-Host "  Set it once with:" -ForegroundColor Yellow
     Write-Host '    [System.Environment]::SetEnvironmentVariable("CLOUDFLARE_API_TOKEN","<token>","User")' -ForegroundColor DarkYellow
     Write-Host "  Get a token at: https://dash.cloudflare.com/profile/api-tokens" -ForegroundColor DarkYellow
-    Write-Host "  Required permissions: Workers Scripts:Edit, Workers Routes:Edit" -ForegroundColor DarkYellow
-    Write-Host ""
-    Write-Host "  NOTE: Cloudflare Worker is also deployed automatically by GitHub Actions" -ForegroundColor Gray
-    Write-Host "  on every push (uses CLOUDFLARE_API_TOKEN secret in repo settings)." -ForegroundColor Gray
     $workerOk = $false
 } else {
-    $env:CLOUDFLARE_API_TOKEN = $cfToken
     $workerOk = $false
     try {
-        $wranglerOut = npx wrangler deploy 2>&1
+        $nodeOut = node "$PSScriptRoot\deploy-worker-api.js" $cfToken 2>&1
         if ($LASTEXITCODE -eq 0) {
             $workerOk = $true
             Write-Host "  OK  Worker deployed successfully" -ForegroundColor Green
-            $liveUrl = ($wranglerOut | Out-String) -split '\n' |
-                Where-Object { $_ -match 'https://' } |
-                Select-Object -First 1
-            if ($liveUrl) { Write-Host "      $($liveUrl.Trim())" -ForegroundColor Gray }
+            $nodeOut | ForEach-Object { Write-Host "      $_" -ForegroundColor Gray }
             Write-Host "      Live: https://dashboardharyana.site/app.html" -ForegroundColor Cyan
         } else {
-            Write-Host "  WARN  wrangler deploy failed:" -ForegroundColor Red
-            Write-Host ($wranglerOut | Out-String) -ForegroundColor DarkGray
+            Write-Host "  WARN  Worker deploy failed:" -ForegroundColor Red
+            Write-Host ($nodeOut | Out-String) -ForegroundColor DarkGray
         }
     } catch {
-        Write-Host "  WARN  wrangler error: $($_.Exception.Message)" -ForegroundColor Red
+        Write-Host "  WARN  node error: $($_.Exception.Message)" -ForegroundColor Red
     }
 }
 
