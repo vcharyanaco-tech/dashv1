@@ -965,7 +965,7 @@ function renderReviewDateBanner() {
   // Check records with review dates
   (appState.items || []).forEach(function (item) {
     if (!item.reviewDate) return;
-    const reviewDate = parseDate_(item.reviewDate);
+    const reviewDate = parseDateFieldValue(item.reviewDate);
     if (!reviewDate) return;
     if (reviewDate < today) return;
     if (reviewDate <= tomorrowEnd) {
