@@ -50,7 +50,7 @@ const EventBus = {
     order and token injection, and turns results into Promises. No UI code
     calls fetch directly. */
 
-var API_URL = 'https://dashboardharyana.site/macros/s/AKfycbxPwINC2LOPQ-II6vhMXuEqy30Fim32INQNjK3j0sK_9kBClr2MrbSPDnR91AmC7Ian/exec';
+var API_URL = 'https://dashboardharyana.site/macros/s/AKfycbw_jyy9XDNSwX5YHZkq8xIttahTdhQ6UTBFsec-FdU/exec';
 
 function apiCall_(fn) {
   const args = Array.prototype.slice.call(arguments, 1);
