@@ -272,7 +272,7 @@ function linkifyText_(text) {
     if (!safeUrl) {
       return escHtml_(piece);
     }
-    return '<a href="' + escHtml_(safeUrl) + '" target="_blank" rel="noopener noreferrer">' + escHtml_(piece) + '</a>';
+    return '<a href="' + escHtml_(safeUrl) + '" target="_blank" rel="noopener noreferrer" data-embed="1">' + escHtml_(piece) + '</a>';
   }).join('');
 }
 
@@ -314,7 +314,7 @@ function richToHtml_(rt, fallback) {
     try { url = runs[i].getLinkUrl(); } catch (e8) { url = null; }
     if (url) {
       var au = absUrl_(url);
-      if (au) { body = '<a href="' + escHtml_(au) + '" target="_blank" rel="noopener noreferrer">' + body + '</a>'; }
+      if (au) { body = '<a href="' + escHtml_(au) + '" target="_blank" rel="noopener noreferrer" data-embed="1">' + body + '</a>'; }
     } else {
       body = linkifyText_(t);
     }

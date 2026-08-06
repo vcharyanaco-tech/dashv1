@@ -7,7 +7,7 @@
    ========================================================================== */
 
 const APP_VERSION = '1.0.0';
-const APP_BUILD = '2026.08.15';
+const APP_BUILD = '2026.08.16';
 const PAGE_SIZE = 10;
 const AUDIT_PAGE_SIZE = 20;
 const STORAGE_THEME = 'indiaPostDarkMode';
@@ -334,6 +334,57 @@ function closeDialog(id) {
   if (!document.querySelector('.modal-backdrop:not(.hidden)')) {
     document.body.classList.remove('modal-open');
   }
+}
+
+/* ---------------------------------- In-page link preview ---------------------------------- */
+/* Opens a URL in an embedded iframe inside the dashboard instead of a new tab.
+   Drive document previews use the Google Drive /preview host; plain URLs are
+   attempted too, with a fallback "Open in new tab" button for sites that block
+   embedding. */
+
+/* Rewrite shareable URLs to an embeddable form where possible (Drive file
+   links -> /preview host). Returns the URL unchanged when not recognized. */
+function toEmbeddableUrl(url) {
+  if (!url) return '';
+  const m = url.match(/drive\.google\.com\/file\/d\/([^/?#]+)/);
+  if (m) return 'https://drive.google.com/file/d/' + m[1] + '/preview';
+  const o = url.match(/drive\.google\.com\/open\?id=([^&#]+)/);
+  if (o) return 'https://drive.google.com/file/d/' + o[1] + '/preview';
+  return url;
+}
+
+function openLinkPreview(url, title) {
+  const frame = getEl('previewFrame');
+  const openNew = getEl('previewOpenNew');
+  if (!frame) { window.open(url, '_blank'); return; }
+  const titleEl = getEl('previewModalTitle');
+  if (titleEl) titleEl.textContent = title || 'Preview';
+  if (openNew) openNew.href = url;
+  frame.src = toEmbeddableUrl(url) || '';
+  openDialog('previewModal');
+}
+
+function closeLinkPreview() {
+  const frame = getEl('previewFrame');
+  if (frame) frame.src = 'about:blank';
+  closeDialog('previewModal');
+}
+
+/* Preview handler for Drive attachments: file id -> /preview embed host. */
+function openDriveDocPreview(fileId, fileName) {
+  if (!fileId) return;
+  openLinkPreview('https://drive.google.com/file/d/' + encodeURIComponent(fileId) + '/preview', fileName || 'Document preview');
+}
+
+/* Delegated handler: intercept data-embed links (auto-linkified URLs in record
+   text) so they render in the preview modal instead of a new tab. */
+function wireEmbeddedLinkPreview() {
+  document.addEventListener('click', function (event) {
+    const link = event.target.closest ? event.target.closest('a[data-embed]') : null;
+    if (!link) return;
+    event.preventDefault();
+    openLinkPreview(link.getAttribute('href'), link.textContent.trim());
+  });
 }
 
 let confirmDialogState = null;
@@ -2236,6 +2287,7 @@ function loadRecordDocuments(row) {
       </div>
       <ul class="detail-docs-list">${docsList.map(function (d) {
         return '<li class="detail-doc-item">' +
+          '<button class="btn btn-ghost btn-small" type="button" onclick="openDriveDocPreview(\'' + escAttr(d.driveFileId) + '\', \'' + escAttr(d.fileName) + '\')">Preview</button>' +
           '<a href="' + escapeHtml(d.url || '#') + '" target="_blank" rel="noopener">' + escapeHtml(d.fileName) + '</a>' +
           '<button class="btn btn-ghost btn-small" type="button" onclick="deleteRecordDoc(\'' + escAttr(d.id) + '\', \'' + escAttr(row) + '\')">Remove</button>' +
           '</li>';
@@ -3341,7 +3393,7 @@ function wireGlobalEvents() {
         cancelConfirmDialog();
         return;
       }
-      ['editModal', 'aboutModal', 'submissionsModal', 'recordDetailModal', 'editUserModal', 'reviewModal', 'taskModal', 'columnModal', 'commandPalette'].forEach(function (id) {
+      ['editModal', 'aboutModal', 'submissionsModal', 'recordDetailModal', 'editUserModal', 'reviewModal', 'taskModal', 'columnModal', 'commandPalette', 'previewModal'].forEach(function (id) {
         const el = getEl(id);
         if (el && !el.classList.contains('hidden')) closeDialog(id);
       });
@@ -3380,6 +3432,7 @@ function wireGlobalEvents() {
         else if (backdrop.id === 'recordDetailModal') closeRecordDetail();
         else if (backdrop.id === 'editUserModal') closeEditUser();
         else if (backdrop.id === 'confirmModal') cancelConfirmDialog();
+        else if (backdrop.id === 'previewModal') closeLinkPreview();
       }
     });
   });
@@ -3449,4 +3502,5 @@ function wireGlobalEvents() {
 }
 
 wireGlobalEvents();
+wireEmbeddedLinkPreview();
 window.addEventListener('load', initApp);
