@@ -12,7 +12,8 @@
  */
 
 /**
- * Installs the daily 00:00 title-stamp trigger (idempotent: removes first).
+ * Installs the daily title-stamp and review-reminder triggers (idempotent:
+ * removes first).
  */
 function installTriggers() {
 
@@ -24,6 +25,12 @@ function installTriggers() {
     .atHour(0)
     .create();
 
+  ScriptApp.newTrigger("sendReviewReminders")
+    .timeBased()
+    .everyDays(1)
+    .atHour(9)
+    .create();
+
 }
 
 
@@ -33,12 +40,13 @@ function installTriggers() {
  */
 
 /**
- * Removes all dailyDateUpdate triggers.
+ * Removes all dailyDateUpdate and sendReviewReminders triggers.
  */
 function removeTriggers() {
 
   ScriptApp.getProjectTriggers().forEach(function (trigger) {
-    if (trigger.getHandlerFunction() === "dailyDateUpdate") {
+    const handler = trigger.getHandlerFunction();
+    if (handler === "dailyDateUpdate" || handler === "sendReviewReminders") {
       ScriptApp.deleteTrigger(trigger);
     }
   });

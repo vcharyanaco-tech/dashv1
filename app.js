@@ -7,7 +7,7 @@
    ========================================================================== */
 
 const APP_VERSION = '1.0.0';
-const APP_BUILD = '2026.08.07';
+const APP_BUILD = '2026.08.08';
 const PAGE_SIZE = 10;
 const AUDIT_PAGE_SIZE = 20;
 const STORAGE_THEME = 'indiaPostDarkMode';
@@ -136,6 +136,8 @@ const appState = {
   submissionCounts: {},
   submissionFlash: {},
   displayedSubmissions: [],
+  responsibilities: [],
+  reminders: [],
   searchQuery: '',
   sector: '',
   page: 1,
@@ -172,6 +174,8 @@ function applyAppData(data) {
   appState.submissionFlash = (data && data.submissionFlash) || {};
   appState.displayedSubmissions = (data && data.displayedSubmissions) || [];
   appState.permissions = (data && data.user && data.user.permissions) || {};
+  appState.responsibilities = (data && data.responsibilities) || [];
+  appState.reminders = (data && data.reminders) || [];
   appState.auditPage = 1;
 }
 
@@ -630,6 +634,8 @@ function loadApp() {
     applyAppData(data);
 
     populateFilters();
+    populateResponsibilitySelect();
+    renderReviewReminders();
     renderProfile();
     applyTheme();
     applySidebarPref();
@@ -756,6 +762,46 @@ function populateFilters() {
     return `<option value="${escAttr(s)}">${escapeHtml(s)}</option>`;
   }).join('');
   filter.value = selected;
+}
+
+/* Populate the edit-dialog responsibility dropdown with every responsibility
+   entry returned by the server (all records, not just the current view). */
+function populateResponsibilitySelect() {
+  const select = getEl('editResponsibility');
+  if (!select) return;
+  const selected = select.value;
+  const list = appState.responsibilities || [];
+  select.innerHTML = '<option value="">Select responsibility…</option>' + list.map(function (r) {
+    return `<option value="${escAttr(r)}">${escapeHtml(r)}</option>`;
+  }).join('');
+  select.value = selected;
+}
+
+/* Render the review-reminder flash under the topbar/search for the logged-in
+   user (records due today/tomorrow assigned to their office). */
+function renderReviewReminders() {
+  const banner = getEl('reminderBanner');
+  const listEl = getEl('reminderBannerList');
+  if (!banner || !listEl) return;
+  const reminders = appState.reminders || [];
+  if (!reminders.length) {
+    banner.classList.add('hidden');
+    return;
+  }
+  listEl.innerHTML = reminders.map(function (r) {
+    const due = r.daysUntil === 0 ? 'today' : 'tomorrow';
+    return `<div class="reminder-item">` +
+      `<strong>#${escapeHtml(r.id)} · ${escapeHtml(r.sector || '')}</strong>` +
+      (r.action ? ` — <em>${escapeHtml(r.action)}</em>` : '') +
+      ` <span class="reminder-due">(review ${due}: ${escapeHtml(r.reviewDate || '—')})</span>` +
+      `</div>`;
+  }).join('');
+  banner.classList.remove('hidden');
+}
+
+function dismissReminderBanner() {
+  const banner = getEl('reminderBanner');
+  if (banner) banner.classList.add('hidden');
 }
 
 function applyFilters() {
@@ -1145,6 +1191,8 @@ function refreshData() {
     hideOverlay();
     applyAppData(data);
     populateFilters();
+    populateResponsibilitySelect();
+    renderReviewReminders();
     renderDashboard();
     loadNotifications(true);
     auditLoaded = false;
@@ -2826,6 +2874,7 @@ function resetEditForm() {
   getEl('editDescription').value = '';
   getEl('editEntryDate').value = '';
   getEl('editAction').value = '';
+  populateResponsibilitySelect();
   getEl('editResponsibility').value = '';
   getEl('editReviewDate').value = '';
   getEl('editFlagged').checked = false;
@@ -2854,6 +2903,7 @@ function editItem(row) {
   getEl('editDescription').value = item.description || '';
   getEl('editEntryDate').value = item.entryDate || '';
   getEl('editAction').value = item.action || '';
+  populateResponsibilitySelect();
   getEl('editResponsibility').value = item.responsibility || '';
   getEl('editReviewDate').value = item.reviewDate || '';
   getEl('editFlagged').checked = !!item.flagged;

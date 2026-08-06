@@ -375,6 +375,69 @@ function scopeItemsForUser_(items, user) {
 }
 
 /**
+ * Matches a record responsibility against a user's office (case-insensitive,
+ * both exact and partial containment, mirroring scopeItemsForUser_).
+ * @param {string} responsibility Record responsibility.
+ * @param {string} office User office.
+ * @returns {boolean}
+ */
+function responsibilityMatchesOffice_(responsibility, office) {
+  const r = String(responsibility || '').trim().toLowerCase();
+  const o = String(office || '').trim().toLowerCase();
+  if (!r || !o) return false;
+  return r === o || r.indexOf(o) !== -1 || o.indexOf(r) !== -1;
+}
+
+/**
+ * Distinct, sorted responsibility values across all records (used to fill the
+ * edit-dialog responsibility dropdown).
+ * @param {Object[]} items Display-ready items from getData().
+ * @returns {string[]}
+ */
+function getDistinctResponsibilities_(items) {
+  const seen = {};
+  const out = [];
+  (items || []).forEach(function (item) {
+    const v = String(item.responsibility || '').trim();
+    if (!v || seen[v]) return;
+    seen[v] = 1;
+    out.push(v);
+  });
+  return out.sort(function (a, b) { return a.localeCompare(b); });
+}
+
+/**
+ * Review reminders for the logged-in user: records whose responsibility matches
+ * their office and whose review date is due today or tomorrow (1 day away).
+ * @param {Object[]} items Scoped items (already restricted to the caller's office).
+ * @param {Object} user Authenticated user context.
+ * @returns {Object[]} Reminder objects {row, id, sector, description, action, responsibility, reviewDate, daysUntil}.
+ */
+function getReviewReminders_(items, user) {
+  const office = String((user && user.office) || '').trim();
+  const out = [];
+  (items || []).forEach(function (item) {
+    const responsibility = String(item.responsibility || '').trim();
+    if (!responsibility) return;
+    if (office && !responsibilityMatchesOffice_(responsibility, office)) return;
+    if (item.reviewStatus === 'done') return;
+    const days = daysUntilDate_(item.reviewDate);
+    if (days === null || days > 1) return;
+    out.push({
+      row: item.row,
+      id: item.id,
+      sector: item.sector,
+      description: item.description,
+      action: item.action,
+      responsibility: item.responsibility,
+      reviewDate: item.reviewDate,
+      daysUntil: days
+    });
+  });
+  return out;
+}
+
+/**
  * Aggregates everything the dashboard needs for one full-screen load:
  * user identity + permissions, records (scoped to the caller's department/
  * office), summary, analytics, settings and the submission overview. The
@@ -408,6 +471,8 @@ function getAppData(token) {
     summary: summary,
     analytics: analytics,
     settings: settings,
+    responsibilities: getDistinctResponsibilities_(data.items || []),
+    reminders: getReviewReminders_(items, context),
     submissionCounts: submissionOverview.counts,
     submissionFlash: submissionOverview.flash,
     displayedSubmissions: submissionOverview.displayed
@@ -419,6 +484,67 @@ function getAppData(token) {
  */
 function dailyDateUpdate() {
   stampTitle_();
+}
+
+/**
+ * Emails each user whose fixed responsibility has a review date exactly one
+ * day away (tomorrow). Skips records already marked review-done and respects a
+ * per-user, per-date dedupe key so a user is not emailed more than once a day
+ * for the same record. Read-only: never writes to the spreadsheet.
+ * @param {string=} token Optional session token. When provided it must be an
+ *   admin token (defends the public endpoint); the daily trigger calls it with
+ *   no token.
+ * @returns {{success: boolean, sent: number, skipped: number, message?: string}}
+ */
+function sendReviewReminders(token) {
+  if (token) requireAdmin_(token);
+
+  const data = getData();
+  const items = data.items || [];
+  const users = listUserRecords_();
+  const cache = CacheService.getScriptCache();
+  const today = new Date();
+  const todayKey = Utilities.formatDate(today, Session.getScriptTimeZone(), 'yyyy-MM-dd');
+
+  let sent = 0;
+  let skipped = 0;
+
+  items.forEach(function (item) {
+    const responsibility = String(item.responsibility || '').trim();
+    if (!responsibility) return;
+    if (item.reviewStatus === 'done') return;
+    const days = daysUntilDate_(item.reviewDate);
+    if (days !== 1) return;
+
+    users.forEach(function (user) {
+      const email = String(user.email || '').trim().toLowerCase();
+      if (!email || !isValidEmail_(email)) return;
+      if (!responsibilityMatchesOffice_(responsibility, user.office)) return;
+
+      const dedupeKey = 'remind_' + todayKey + '_' + item.row + '_' + email;
+      if (cache.get(dedupeKey)) {
+        skipped++;
+        return;
+      }
+
+      const subject = 'Action reminder: next review date is tomorrow';
+      const body =
+        'Dear ' + (String(user.username || '').trim() || email) + ',\n\n' +
+        'The following record is assigned to your office (' + responsibility + ') and its ' +
+        'next review date is tomorrow (' + item.reviewDate + '):\n\n' +
+        'Record #' + item.id + ' · ' + (item.sector || '') + '\n' +
+        'Action to be taken: ' + (item.action || '—') + '\n\n' +
+        'Please log in at https://www.dashboardharyana.site/app.html and complete the required action.\n\n' +
+        'India Post Dashboard';
+
+      if (sendMail_(email, subject, body)) {
+        cache.put(dedupeKey, '1', 21600);
+        sent++;
+      }
+    });
+  });
+
+  return { success: true, sent: sent, skipped: skipped };
 }
 
 /* ============================================================

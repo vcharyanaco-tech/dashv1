@@ -155,6 +155,13 @@
           You appear to be offline. Some actions may not work until your connection returns.
         </div>
         <div id="messagePanel" class="banner banner-danger hidden"></div>
+        <div id="reminderBanner" class="reminder-banner hidden" role="status" aria-live="polite">
+          <span class="reminder-banner-title">Review reminders</span>
+          <div id="reminderBannerList" class="reminder-banner-list"></div>
+          <button class="icon-btn reminder-banner-close" type="button" onclick="dismissReminderBanner()" aria-label="Dismiss reminder" title="Dismiss reminder">
+            <svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><line x1="18" y1="6" x2="6" y2="18"></line><line x1="6" y1="6" x2="18" y2="18"></line></svg>
+          </button>
+        </div>
 
         <!-- ============================ DASHBOARD ============================ -->
         <section id="dashboard" class="tab-panel active" aria-labelledby="dashboardTitle">
@@ -635,7 +642,9 @@
         </div>
         <div class="field">
           <label for="editResponsibility">Responsibility</label>
-          <input id="editResponsibility" type="text" class="input">
+          <select id="editResponsibility" class="select">
+            <option value="">Select responsibility…</option>
+          </select>
         </div>
         <div class="field">
           <label class="checkbox"><input id="editFlagged" type="checkbox"> Flagged / review due</label>

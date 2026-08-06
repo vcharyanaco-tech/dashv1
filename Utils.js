@@ -664,6 +664,36 @@ function today_() {
 
 }
 
+/* Parses a display date string ("dd.MM.yyyy") or Date into a Date.
+   Returns null when unparseable. */
+function parseDisplayDate_(value) {
+  if (value === null || value === undefined || value === "") return null;
+  if (Object.prototype.toString.call(value) === "[object Date]") {
+    return isNaN(value.getTime()) ? null : value;
+  }
+  const m = String(value).trim().match(/^(\d{1,2})\.(\d{1,2})\.(\d{4})$/);
+  if (!m) return null;
+  return new Date(Number(m[3]), Number(m[2]) - 1, Number(m[1]));
+}
+
+/* Whole days from today (script timezone) to the given display date.
+   Returns 1 for tomorrow, 0 for today, -1 for yesterday, null when unparseable. */
+function daysUntilDate_(value) {
+  const d = parseDisplayDate_(value);
+  if (!d) return null;
+  const now = new Date();
+  const today = new Date(now.getFullYear(), now.getMonth(), now.getDate());
+  const target = new Date(d.getFullYear(), d.getMonth(), d.getDate());
+  return Math.round((target - today) / 86400000);
+}
+
+/* Adds whole days to a Date, preserving the time-of-day components. */
+function addDays_(date, days) {
+  const out = new Date(date.getTime());
+  out.setDate(out.getDate() + days);
+  return out;
+}
+
 function now_() {
 
   return new Date();
