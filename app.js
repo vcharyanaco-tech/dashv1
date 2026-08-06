@@ -1,7 +1,7 @@
-﻿'use strict';
+'use strict';
 
 /* ==========================================================================
-   India Post Dashboard â€” Client (script.html)
+   India Post Dashboard — Client (script.html)
    Renders against the enterprise design system in styles.html. All inline
    onclick handlers referenced by index.html are defined here.
    ========================================================================== */
@@ -296,7 +296,7 @@ function showToast(message, type) {
 function showOverlay(message) {
   const overlay = getEl('overlay');
   const text = overlay.querySelector('.overlay-text');
-  if (text) text.textContent = message || 'Workingâ€¦';
+  if (text) text.textContent = message || 'Working…';
   overlay.classList.remove('hidden');
 }
 
@@ -531,7 +531,7 @@ function renderProfile() {
   const nameEl = getEl('profileName');
   if (nameEl) nameEl.textContent = user.loggedIn ? name : 'Not signed in';
   const roleEl = getEl('profileRole');
-  if (roleEl) roleEl.textContent = user.loggedIn ? role : 'â€”';
+  if (roleEl) roleEl.textContent = user.loggedIn ? role : '—';
   const emailEl = getEl('profileEmail');
   if (emailEl) emailEl.textContent = user.loggedIn ? email : 'Not signed in';
   const badge = getEl('profileRoleBadge');
@@ -680,7 +680,7 @@ function initApp() {
 }
 
 function loadApp() {
-  showOverlay('Loading appâ€¦');
+  showOverlay('Loading app…');
   ApiService.getAppData().then(function (data) {
     hideOverlay();
     hideSplash();
@@ -740,7 +740,7 @@ function handleLogin(e) {
   valid = setFieldInvalid(passEl, password ? '' : 'Enter your password.') && valid;
   if (!valid) return;
 
-  showOverlay('Logging inâ€¦');
+  showOverlay('Logging in…');
   ApiService.login(email, password).then(function (res) {
     hideOverlay();
     if (!res || !res.success) {
@@ -773,7 +773,7 @@ function handleForgotPassword(e) {
   e.preventDefault();
   const email = getEl('forgotEmail').value.trim();
   if (!setFieldInvalid(getEl('forgotEmail'), email ? '' : 'Enter your email or username.')) return;
-  showOverlay('Submitting reset requestâ€¦');
+  showOverlay('Submitting reset request…');
   ApiService.requestPasswordReset(email).then(function (res) {
     hideOverlay();
     showAuthMessage('forgotMessage', (res && res.message) || 'A reset request has been sent to your administrator.');
@@ -834,7 +834,7 @@ function populateResponsibilitySelect() {
   if (!select) return;
   const selected = select.value;
   const list = appState.responsibilities || [];
-  select.innerHTML = '<option value="">Select responsibilityâ€¦</option>' + list.map(function (r) {
+  select.innerHTML = '<option value="">Select responsibility…</option>' + list.map(function (r) {
     return `<option value="${escAttr(r)}">${escapeHtml(r)}</option>`;
   }).join('');
   select.value = selected;
@@ -854,9 +854,9 @@ function renderReviewReminders() {
   listEl.innerHTML = reminders.map(function (r) {
     const due = r.daysUntil === 0 ? 'today' : 'tomorrow';
     return `<div class="reminder-item">` +
-      `<strong>#${escapeHtml(r.id)} Â· ${escapeHtml(r.sector || '')}</strong>` +
-      (r.action ? ` â€” <em>${escapeHtml(r.action)}</em>` : '') +
-      ` <span class="reminder-due">(review ${due}: ${escapeHtml(r.reviewDate || 'â€”')})</span>` +
+      `<strong>#${escapeHtml(r.id)} · ${escapeHtml(r.sector || '')}</strong>` +
+      (r.action ? ` — <em>${escapeHtml(r.action)}</em>` : '') +
+      ` <span class="reminder-due">(review ${due}: ${escapeHtml(r.reviewDate || '—')})</span>` +
       `</div>`;
   }).join('');
   banner.classList.remove('hidden');
@@ -900,10 +900,10 @@ function updateFilterChips() {
   if (!chips) return;
   const parts = [];
   if (appState.searchQuery) {
-    parts.push(`<span class="filter-chip">Search: ${escapeHtml(appState.searchQuery)} <button type="button" aria-label="Remove search filter" onclick="removeChip('search')">âœ•</button></span>`);
+    parts.push(`<span class="filter-chip">Search: ${escapeHtml(appState.searchQuery)} <button type="button" aria-label="Remove search filter" onclick="removeChip('search')">✕</button></span>`);
   }
   if (appState.sector) {
-    parts.push(`<span class="filter-chip">Sector: ${escapeHtml(appState.sector)} <button type="button" aria-label="Remove sector filter" onclick="removeChip('sector')">âœ•</button></span>`);
+    parts.push(`<span class="filter-chip">Sector: ${escapeHtml(appState.sector)} <button type="button" aria-label="Remove sector filter" onclick="removeChip('sector')">✕</button></span>`);
   }
   chips.innerHTML = parts.join('');
   const resetBtn = getEl('resetFiltersBtn');
@@ -942,7 +942,7 @@ function trendPill() {
   const prev = points[points.length - 2].value;
   const diff = last - prev;
   const cls = diff > 0 ? 'up' : (diff < 0 ? 'down' : 'flat');
-  const arrow = diff > 0 ? 'â†‘' : (diff < 0 ? 'â†“' : 'â€”');
+  const arrow = diff > 0 ? '↑' : (diff < 0 ? '↓' : '—');
   const label = diff !== 0 ? `${arrow} ${Math.abs(diff)} this month` : 'Flat this month';
   return `<span class="kpi-trend ${cls}">${label}</span>`;
 }
@@ -1206,13 +1206,13 @@ function renderPagination() {
     bar.innerHTML = '';
     return;
   }
-  let html = `<button class="page-btn" type="button" onclick="setPage(${appState.page - 1})" ${appState.page <= 1 ? 'disabled' : ''} aria-label="Previous page">â€¹</button>`;
+  let html = `<button class="page-btn" type="button" onclick="setPage(${appState.page - 1})" ${appState.page <= 1 ? 'disabled' : ''} aria-label="Previous page">‹</button>`;
   const start = Math.max(1, appState.page - 2);
   const end = Math.min(pages, start + 4);
   for (let p = start; p <= end; p++) {
     html += `<button class="page-btn ${p === appState.page ? 'active' : ''}" type="button" onclick="setPage(${p})" ${p === appState.page ? 'aria-current="page"' : ''}>${p}</button>`;
   }
-  html += `<button class="page-btn" type="button" onclick="setPage(${appState.page + 1})" ${appState.page >= pages ? 'disabled' : ''} aria-label="Next page">â€º</button>`;
+  html += `<button class="page-btn" type="button" onclick="setPage(${appState.page + 1})" ${appState.page >= pages ? 'disabled' : ''} aria-label="Next page">›</button>`;
   html += `<span class="page-info">${total} record${total === 1 ? '' : 's'}</span>`;
   bar.innerHTML = html;
 }
@@ -1249,7 +1249,7 @@ function renderDashboard() {
 }
 
 function refreshData() {
-  showOverlay('Refreshing dataâ€¦');
+  showOverlay('Refreshing data…');
   ApiService.getAppData().then(function (data) {
     hideOverlay();
     applyAppData(data);
@@ -1280,7 +1280,7 @@ function renderAnalytics() {
   const trendPrev = (analytics.trendPrev && analytics.trendPrev.length) ? analytics.trendPrev[analytics.trendPrev.length - 1].value : 0;
   const trendCurr = (analytics.trend && analytics.trend.length) ? analytics.trend[analytics.trend.length - 1].value : 0;
   const trendDir = trendCurr > trendPrev ? 'up' : trendCurr < trendPrev ? 'down' : 'flat';
-  const trendLabel = trendDir === 'up' ? 'â†‘' : trendDir === 'down' ? 'â†“' : 'â†’';
+  const trendLabel = trendDir === 'up' ? '↑' : trendDir === 'down' ? '↓' : '→';
   const trendClass = trendDir === 'up' ? 'trend-up' : trendDir === 'down' ? 'trend-down' : 'trend-flat';
 
   const cards = [
@@ -1330,7 +1330,7 @@ function renderAnalytics() {
     <div class="card">
       <h3>Flagged items (review due)</h3>
       <ul>${flagged.length ? flagged.slice(0, 50).map(function (item) {
-        return `<li>#${escapeHtml(item.id)} â€” ${escapeHtml(item.sector)}${item.reviewDate ? ' Â· due ' + escapeHtml(item.reviewDate) : ''}</li>`;
+        return `<li>#${escapeHtml(item.id)} — ${escapeHtml(item.sector)}${item.reviewDate ? ' · due ' + escapeHtml(item.reviewDate) : ''}</li>`;
       }).join('') : '<li>No flagged items</li>'}</ul>
     </div>`;
 
@@ -1396,7 +1396,7 @@ function renderAudit() {
 
   const summaryEl = getEl('auditSummary');
   if (summaryEl) summaryEl.textContent = totalRows
-    ? (start + 1) + 'â€“' + Math.min(start + AUDIT_PAGE_SIZE, totalRows) + ' of ' + totalRows + ' entries'
+    ? (start + 1) + '–' + Math.min(start + AUDIT_PAGE_SIZE, totalRows) + ' of ' + totalRows + ' entries'
     : 'No entries';
   renderAuditPager();
 }
@@ -1407,9 +1407,9 @@ function renderAuditPager() {
   const total = appState.audit.length;
   const pages = Math.max(1, Math.ceil(total / AUDIT_PAGE_SIZE));
   pager.innerHTML = pages <= 1 ? '' : `
-    <button class="page-btn" type="button" onclick="setAuditPage(${appState.auditPage - 1})" ${appState.auditPage <= 1 ? 'disabled' : ''} aria-label="Previous page">â€¹</button>
+    <button class="page-btn" type="button" onclick="setAuditPage(${appState.auditPage - 1})" ${appState.auditPage <= 1 ? 'disabled' : ''} aria-label="Previous page">‹</button>
     <span class="page-info">Page ${appState.auditPage} of ${pages}</span>
-    <button class="page-btn" type="button" onclick="setAuditPage(${appState.auditPage + 1})" ${appState.auditPage >= pages ? 'disabled' : ''} aria-label="Next page">â€º</button>`;
+    <button class="page-btn" type="button" onclick="setAuditPage(${appState.auditPage + 1})" ${appState.auditPage >= pages ? 'disabled' : ''} aria-label="Next page">›</button>`;
 }
 
 function setAuditPage(page) {
@@ -1459,7 +1459,7 @@ function deleteAuditRows() {
     danger: true
   }).then(function (ok) {
     if (!ok) return;
-    showOverlay('Deleting audit entriesâ€¦');
+    showOverlay('Deleting audit entries…');
     ApiService.adminDeleteAuditRows(rows).then(function (result) {
       hideOverlay();
       appState.audit = result || [];
@@ -1484,7 +1484,7 @@ function clearAuditLog() {
     danger: true
   }).then(function (ok) {
     if (!ok) return;
-    showOverlay('Clearing audit logâ€¦');
+    showOverlay('Clearing audit log…');
     ApiService.adminClearAudit().then(function (result) {
       hideOverlay();
       appState.audit = result || [];
@@ -1778,7 +1778,7 @@ function printCard(row, includeSubmissions) {
   };
 
   if (useSubs) {
-    showOverlay('Preparing printâ€¦');
+    showOverlay('Preparing print…');
     ApiService.getSubmissions(Number(row)).then(function (list) {
       hideOverlay();
       build(list || []);
@@ -1841,7 +1841,7 @@ function printReport(includeSubmissions) {
   };
 
   if (useSubs) {
-    showOverlay('Preparing reportâ€¦');
+    showOverlay('Preparing report…');
     ApiService.getSubmissions().then(function (list) {
       hideOverlay();
       run(groupSubmissionsByCard_(list || []));
@@ -1871,7 +1871,7 @@ function downloadFromBase64(base64, filename, mimeType) {
 }
 
 function exportSpreadsheet() {
-  showOverlay('Exporting Excel fileâ€¦');
+  showOverlay('Exporting Excel file…');
   ApiService.exportToSpreadsheet().then(function (result) {
     hideOverlay();
     if (result && result.base64) {
@@ -1888,7 +1888,7 @@ function exportSpreadsheet() {
 }
 
 function downloadPdf() {
-  showOverlay('Generating PDFâ€¦');
+  showOverlay('Generating PDF…');
   ApiService.createPdfReport().then(function (result) {
     hideOverlay();
     if (result && result.base64) {
@@ -1944,9 +1944,9 @@ function renderUsersTable(users) {
     return `
       <tr${resetPending ? ' class="row-reset-requested"' : ''}>
         <td class="preserve-whitespace">${escapeHtml(u.email)}${u.mustChange ? ' <em>(must change)</em>' : ''}${resetBadge}</td>
-        <td class="preserve-whitespace">${username || '<span class="badge" data-tone="muted">â€”</span>'}</td>
+        <td class="preserve-whitespace">${username || '<span class="badge" data-tone="muted">—</span>'}</td>
         <td>${escapeHtml(u.role)}</td>
-        <td class="preserve-whitespace">${office || '<span class="badge" data-tone="muted">â€”</span>'}</td>
+        <td class="preserve-whitespace">${office || '<span class="badge" data-tone="muted">—</span>'}</td>
         <td class="preserve-whitespace">${escapeHtml(u.createdAt || '')}</td>
         <td><button class="btn btn-secondary btn-small" type="button" data-action="reset" data-index="${i}">Reset password</button></td>
         <td><button class="btn btn-secondary btn-small" type="button" data-action="edit" data-index="${i}">Edit</button></td>
@@ -2000,7 +2000,7 @@ function renderUserActivity(activity) {
 
 function exportUsers() {
   if (!appState.isAdmin) { showToast('Admin access required', 'error'); return; }
-  showOverlay('Preparing CSVâ€¦');
+  showOverlay('Preparing CSV…');
   ApiService.adminExportUsers().then(function (csv) {
     hideOverlay();
     downloadTextFile('IndiaPostDashboard_Users_' + new Date().toISOString().slice(0, 10) + '.csv', csv || '', 'text/csv;charset=utf-8');
@@ -2018,7 +2018,7 @@ function importUsersFile(file) {
   reader.onload = function (e) {
     const csv = String(e.target.result || '');
     if (!csv.trim()) { showToast('The file is empty', 'error'); return; }
-    showOverlay('Importing usersâ€¦');
+    showOverlay('Importing users…');
     ApiService.adminImportUsers(csv).then(function (result) {
       hideOverlay();
       renderUsersTable((result && result.users) || []);
@@ -2076,7 +2076,7 @@ function saveEditUser() {
     office: getEl('editUserOffice').value.trim()
   };
   if (!setFieldInvalid(emailEl, isValidEmailList(email) ? '' : 'Enter a valid email address.')) return;
-  showOverlay('Saving userâ€¦');
+  showOverlay('Saving user…');
   ApiService.adminUpdateUser(editUserOriginalEmail, fields).then(function (res) {
     hideOverlay();
     closeEditUser();
@@ -2118,7 +2118,7 @@ function handleAddUser(e) {
   valid = setFieldInvalid(passwordEl, password.length >= 8 ? '' : 'Password must be at least 8 characters.') && valid;
   if (!valid) return;
 
-  showOverlay('Adding userâ€¦');
+  showOverlay('Adding user…');
   ApiService.adminAddUser(email, username, role, password, group, department, office).then(function (users) {
     hideOverlay();
     emailEl.value = '';
@@ -2165,7 +2165,7 @@ function handleChangePassword(e) {
   }
   if (!valid) return;
 
-  showOverlay('Updating passwordâ€¦');
+  showOverlay('Updating password…');
   ApiService.changePassword(current, np).then(function (res) {
     hideOverlay();
     const status = getEl('changePasswordStatus');
@@ -2205,7 +2205,7 @@ function deleteUser(email) {
     danger: true
   }).then(function (ok) {
     if (!ok) return;
-    showOverlay('Deleting userâ€¦');
+    showOverlay('Deleting user…');
     ApiService.adminDeleteUser(email).then(function (users) {
       hideOverlay();
       renderUsersTable(users || []);
@@ -2221,7 +2221,7 @@ function deleteUser(email) {
 function resetUserPassword(email) {
   const newPassword = prompt('New password for ' + email + ' (min 8 characters):');
   if (!newPassword) return;
-  showOverlay('Resetting passwordâ€¦');
+  showOverlay('Resetting password…');
   ApiService.adminResetPassword(email, newPassword).then(function (users) {
     hideOverlay();
     renderUsersTable(users || []);
@@ -2310,7 +2310,7 @@ function handleDocUpload(row, input) {
   reader.onload = function (e) {
     const bytes = e.target.result;
     const base64 = btoa(String.fromCharCode.apply(null, new Uint8Array(bytes)));
-    showOverlay('Uploading documentâ€¦');
+    showOverlay('Uploading document…');
     ApiService.uploadDocument(row, '', file.name, base64, file.type || 'application/octet-stream').then(function () {
       hideOverlay();
       showToast('Document uploaded.', 'success');
@@ -2330,7 +2330,7 @@ function deleteRecordDoc(docId, row) {
     body: 'Remove this document permanently?',
     confirmLabel: 'Delete',
     onConfirm: function () {
-      showOverlay('Deleting documentâ€¦');
+      showOverlay('Deleting document…');
       ApiService.deleteDocument(docId).then(function () {
         hideOverlay();
         showToast('Document removed.', 'success');
@@ -2349,7 +2349,7 @@ function closeRecordDetail() {
 }
 
 function submitRecordReview(row, summary) {
-  showOverlay('Submitting review requestâ€¦');
+  showOverlay('Submitting review request…');
   ApiService.submitRecordReview(row, summary).then(function () {
     hideOverlay();
     showToast('Review request submitted.', 'success');
@@ -2407,7 +2407,7 @@ function renderApprovals() {
         '<td>' + escapeHtml('Record #' + (a.targetRow || '')) + '</td>' +
         '<td class="preserve-whitespace">' + escapeHtml(a.summary || '') + '</td>' +
         '<td>' + statusBadge + '</td>' +
-        '<td>' + escapeHtml(a.reviewedBy ? formatNotifTime(a.reviewedAt) : 'â€”') + '</td>' +
+        '<td>' + escapeHtml(a.reviewedBy ? formatNotifTime(a.reviewedAt) : '—') + '</td>' +
         '</tr>';
     }).join('') || '<tr><td colspan="4">No requests yet.</td></tr>';
   }
@@ -2433,7 +2433,7 @@ function setReviewDecision(approve) {
 }
 
 function saveReview(id, approve, comment) {
-  showOverlay('Processing reviewâ€¦');
+  showOverlay('Processing review…');
   ApiService.reviewApproval(id, approve, comment).then(function (result) {
     hideOverlay();
     closeReviewDialog();
@@ -2455,7 +2455,7 @@ function renderTasks() {
   if (statusFilter && statusFilter.value) filters.status = statusFilter.value;
   if (priorityFilter && priorityFilter.value) filters.priority = priorityFilter.value;
 
-  showOverlay('Loading tasksâ€¦');
+  showOverlay('Loading tasks…');
   ApiService.getTasks(filters).then(function (tasks) {
     hideOverlay();
     appState.tasks = tasks || [];
@@ -2519,7 +2519,7 @@ function saveTask() {
     dueDate: dmyToIso(getEl('taskDueDate').value),
     recordRow: getEl('taskRecordRow').value ? Number(getEl('taskRecordRow').value) : 0
   };
-  showOverlay('Creating taskâ€¦');
+  showOverlay('Creating task…');
   ApiService.createTask(params).then(function () {
     hideOverlay();
     closeTaskModal();
@@ -2538,7 +2538,7 @@ function completeTask(id) {
     body: 'Mark this task as done?',
     confirmLabel: 'Done',
     onConfirm: function () {
-      showOverlay('Updating taskâ€¦');
+      showOverlay('Updating task…');
       ApiService.updateTask(id, { status: 'DONE' }).then(function () {
         hideOverlay();
         showToast('Task marked complete.', 'success');
@@ -2803,7 +2803,7 @@ function saveDashboardPreferences() {
   const modeRadio = document.querySelector('input[name="viewMode"]:checked');
   const viewMode = modeRadio ? modeRadio.value : 'cards';
   const prefs = { viewMode: viewMode, columns: columns };
-  showOverlay('Saving preferencesâ€¦');
+  showOverlay('Saving preferences…');
   ApiService.saveDashboardPreferences(prefs).then(function () {
     hideOverlay();
     showToast('Dashboard preferences saved.', 'success');
@@ -2882,7 +2882,7 @@ function filterCommands(query) {
     }).slice(0, 8).map(function (item) {
       return {
         key: 'record-' + item.row,
-        label: 'Record #' + item.id + ' â€” ' + (item.sector || ''),
+        label: 'Record #' + item.id + ' — ' + (item.sector || ''),
         subtitle: (item.description || '').slice(0, 60),
         action: function () { openRecordDetail(item.row); closeCommandPalette(); }
       };
@@ -3012,7 +3012,7 @@ function saveEditModal(e) {
 }
 
 function submitNewItem(item) {
-  showOverlay('Adding recordâ€¦');
+  showOverlay('Adding record…');
   ApiService.addItem(item).then(function (data) {
     hideOverlay();
     closeEditModal();
@@ -3030,7 +3030,7 @@ function submitNewItem(item) {
 }
 
 function saveItem(item) {
-  showOverlay('Saving recordâ€¦');
+  showOverlay('Saving record…');
   ApiService.updateItem(item).then(function (data) {
     hideOverlay();
     closeEditModal();
@@ -3055,7 +3055,7 @@ function deleteItem(row) {
     danger: true
   }).then(function (ok) {
     if (!ok) return;
-    showOverlay('Deleting recordâ€¦');
+    showOverlay('Deleting record…');
     ApiService.deleteItem(row).then(function (data) {
       hideOverlay();
       appState.items = data.items || [];
@@ -3109,7 +3109,7 @@ function markReviewDone(row) {
     okLabel: 'Mark done'
   }).then(function (ok) {
     if (!ok) return;
-    showOverlay('Marking review as doneâ€¦');
+    showOverlay('Marking review as done…');
     ApiService.markReviewDone(row).then(function (data) {
       hideOverlay();
       appState.items = data.items || [];
@@ -3134,7 +3134,7 @@ function openSubmissionsModal(row, cardId, onlyMine) {
   resetSubmissionCompose();
   getEl('submissionStatus').textContent = '';
   getEl('submissionsOnlyMine').checked = !!onlyMine;
-  getEl('submissionText').placeholder = 'Write your update for record #' + cardId + 'â€¦';
+  getEl('submissionText').placeholder = 'Write your update for record #' + cardId + '…';
   getEl('submissionsModal').classList.remove('hidden');
   loadSubmissions();
 }
@@ -3227,7 +3227,7 @@ function submitSubmission() {
   }
   const editingId = appState.submissionEditingId;
   if (editingId) {
-    showOverlay('Saving submissionâ€¦');
+    showOverlay('Saving submission…');
     ApiService.updateSubmission(editingId, text).then(function (list) {
       hideOverlay();
       appState.submissions = list || [];
@@ -3243,7 +3243,7 @@ function submitSubmission() {
       getEl('submissionStatus').textContent = err.message || 'Could not save submission';
     });
   } else {
-    showOverlay('Submitting updateâ€¦');
+    showOverlay('Submitting update…');
     ApiService.addSubmission(Number(appState.submissionCardRow), appState.submissionCardId, text).then(function (list) {
       hideOverlay();
       appState.submissions = list || [];
@@ -3265,7 +3265,7 @@ function submitSubmission() {
 
 function lockSubmission(id) {
   if (!appState.isEditor) { showToast('Editor access required', 'warning'); return; }
-  showOverlay('Locking submissionâ€¦');
+  showOverlay('Locking submission…');
   ApiService.lockSubmission(id).then(function (list) {
     hideOverlay();
     appState.submissions = list || [];
@@ -3280,7 +3280,7 @@ function lockSubmission(id) {
 
 function unlockSubmission(id) {
   if (!appState.isEditor) { showToast('Editor access required', 'warning'); return; }
-  showOverlay('Unlocking submissionâ€¦');
+  showOverlay('Unlocking submission…');
   ApiService.unlockSubmission(id).then(function (list) {
     hideOverlay();
     appState.submissions = list || [];
@@ -3302,7 +3302,7 @@ function deleteSubmission(id) {
     danger: true
   }).then(function (ok) {
     if (!ok) return;
-    showOverlay('Deleting submissionâ€¦');
+    showOverlay('Deleting submission…');
     ApiService.deleteSubmission(id).then(function (list) {
       hideOverlay();
       appState.submissions = list || [];
@@ -3319,7 +3319,7 @@ function deleteSubmission(id) {
 
 function toggleDisplaySubmission(id) {
   if (!appState.isAdmin) { showToast('Admin access required', 'warning'); return; }
-  showOverlay('Updating displayâ€¦');
+  showOverlay('Updating display…');
   ApiService.toggleSubmissionDisplay(id).then(function (list) {
     hideOverlay();
     appState.submissions = list || [];
