@@ -369,7 +369,7 @@ function scopeItemsForUser_(items, user) {
     const sector = String(item.sector || '').trim().toLowerCase();
     const responsibility = String(item.responsibility || '').trim().toLowerCase();
     const departmentOk = !department || (sector === department || (sector && sector.indexOf(department) !== -1) || (department && department.indexOf(sector) !== -1));
-    const officeOk = !office || (responsibility === office || (responsibility && responsibility.indexOf(office) !== -1) || (office && office.indexOf(responsibility) !== -1));
+    const officeOk = !office || responsibilityMatchesUser_(item.responsibility, user);
     return departmentOk && officeOk;
   });
 }
@@ -386,6 +386,27 @@ function responsibilityMatchesOffice_(responsibility, office) {
   const o = String(office || '').trim().toLowerCase();
   if (!r || !o) return false;
   return r === o || r.indexOf(o) !== -1 || o.indexOf(r) !== -1;
+}
+
+/**
+ * Matches a record responsibility against a user's full identity (username +
+ * office). Group responsibilities expand to every user whose username carries
+ * the group's prefix: "all postal divisional heads" -> do_*, "all divisional
+ * heads" -> rms_*. Anything else falls back to office matching.
+ * @param {string} responsibility Record responsibility.
+ * @param {Object} user User context/record (username + office fields).
+ * @returns {boolean}
+ */
+function responsibilityMatchesUser_(responsibility, user) {
+  const r = String(responsibility || '').trim().toLowerCase();
+  const username = String((user && user.username) || '').trim().toLowerCase();
+  if (r === 'all postal divisional heads') {
+    return username.indexOf('do_') === 0;
+  }
+  if (r === 'all divisional heads') {
+    return username.indexOf('rms_') === 0;
+  }
+  return responsibilityMatchesOffice_(responsibility, user && user.office);
 }
 
 /**
@@ -428,7 +449,7 @@ function getReviewReminders_(items, user) {
   (items || []).forEach(function (item) {
     const responsibility = String(item.responsibility || '').trim();
     if (!responsibility) return;
-    if (office && !responsibilityMatchesOffice_(responsibility, office)) return;
+    if (office && !responsibilityMatchesUser_(responsibility, user)) return;
     if (item.reviewStatus === 'done') return;
     const days = daysUntilDate_(item.reviewDate);
     if (days === null || days > 1) return;
@@ -528,7 +549,7 @@ function sendReviewReminders(token) {
     users.forEach(function (user) {
       const email = String(user.email || '').trim().toLowerCase();
       if (!email || !isValidEmail_(email)) return;
-      if (!responsibilityMatchesOffice_(responsibility, user.office)) return;
+      if (!responsibilityMatchesUser_(responsibility, user)) return;
 
       const dedupeKey = 'remind_' + todayKey + '_' + item.row + '_' + email;
       if (cache.get(dedupeKey)) {
