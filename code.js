@@ -478,6 +478,7 @@ function getReviewReminders_(items, user) {
  */
 function getAppData(token) {
   const user = requireLogin_(token);
+  try { ensureUserRecord_(user.email); } catch (err) {}
   const context = getUserContext(user.email);
   const data = getData();
   const items = scopeItemsForUser_(data.items || [], context);
