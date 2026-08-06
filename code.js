@@ -17,7 +17,7 @@
  * @param {Object} e The web-app event object.
  * @returns {GoogleAppsScript.HTML.HtmlOutput} A redirect or JSON output.
  */
-const FRONTEND_URL = 'https://vcharyanaco-tech.github.io/dashv1/app.html';
+const FRONTEND_URL = 'https://dashboardharyana.site/app.html';
 
 function doGet(e) {
 
@@ -597,7 +597,7 @@ function sendReviewReminders(token) {
         'next review date is tomorrow (' + item.reviewDate + '):\n\n' +
         'Record #' + item.id + ' · ' + (item.sector || '') + '\n' +
         'Action to be taken: ' + (item.action || '—') + '\n\n' +
-        'Please log in at https://www.dashboardharyana.site/app.html and complete the required action.\n\n' +
+        'Please log in at https://dashboardharyana.site/app.html and complete the required action.\n\n' +
         'India Post Dashboard';
 
       if (sendMail_(email, subject, body)) {
