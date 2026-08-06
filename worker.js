@@ -180,16 +180,6 @@ function processHtml(html, gasOrigin) {
   // 1. Remove ALL <base> tags — they violate base-uri 'self' CSP
   result = result.replace(/<base[^>]*>/gi, '');
 
-  // 2. Rewrite relative URLs to absolute (covers href, src, action attributes)
-  //    Matches quoted: href="/...", src="/...", action="/..."
-  //    Does NOT touch already-absolute URLs (http/https/data/blob/://)
-  result = result.replace(
-    /((?:href|src|action)\s*=\s*)(["'])(\/((?!\/)([^"']*)))(["'])/gi,
-    (match, attr, openQ, slashPath, rest, inner, closeQ) => {
-      return attr + openQ + gasOrigin + slashPath + closeQ;
-    }
-  );
-
   // 3. Extract the nonce Google put on the page (used for strict-dynamic CSP)
   //    Google sets nonce="<value>" on <script> and <link> tags
   const nonceMatch = result.match(/\snonce=["']([^"']+)["']/i);
