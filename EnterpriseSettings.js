@@ -17,10 +17,10 @@
   },
   AI_INSIGHTS: {
     enabled: true,
-    provider: 'openrouter', // 'openrouter' | 'gemini' (override via AI_PROVIDER Script Property)
-    apiKey: '',             // PLACEHOLDER - real key goes in Script Properties (OPENROUTER_API_KEY / GEMINI_API_KEY)
-    endpoint: 'https://openrouter.ai/api/v1/chat/completions',
-    model: 'openai/gpt-4o-mini',
+    provider: 'groq',       // 'groq' | 'openrouter' | 'gemini' (override via AI_PROVIDER Script Property)
+    apiKey: '',             // PLACEHOLDER - real key goes in Script Properties (GROQ_API_KEY / OPENROUTER_API_KEY / GEMINI_API_KEY)
+    endpoint: 'https://api.groq.com/openai/v1/chat/completions',
+    model: 'llama-3.3-70b-versatile',
     dailySummary: {
       hour: 18,
       minute: 30

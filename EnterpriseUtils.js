@@ -19,7 +19,7 @@ function getEnterpriseConfig_() {
     calendarEnabled: props.CALENDAR_ENABLED === 'true' || ((s.CALENDAR || {}).enabled === true),
     offlineStrictAuth: props.OFFLINE_STRICT_AUTH === 'true',
     timezone: props.TIMEZONE || 'Asia/Kolkata',
-    aiModel: props.AI_MODEL || props.GEMINI_MODEL || ((s.AI_INSIGHTS || {}).model) || 'openai/gpt-4o-mini'
+    aiModel: props.AI_MODEL || props.GEMINI_MODEL || ((s.AI_INSIGHTS || {}).model) || 'llama-3.3-70b-versatile'
   };
 }
 

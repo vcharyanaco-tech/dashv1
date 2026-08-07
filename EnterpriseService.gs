@@ -12,6 +12,7 @@
 
 var ENTERPRISE_AI_DEFAULT_ENDPOINT = 'https://generativelanguage.googleapis.com/v1beta/models/gemini-2.0-flash:generateContent';
 var ENTERPRISE_AI_OPENROUTER_ENDPOINT = 'https://openrouter.ai/api/v1/chat/completions';
+var ENTERPRISE_AI_GROQ_ENDPOINT = 'https://api.groq.com/openai/v1/chat/completions';
 
 /* Builds an .ics feed of review-due records for the caller's office scope.
    Returns {success, filename, count, ics}. */
@@ -211,7 +212,7 @@ function getAiInsights(token) {
     return { success: false, message: 'AI insights are not enabled.' };
   }
   var provider = (props.getProperty('AI_PROVIDER') || ai.provider || 'openrouter').toLowerCase();
-  var apiKey = props.getProperty(provider === 'gemini' ? 'GEMINI_API_KEY' : 'OPENROUTER_API_KEY') || ai.apiKey || '';
+  var apiKey = props.getProperty(aiKeyPropName_(provider)) || ai.apiKey || '';
   if (!apiKey) {
     return { success: false, message: 'AI credentials are not configured.' };
   }
@@ -219,12 +220,11 @@ function getAiInsights(token) {
   var summary = buildSummaryFromItems(data.items || []);
   var prompt = 'India Post dashboard: total=' + summary.total + ', reviewDue=' + summary.flagged +
     ', normal=' + summary.normal + '. Give exactly 3 concise bullet follow-up actions.';
-  var model = props.getProperty('AI_MODEL') || ai.model ||
-    (provider === 'gemini' ? 'gemini-2.0-flash' : 'openai/gpt-4o-mini');
+  var model = props.getProperty('AI_MODEL') || ai.model || aiDefaultModel_(provider);
   try {
-    return provider === 'gemini'
-      ? callGemini_(props, ai, apiKey, model, prompt)
-      : callOpenRouter_(props, ai, apiKey, model, prompt);
+    if (provider === 'gemini') return callGemini_(props, ai, apiKey, model, prompt);
+    if (provider === 'groq') return callGroq_(props, apiKey, model, prompt);
+    return callOpenRouter_(props, ai, apiKey, model, prompt);
   } catch (err) {
     return { success: false, message: String(err) };
   }
@@ -232,9 +232,20 @@ function getAiInsights(token) {
 
 function getAIInsights(token) { return getAiInsights(token); }
 
-/* OpenRouter chat completions (OpenAI-compatible). */
-function callOpenRouter_(props, ai, apiKey, model, prompt) {
-  var endpoint = props.getProperty('OPENROUTER_ENDPOINT') || ai.endpoint || ENTERPRISE_AI_OPENROUTER_ENDPOINT;
+function aiKeyPropName_(provider) {
+  if (provider === 'gemini') return 'GEMINI_API_KEY';
+  if (provider === 'groq') return 'GROQ_API_KEY';
+  return 'OPENROUTER_API_KEY';
+}
+
+function aiDefaultModel_(provider) {
+  if (provider === 'gemini') return 'gemini-2.0-flash';
+  if (provider === 'groq') return 'llama-3.3-70b-versatile';
+  return 'openai/gpt-4o-mini';
+}
+
+/* OpenAI-compatible chat completions (shared by OpenRouter and Groq). */
+function callOpenAiChat_(endpoint, apiKey, model, prompt) {
   var resp = UrlFetchApp.fetch(endpoint, {
     method: 'post',
     contentType: 'application/json',
@@ -258,12 +269,24 @@ function callOpenRouter_(props, ai, apiKey, model, prompt) {
   var code = resp.getResponseCode();
   if (code < 200 || code >= 300) {
     var apiErr = body && body.error && (body.error.message || body.error.type || body.error.status);
-    return { success: false, message: apiErr || ('OpenRouter HTTP ' + code) };
+    return { success: false, message: apiErr || ('AI provider HTTP ' + code) };
   }
   var text = body && body.choices && body.choices[0] && body.choices[0].message &&
     body.choices[0].message.content;
-  if (!text) return { success: false, message: 'No text returned by OpenRouter.' };
+  if (!text) return { success: false, message: 'No text returned by AI provider.' };
   return { success: true, insights: text };
+}
+
+/* OpenRouter chat completions. */
+function callOpenRouter_(props, ai, apiKey, model, prompt) {
+  var endpoint = props.getProperty('OPENROUTER_ENDPOINT') || ai.endpoint || ENTERPRISE_AI_OPENROUTER_ENDPOINT;
+  return callOpenAiChat_(endpoint, apiKey, model, prompt);
+}
+
+/* Groq chat completions (free tier). */
+function callGroq_(props, apiKey, model, prompt) {
+  var endpoint = props.getProperty('GROQ_ENDPOINT') || ENTERPRISE_AI_GROQ_ENDPOINT;
+  return callOpenAiChat_(endpoint, apiKey, model, prompt);
 }
 
 /* Google Gemini via generateContent. */
@@ -309,11 +332,22 @@ function setGeminiApiKey(token, apiKey) {
   return { ok: true };
 }
 
+/* Admin-gated: stores the Groq API key in Script Properties so the real
+   credential is never committed to the repo. Never echoes the value back. */
+function setGroqApiKey(token, apiKey) {
+  requireAdmin_(token);
+  if (!apiKey || typeof apiKey !== 'string' || !apiKey.trim()) {
+    return { ok: false, message: 'Missing API key.' };
+  }
+  PropertiesService.getScriptProperties().setProperty('GROQ_API_KEY', apiKey.trim());
+  return { ok: true };
+}
+
 function aiKeyConfigured_() {
   var ai = (ENTERPRISE_SETTINGS || {}).AI_INSIGHTS || {};
   var props = PropertiesService.getScriptProperties();
   var provider = (props.getProperty('AI_PROVIDER') || ai.provider || 'openrouter').toLowerCase();
-  var propName = provider === 'gemini' ? 'GEMINI_API_KEY' : 'OPENROUTER_API_KEY';
+  var propName = aiKeyPropName_(provider);
   return !!props.getProperty(propName) || !!ai.apiKey;
 }
 
