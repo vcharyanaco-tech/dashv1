@@ -201,6 +201,7 @@ function userRecordFromRow_(row) {
     group: row[9] || '',
     department: row[10] || '',
     office: row[11] || '',
+    preferences: row[12] || '',
     resetRequested: row[13] ? String(row[13]) : '',
     username: row[14] ? String(row[14]) : ''
   };

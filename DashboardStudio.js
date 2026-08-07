@@ -27,7 +27,7 @@ const DEFAULT_COLUMNS = Object.freeze({
 });
 
 function getUserPreferences_(email) {
-  const user = findUserByEmail_(email);
+  const user = findUserRecord_(email);
   if (!user) return {};
   try {
     const raw = String(user.preferences || '').trim();
@@ -39,14 +39,12 @@ function getUserPreferences_(email) {
 }
 
 function setUserPreferences_(email, prefs) {
-  const user = findUserByEmail_(email);
+  const user = findUserRecord_(email);
   if (!user) return false;
-  const row = findUserRowByEmail_(email);
-  if (!row) return false;
   const sh = usersSheet_();
   const col = USER_SHEET_HEADERS.indexOf('Preferences') + 1;
   if (col < 1) return false;
-  sh.getRange(row, col).setValue(JSON.stringify(prefs || {}));
+  sh.getRange(user.row, col).setValue(JSON.stringify(prefs || {}));
   return true;
 }
 
