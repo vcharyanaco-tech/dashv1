@@ -165,15 +165,15 @@ function updateTask(id, fields, token) {
 
     const existing = taskRecordFromRow_(values[rowIdx - 2]);
     const isAssignee = existing.assignee === user.email;
-    const isEditor = isEditor(user.email);
+    const isEditorRole = isEditor(user.email);
 
-    if (!isEditor && !isAssignee) throw new Error('Permission denied.');
+    if (!isEditorRole && !isAssignee) throw new Error('Permission denied.');
 
     const updates = {};
     if ('title' in fields) updates.title = String(fields.title || '').trim();
     if ('description' in fields) updates.description = String(fields.description || '');
     if ('assignee' in fields) {
-      if (!isEditor) throw new Error('Only editors can reassign tasks.');
+      if (!isEditorRole) throw new Error('Only editors can reassign tasks.');
       updates.assignee = String(fields.assignee || '').toLowerCase().trim();
     }
     if ('status' in fields) {
