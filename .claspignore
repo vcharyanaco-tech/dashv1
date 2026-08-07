@@ -1,6 +1,8 @@
-node_modules/**
+﻿node_modules/**
 worker.js
+worker-enterprise-routes.js
 wrangler.toml
+deploy-worker-api.js
 auto-commit.ps1
 .gitignore
 .git/**
@@ -9,4 +11,15 @@ SESSION_EXPORT.md
 .claspignore
 app.js
 docs/**
-deploy-worker-api.js
+sw.js
+manifest.json
+Apply-EnterpriseAddons.ps1
+Build-EnterpriseAddons-Part1.ps1
+Build-EnterpriseAddons-Part2.ps1
+Build-EnterpriseAddons-Part3.ps1
+Build-EnterpriseAddons-Part4.ps1
+Run-EnterpriseAddons.bat
+Verify-EnterpriseAddons.ps1
+README_ENTERPRISE_ADDONS.md
+*.ps1
+*.md

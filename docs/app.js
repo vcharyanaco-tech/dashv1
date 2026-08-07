@@ -122,7 +122,10 @@ const ApiService = {
   adminClearAudit: function () { return apiCall_('adminClearAudit', getAuthToken()); },
   exportToSpreadsheet: function () { return apiCall_('exportToSpreadsheet', getAuthToken()); },
   createPdfReport: function () { return apiCall_('createPdfReport', getAuthToken()); },
-  emailReport: function (recipient, templateKey) { return apiCall_('emailReport', getAuthToken(), recipient, templateKey); }
+  emailReport: function (recipient, templateKey) { return apiCall_('emailReport', getAuthToken(), recipient, templateKey); },
+  exportReviewCalendarIcs: function () { return apiCall_('exportReviewCalendarIcs', getAuthToken()); },
+  sendWhatsAppReviewReminders: function () { return apiCall_('sendWhatsAppReviewReminders', getAuthToken()); },
+  getAiInsights: function () { return apiCall_('getAiInsights', getAuthToken()); }
 };
 
 const appState = {
@@ -2598,6 +2601,8 @@ function renderTaskList() {
       let actionButtons = '';
       if (t.status !== 'DONE' && t.status !== 'CANCELLED') {
         actionButtons += '<button class="btn btn-ghost btn-small" type="button" onclick="completeTask(\'' + escAttr(t.id) + '\')">Complete</button>';
+        actionButtons += '<button class="btn btn-ghost btn-small" type="button" data-download-ics="' + escAttr(t.id) + '" style="margin-left:4px;">ICS</button>';
+        actionButtons += '<button class="btn btn-ghost btn-small" type="button" data-complete-task-offline="' + escAttr(t.id) + '" style="margin-left:4px;">Complete offline</button>';
       }
       if (isAdminOrEditor) {
         actionButtons += '<button class="btn btn-ghost btn-small" type="button" onclick="editTask(\'' + escAttr(t.id) + '\')" style="margin-left:4px;">Edit</button>';
@@ -3858,3 +3863,84 @@ wireGlobalEvents();
 wireEmbeddedLinkPreview();
 wirePreviewPinch();
 window.addEventListener('load', initApp);
+
+/* ============================ ENTERPRISE ADDONS ============================ */
+window.EnterpriseAddons = window.EnterpriseAddons || {};
+
+window.EnterpriseAddons.downloadTaskIcs = function (taskId) {
+  const task = (appState.tasks || []).find(function (t) { return String(t.id) === String(taskId); });
+  if (!task) {
+    showToast('Task not found.', 'error');
+    return;
+  }
+  const d = task.dueDate ? new Date(task.dueDate) : new Date();
+  const two = function (n) { return (n < 10 ? '0' : '') + n; };
+  const dateOnly = d.getFullYear() + two(d.getMonth() + 1) + two(d.getDate());
+  const stamp = new Date().toISOString().replace(/[-:]/g, '').replace(/\.\d{3}/, '');
+  const title = (task.title || 'Task').replace(/[^a-zA-Z0-9 \-]/g, '').replace(/ /g, '_');
+  const ics = [
+    'BEGIN:VCALENDAR',
+    'VERSION:2.0',
+    'PRODID:-//India Post Dashboard//Task//EN',
+    'BEGIN:VEVENT',
+    'UID:task-' + taskId + '-' + dateOnly,
+    'DTSTAMP:' + stamp,
+    'DTSTART;VALUE=DATE:' + dateOnly,
+    'SUMMARY:' + (task.title || 'Task'),
+    'END:VEVENT',
+    'END:VCALENDAR'
+  ].join('\r\n') + '\r\n';
+  const blob = new Blob([ics], { type: 'text/calendar' });
+  const a = document.createElement('a');
+  a.href = URL.createObjectURL(blob);
+  a.download = title + '.ics';
+  document.body.appendChild(a);
+  a.click();
+  URL.revokeObjectURL(a.href);
+  showToast('Calendar file downloaded.', 'success');
+};
+
+window.EnterpriseAddons.completeTaskOffline = function (taskId) {
+  if (navigator.onLine) { completeTask(taskId); return; }
+  if (window.OfflineQueue && window.OfflineQueue.enqueue) {
+    window.OfflineQueue.enqueue('updateTask', [taskId, { status: 'DONE' }]).then(function () {
+      showToast('Queued offline: task completion.', 'info');
+    });
+  } else {
+    showToast('Offline queue not available.', 'error');
+  }
+};
+
+window.EnterpriseAddons.submitRecordOffline = function (payload) {
+  if (window.OfflineQueue && window.OfflineQueue.enqueue) {
+    window.OfflineQueue.enqueue('addItem', [payload || {}]).then(function () {
+      showToast('Queued offline: record submission.', 'info');
+    });
+  } else {
+    showToast('Offline queue not available.', 'error');
+  }
+};
+
+window.EnterpriseAddons.syncOfflineQueue = function () {
+  if (window.OfflineQueue && window.OfflineQueue.flush) {
+    return window.OfflineQueue.flush();
+  }
+  return Promise.resolve({ flushed: 0 });
+};
+
+function wireEnterpriseButtons() {
+  document.addEventListener('click', function (event) {
+    const icsButton = event.target.closest('[data-download-ics]');
+    const completeButton = event.target.closest('[data-complete-task-offline]');
+
+    if (icsButton && window.EnterpriseAddons) {
+      EnterpriseAddons.downloadTaskIcs(icsButton.getAttribute('data-download-ics'));
+    }
+
+    if (completeButton && window.EnterpriseAddons) {
+      EnterpriseAddons.completeTaskOffline(completeButton.getAttribute('data-complete-task-offline'));
+    }
+  });
+}
+
+wireEnterpriseButtons();

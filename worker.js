@@ -17,6 +17,8 @@
  *   - Inject disclaimer-killer CSS/JS using the page's own nonce
  */
 
+import { isEnterprisePath, enterpriseHeadersForPath } from './worker-enterprise-routes.js';
+
 const GITHUB_RAW = 'https://raw.githubusercontent.com/vcharyanaco-tech/dashv1/main/docs';
 
 const COMMON_HEADERS = {
@@ -36,6 +38,13 @@ export default {
         status: 204,
         headers: { ...COMMON_HEADERS, 'Access-Control-Max-Age': '86400' },
       });
+    }
+
+    // ── Route: /api/* → enterprise API (health, AI insights, WhatsApp notify) ─
+    // External secrets (GEMINI_API_KEY, WHATSAPP_TOKEN, WHATSAPP_PHONE_NUMBER_ID)
+    // live only in Worker secrets/environment and are read from `env` here.
+    if (url.pathname.startsWith('/api/')) {
+      return handleEnterpriseRoute(request, env, url);
     }
 
     const GAS_BASE_URL = env.GAS_URL;
@@ -78,6 +87,18 @@ export default {
     // The GAS proxy approach can't work cross-domain: googleusercontent.com's
     // maeInit_ only accepts postMessage from script.google.com, so proxying the
     // GAS outer wrapper from dashboardharyana.site always produces a blank page.
+
+    // PWA assets: upgrade response headers for manifest / sw / offline-queue / icon
+    if (isEnterprisePath(path)) {
+      const headers = enterpriseHeadersForPath(path);
+      if (headers) {
+        const resp = await fetchFromPages(path, url.search);
+        const newHeaders = new Headers(resp.headers);
+        Object.entries(headers).forEach(([k, v]) => newHeaders.set(k, v));
+        return new Response(resp.body, { status: resp.status, headers: newHeaders });
+      }
+    }
+
     return fetchFromPages(path, url.search);
   },
 };
@@ -319,4 +340,89 @@ function stripDisclaimerJs(js) {
   );
 
   return result;
+}
+
+// ── Enterprise /api/* routes ────────────────────────────────────────────────
+// Authorization: shared internal bearer token (env.WORKER_API_TOKEN).
+// External secrets (GEMINI_API_KEY, WHATSAPP_TOKEN, WHATSAPP_PHONE_NUMBER_ID)
+// are read only from Worker environment/secrets and never echoed in responses.
+
+function jsonResponse(obj, status) {
+  return new Response(JSON.stringify(obj), {
+    status: status || 200,
+    headers: { ...COMMON_HEADERS, 'Content-Type': 'application/json' },
+  });
+}
+
+function bearerToken(request) {
+  const auth = request.headers.get('Authorization') || '';
+  const m = auth.match(/^Bearer\s+(.+)$/i);
+  return m ? m[1].trim() : '';
+}
+
+async function handleEnterpriseRoute(request, env, url) {
+  if (url.pathname === '/api/health') {
+    return jsonResponse({ ok: true, service: 'dashv1-proxy' });
+  }
+
+  const token = bearerToken(request);
+  if (!token || token !== (env.WORKER_API_TOKEN || '')) {
+    return jsonResponse({ error: 'unauthorized' }, 401);
+  }
+
+  if (url.pathname === '/api/ai-insights' && request.method === 'POST') {
+    return handleAiInsights(request, env);
+  }
+  if (url.pathname === '/api/notify-whatsapp' && request.method === 'POST') {
+    return handleWhatsApp(request, env);
+  }
+  return jsonResponse({ error: 'not found' }, 404);
+}
+
+async function handleAiInsights(request, env) {
+  if (!env.GEMINI_API_KEY) {
+    return jsonResponse({ error: 'AI not configured' }, 500);
+  }
+  let body = {};
+  try { body = await request.json(); } catch (e) { body = {}; }
+  const s = body.summary || {};
+  const prompt = body.prompt ||
+    'India Post dashboard: total=' + (s.total || 0) + ', reviewDue=' + (s.flagged || s.reviewDue || 0) +
+    ', normal=' + (s.normal || 0) + '. Give exactly 3 concise bullet follow-up actions.';
+  const endpoint = 'https://generativelanguage.googleapis.com/v1beta/models/' +
+    (env.GEMINI_MODEL || 'gemini-2.0-flash') + ':generateContent';
+  try {
+    const resp = await fetch(endpoint + '?key=' + encodeURIComponent(env.GEMINI_API_KEY), {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ contents: [{ parts: [{ text: prompt }] }] }),
+    });
+    const gem = await resp.json();
+    const text = gem && gem.candidates && gem.candidates[0] && gem.candidates[0].content &&
+      gem.candidates[0].content.parts && gem.candidates[0].content.parts[0] &&
+      gem.candidates[0].content.parts[0].text;
+    if (!text) return jsonResponse({ error: 'AI returned no content' }, 502);
+    return jsonResponse({ success: true, insights: text });
+  } catch (err) {
+    return jsonResponse({ error: 'AI request failed' }, 502);
+  }
+}
+
+async function handleWhatsApp(request, env) {
+  if (!env.WHATSAPP_TOKEN || !env.WHATSAPP_PHONE_NUMBER_ID) {
+    return jsonResponse({ error: 'WhatsApp not configured' }, 500);
+  }
+  let payload;
+  try { payload = await request.json(); } catch (e) { return jsonResponse({ error: 'invalid json' }, 400); }
+  try {
+    const resp = await fetch(
+      'https://graph.facebook.com/v20.0/' + env.WHATSAPP_PHONE_NUMBER_ID + '/messages', {
+        method: 'POST',
+        headers: { 'Authorization': 'Bearer ' + env.WHATSAPP_TOKEN, 'Content-Type': 'application/json' },
+        body: JSON.stringify(payload),
+      });
+    return jsonResponse(await resp.json(), resp.status);
+  } catch (err) {
+    return jsonResponse({ error: 'WhatsApp request failed' }, 502);
+  }
 }
