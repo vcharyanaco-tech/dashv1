@@ -611,6 +611,55 @@ function sendReviewReminders(token) {
   return { success: true, sent: sent, skipped: skipped };
 }
 
+/**
+ * Creates in-app notifications for the logged-in user for every record whose
+ * responsibility matches their office and whose review date is due today or
+ * tomorrow. Deduplicated per user, record and day via a script cache key so a
+ * user is not re-notified on every page load. Runs inside the script lock
+ * because it appends rows to the hidden Notifications sheet.
+ * @param {string} token Session token (login required).
+ * @returns {{success: boolean, created: number, skipped: number}}
+ */
+function generateReviewNotifications(token) {
+  const user = requireLogin_(token);
+  const context = getUserContext(user.email);
+  const data = getData();
+  const items = data.items || [];
+  const cache = CacheService.getScriptCache();
+  const todayKey = Utilities.formatDate(new Date(), Session.getScriptTimeZone(), 'yyyy-MM-dd');
+
+  let created = 0;
+  let skipped = 0;
+
+  runWithLock_(function () {
+    items.forEach(function (item) {
+      const responsibility = String(item.responsibility || '').trim();
+      if (!responsibility) return;
+      if (item.reviewStatus === 'done') return;
+      if (!responsibilityMatchesUser_(responsibility, context)) return;
+      const days = daysUntilDate_(item.reviewDate);
+      if (days === null || days > 1) return;
+
+      const dedupeKey = 'rvnotif_' + todayKey + '_' + item.row + '_' + user.email;
+      if (cache.get(dedupeKey)) {
+        skipped++;
+        return;
+      }
+
+      const dueLabel = days === 0 ? 'today' : 'tomorrow';
+      const title = 'Review due ' + dueLabel + ': Record #' + item.id;
+      const body = (item.sector || '') +
+        (item.action ? ' — ' + item.action : '') +
+        ' (review date ' + item.reviewDate + ').';
+      appendNotification_(user.email, NOTIFICATION_TYPES.RECORD, title, body, '');
+      cache.put(dedupeKey, '1', 21600);
+      created++;
+    });
+  });
+
+  return { success: true, created: created, skipped: skipped };
+}
+
 /* ============================================================
  * API Endpoint (for GitHub Pages frontend)
  * ============================================================ */

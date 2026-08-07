@@ -37,6 +37,8 @@ function isReviewDoneBackground_(background) {
 /**
  * Maps row numbers to review status: 'done' | 'due' | ''.
  * Rows without a rowNumber (e.g. audit-derived fallback rows) are skipped.
+ * A row is 'due' when its review-date cell is flagged by background colour OR
+ * when its review date has arrived (today or earlier) and is not done.
  * @param {GoogleAppsScript.Spreadsheet.Sheet} sheet The dashboard sheet.
  * @param {Object[]} rows Row specs from getSheetDataRows_.
  * @returns {Object} { rowNumber: status }
@@ -70,9 +72,14 @@ function getReviewStatuses_(sheet, rows) {
     rows.forEach(function (rowSpec) {
       if (rowSpec && rowSpec.rowNumber) {
         const background = colors[rowSpec.rowNumber - start][0];
-        out[String(rowSpec.rowNumber)] = isReviewDoneBackground_(background)
+        let status = isReviewDoneBackground_(background)
           ? "done"
           : (isFlaggedBackground_(background) ? "due" : "");
+        if (status !== "done" && rowSpec.reviewDate) {
+          const days = daysUntilDate_(rowSpec.reviewDate);
+          if (days !== null && days <= 0) status = "due";
+        }
+        out[String(rowSpec.rowNumber)] = status;
       }
     });
   } catch (err) {}
