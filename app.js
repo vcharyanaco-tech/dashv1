@@ -99,6 +99,7 @@ const ApiService = {
   createTask: function (params) { return apiCall_('createTask', params, getAuthToken()); },
   getTasks: function (filters) { return apiCall_('getTasks', filters || {}, getAuthToken()); },
   getMyTasks: function () { return apiCall_('getMyTasks', getAuthToken()); },
+  getAssignableUsers: function () { return apiCall_('getAssignableUsers', getAuthToken()); },
   updateTask: function (id, fields) { return apiCall_('updateTask', id, fields, getAuthToken()); },
   deleteTask: function (id) { return apiCall_('deleteTask', id, getAuthToken()); },
   getDashboardPreferences: function () { return apiCall_('getDashboardPreferences', getAuthToken()); },
@@ -2508,7 +2509,7 @@ function renderTaskList() {
   const tasks = appState.tasks || [];
   const tbody = getEl('tasksBody');
   const empty = getEl('tasksEmpty');
-  const user = appState.session;
+  const user = appState.user;
   const isAdminOrEditor = user && (user.role === 'ADMIN' || user.role === 'EDITOR');
   
   if (tbody) {
@@ -2559,7 +2560,7 @@ function openTaskModal() {
   
   // Load and populate users dropdown
   if (!appState.allUsers) {
-    ApiService.adminGetUsers().then(function (users) {
+    ApiService.getAssignableUsers().then(function (users) {
       appState.allUsers = users;
       populateTaskAssigneeDropdown();
     }).catch(function (err) {
@@ -2637,13 +2638,6 @@ function saveTask() {
     });
   }
 }
-    renderTasks();
-  }).catch(function (err) {
-    hideOverlay();
-    if (handleServerFailure(err)) return;
-    showToast('Could not create task: ' + (err.message || err), 'error');
-  });
-}
 
 function completeTask(id) {
   showConfirm({
@@ -2691,7 +2685,7 @@ function editTask(id) {
     getEl('taskAssignee').value = task.assignee || '';
   } else {
     // Load users if not already loaded
-    ApiService.adminGetUsers().then(function (users) {
+    ApiService.getAssignableUsers().then(function (users) {
       appState.allUsers = users;
       populateTaskAssigneeDropdown();
       getEl('taskAssignee').value = task.assignee || '';

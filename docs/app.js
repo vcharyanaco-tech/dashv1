@@ -922,7 +922,7 @@ function renderReviewDateBanner() {
   if (!banner || !textEl || !cloneEl) return;
 
   // Hide for admin users
-  const user = appState.session;
+  const user = appState.user;
   if (user && user.role === 'ADMIN') {
     banner.classList.add('hidden');
     return;
@@ -2746,7 +2746,7 @@ function renderTaskList() {
   const tasks = appState.tasks || [];
   const tbody = getEl('tasksBody');
   const empty = getEl('tasksEmpty');
-  const user = appState.session;
+  const user = appState.user;
   const isAdminOrEditor = user && (user.role === 'ADMIN' || user.role === 'EDITOR');
   
   if (tbody) {
@@ -2922,7 +2922,7 @@ function editTask(id) {
     getEl('taskAssignee').value = task.assignee || '';
   } else {
     // Load users if not already loaded
-    ApiService.adminGetUsers().then(function (users) {
+    ApiService.getAssignableUsers().then(function (users) {
       appState.allUsers = users;
       populateTaskAssigneeDropdown();
       getEl('taskAssignee').value = task.assignee || '';

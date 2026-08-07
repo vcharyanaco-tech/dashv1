@@ -945,9 +945,7 @@ body.sidebar-collapsed .nav-item.active { box-shadow: inset 0 0 0 2px var(--seco
 
 /* ============================ REVIEW DATE REMINDER BANNER ============================ */
 .review-date-banner {
-  position: sticky;
-  top: 0;
-  z-index: 95;
+  position: relative;
   display: flex;
   align-items: center;
   gap: 12px;

@@ -1,6 +1,6 @@
 # India Post Dashboard — Session State
 
-Last updated: 2026-08-06 17:45:00
+Last updated: 2026-08-07 06:14:32
 
 ## Current Task (split-routing Worker: / → GitHub Pages, /app.html → GAS — DONE, deployed)
 Worker (`dashv1-proxy`) rewritten to split traffic on `dashboardharyana.site`:
