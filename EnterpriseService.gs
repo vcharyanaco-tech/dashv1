@@ -241,7 +241,16 @@ function callOpenRouter_(props, ai, apiKey, model, prompt) {
     headers: { Authorization: 'Bearer ' + apiKey },
     payload: JSON.stringify({
       model: model,
-      messages: [{ role: 'user', content: prompt }]
+      messages: [
+        {
+          role: 'system',
+          content: 'You are a concise data-analytics assistant for the India Post Haryana dashboard. ' +
+            'The user gives current dashboard summary numbers. Respond ONLY with exactly 3 short bullet ' +
+            'points of concrete follow-up actions derived from those numbers. Do not describe India, ' +
+            'its geography, history, or culture.'
+        },
+        { role: 'user', content: prompt }
+      ]
     }),
     muteHttpExceptions: true
   });
