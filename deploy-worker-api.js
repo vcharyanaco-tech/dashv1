@@ -14,6 +14,7 @@ const TOKEN = process.argv[2] || process.env.CLOUDFLARE_API_TOKEN;
 if (!TOKEN) { console.error('Usage: node deploy-worker-api.js <API_TOKEN>'); process.exit(1); }
 
 const workerSrc = fs.readFileSync(path.join(__dirname, 'worker.js'), 'utf8');
+const workerRoutesSrc = fs.readFileSync(path.join(__dirname, 'worker-enterprise-routes.js'), 'utf8');
 
 // Inject env vars into worker source since we're not using wrangler bindings
 const GAS_URL = 'https://script.google.com/macros/s/AKfycbykqb0AE0a6bwHGk4Q_e5LTXhefKtjao9_r7G0zR1cODl5JP5lH_ooqrgFt2hu3oDo2/exec';
@@ -33,6 +34,11 @@ const body = [
   'Content-Type: application/javascript+module',
   '',
   patchedSrc,
+  `--${boundary}`,
+  'Content-Disposition: form-data; name="worker-enterprise-routes.js"; filename="worker-enterprise-routes.js"',
+  'Content-Type: application/javascript+module',
+  '',
+  workerRoutesSrc,
   `--${boundary}`,
   'Content-Disposition: form-data; name="metadata"',
   'Content-Type: application/json',
