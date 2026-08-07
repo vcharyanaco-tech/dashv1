@@ -17,9 +17,10 @@
   },
   AI_INSIGHTS: {
     enabled: true,
-    apiKey: '',             // PLACEHOLDER - real key goes in Script Properties (GEMINI_API_KEY)
-    endpoint: 'https://generativelanguage.googleapis.com/v1beta/models/gemini-2.0-flash:generateContent',
-    model: 'gemini-2.0-flash',
+    provider: 'openrouter', // 'openrouter' | 'gemini' (override via AI_PROVIDER Script Property)
+    apiKey: '',             // PLACEHOLDER - real key goes in Script Properties (OPENROUTER_API_KEY / GEMINI_API_KEY)
+    endpoint: 'https://openrouter.ai/api/v1/chat/completions',
+    model: 'openai/gpt-4o-mini',
     dailySummary: {
       hour: 18,
       minute: 30
