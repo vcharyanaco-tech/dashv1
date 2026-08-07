@@ -511,9 +511,34 @@ function loadLinkAi(btn, row) {
         (data.contentTruncated ? ' · truncated' : '') + '</span>' : '') +
       (data.contentRead ? '' : ' <em>(content not readable — analyzed from record only)</em>') + '</div>';
     let html = head + aiBulletsHtml_(data.insights || '', 'div');
-    if (data.preview) {
+    if (data.previewFormat === 'table' && data.previewRows && data.previewRows.length) {
+      let rows = data.previewRows.slice();
+      let title = '';
+      if (rows.length > 1) {
+        const n0 = rows[0].filter(function (c) { return String(c).trim() !== ''; }).length;
+        const n1 = rows[1].filter(function (c) { return String(c).trim() !== ''; }).length;
+        if (n0 === 1 && n1 > n0) {
+          title = rows[0].filter(function (c) { return String(c).trim() !== ''; })[0];
+          rows = rows.slice(1);
+        }
+      }
+      const thead = '<thead><tr>' + (rows[0] || []).map(function (c) {
+        return '<th>' + escapeHtml(c) + '</th>';
+      }).join('') + '</tr></thead>';
+      const tbody = '<tbody>' + rows.slice(1).map(function (r) {
+        return '<tr>' + r.map(function (c) { return '<td>' + escapeHtml(c) + '</td>'; }).join('') + '</tr>';
+      }).join('') + '</tbody>';
+      const note = (data.previewRowTotal && data.previewRowTotal > data.previewRows.length)
+        ? '<div class="card-ai-table-note">Showing first ' + data.previewRows.length + ' of ' +
+          Number(data.previewRowTotal).toLocaleString() + ' rows</div>'
+        : '';
+      html += '<details class="card-ai-preview" open><summary>Linked file preview</summary>' +
+        (title ? '<div class="card-ai-table-title">' + escapeHtml(title) + '</div>' : '') +
+        '<div class="card-ai-table-wrap"><table class="card-ai-table">' + thead + tbody + '</table></div>' +
+        note + '</details>';
+    } else if (data.preview) {
       html += '<details class="card-ai-preview"><summary>Linked file preview</summary>' +
-        '<div>' + escapeHtml(data.preview) + '</div></details>';
+        '<div class="card-ai-preview-text">' + escapeHtml(data.preview) + '</div></details>';
     }
     result.innerHTML = html;
   }).catch(function (err) {

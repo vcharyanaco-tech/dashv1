@@ -24,6 +24,9 @@ var ENTERPRISE_AI_RECORD_SYSTEM_PROMPT = 'You are a concise data-analytics assis
   'points of concrete follow-up actions derived from that record and link. Do not describe India, ' +
   'its geography, history, or culture.';
 var ENTERPRISE_AI_LINK_MAX_CHARS = 25000;
+var ENTERPRISE_AI_PREVIEW_MAX_ROWS = 50;
+var ENTERPRISE_AI_PREVIEW_MAX_CELLS = 30;
+var ENTERPRISE_AI_PREVIEW_MAX_CELL_CHARS = 300;
 
 /* Builds an .ics feed of review-due records for the caller's office scope.
    Returns {success, filename, count, ics}. */
@@ -402,7 +405,18 @@ function getLinkContentAiInsight(token, row) {
   var url = firstLinkUrl_(item);
   if (!url) return { success: false, message: 'This record has no linked file.' };
   if (!isSafeLinkUrl_(url)) return { success: false, message: 'Unsafe link rejected.' };
-  var fetched = String(fetchLinkText_(url) || '').replace(/\s+/g, ' ').trim();
+  var previewRows = [];
+  var previewRowTotal = 0;
+  var fetched;
+  if (isSheetsLink_(url)) {
+    var table = fetchLinkTable_(url);
+    previewRows = table.rows;
+    previewRowTotal = table.rowCount;
+    fetched = table.text || fetchLinkText_(url);
+  } else {
+    fetched = fetchLinkText_(url);
+  }
+  fetched = String(fetched || '').replace(/\s+/g, ' ').trim();
   var contentTruncated = fetched.length > ENTERPRISE_AI_LINK_MAX_CHARS;
   var text = contentTruncated ? fetched.substring(0, ENTERPRISE_AI_LINK_MAX_CHARS) : fetched;
   var contentRead = text.length > 40;
@@ -421,6 +435,17 @@ function getLinkContentAiInsight(token, row) {
     result.contentLength = text.length;
     result.contentTruncated = contentTruncated;
     result.preview = contentRead ? text.substring(0, 600) : '';
+    result.previewFormat = 'text';
+    if (previewRows.length) {
+      result.previewFormat = 'table';
+      result.previewRows = previewRows.slice(0, ENTERPRISE_AI_PREVIEW_MAX_ROWS).map(function (r) {
+        return r.slice(0, ENTERPRISE_AI_PREVIEW_MAX_CELLS).map(function (c) {
+          var s = String(c == null ? '' : c);
+          return s.length > ENTERPRISE_AI_PREVIEW_MAX_CELL_CHARS ? s.substring(0, ENTERPRISE_AI_PREVIEW_MAX_CELL_CHARS) + '\u2026' : s;
+        });
+      });
+      result.previewRowTotal = previewRowTotal;
+    }
   }
   return result;
 }
@@ -485,7 +510,7 @@ function fetchLinkText_(url) {
   return '';
 }
 
-function fetchRawText_(url) {
+function fetchRawBody_(url) {
   var current = String(url || '');
   var hops = 5;
   var guard = {};
@@ -507,14 +532,75 @@ function fetchRawText_(url) {
       if (code < 200 || code >= 300) return '';
       var body = resp.getContentText();
       if (!body || body.indexOf('\u0000') !== -1) return '';
-      var lower = body.substring(0, 500).toLowerCase();
-      if (lower.indexOf('<html') !== -1 || lower.indexOf('<!doctype') !== -1) {
-        return htmlToText_(body);
-      }
-      return String(body).replace(/\s+/g, ' ').trim();
+      return body;
     } catch (err) { return ''; }
   }
   return '';
+}
+
+function fetchRawText_(url) {
+  var body = fetchRawBody_(url);
+  if (!body) return '';
+  var lower = body.substring(0, 500).toLowerCase();
+  if (lower.indexOf('<html') !== -1 || lower.indexOf('<!doctype') !== -1) {
+    return htmlToText_(body);
+  }
+  return String(body).replace(/\s+/g, ' ').trim();
+}
+
+function isSheetsLink_(url) {
+  return /docs\.google\.com\/spreadsheets\//i.test(String(url || ''));
+}
+
+/* Parses CSV text into an array of rows (array of cell strings). Handles
+   quoted fields, escaped quotes, and newlines inside quotes. */
+function parseCsv_(csv) {
+  var rows = [];
+  var row = [];
+  var cur = '';
+  var inQ = false;
+  var s = String(csv || '');
+  for (var i = 0; i < s.length; i++) {
+    var c = s.charAt(i);
+    if (inQ) {
+      if (c === '"') {
+        if (s.charAt(i + 1) === '"') { cur += '"'; i++; }
+        else { inQ = false; }
+      } else {
+        cur += c;
+      }
+    } else if (c === '"') {
+      inQ = true;
+    } else if (c === ',') {
+      row.push(cur); cur = '';
+    } else if (c === '\n' || c === '\r') {
+      if (c === '\r' && s.charAt(i + 1) === '\n') i++;
+      row.push(cur); cur = '';
+      rows.push(row); row = [];
+    } else {
+      cur += c;
+    }
+  }
+  if (cur !== '' || row.length) { row.push(cur); rows.push(row); }
+  return rows;
+}
+
+/* Fetches a Google Sheets export as a structured table: {rows, rowCount, text}.
+   Returns {rows: [], rowCount: 0} when the export is unreadable/private. */
+function fetchLinkTable_(url) {
+  var body = fetchRawBody_(toReadableLinkUrl_(url));
+  if (!body) return { rows: [], rowCount: 0 };
+  var trimmed = String(body).trim();
+  var lower = trimmed.substring(0, 500).toLowerCase();
+  if (lower.indexOf('<html') !== -1 || lower.indexOf('<!doctype') !== -1) return { rows: [], rowCount: 0 };
+  if (!isReadableAiText_(htmlToText_(trimmed))) return { rows: [], rowCount: 0 };
+  var rows = parseCsv_(trimmed).filter(function (r) {
+    for (var i = 0; i < r.length; i++) { if (String(r[i]).trim() !== '') return true; }
+    return false;
+  });
+  if (!rows.length) return { rows: [], rowCount: 0 };
+  var text = rows.map(function (r) { return r.join(', '); }).join('\n');
+  return { rows: rows, rowCount: rows.length, text: text };
 }
 
 /* Resolves a Location header against the current URL (absolute or relative). */
