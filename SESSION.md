@@ -156,6 +156,7 @@ The "Edit" option in user management should allow admins to edit the full user d
 - Docs site on GitHub Pages redirects root → Worker proxy. OAuth/app-verification thread ABANDONED by user decision.
 
 ## Recent commits (git log)
+- `7b2b577` fix: stack duplicate reminder banners on homepage; fix task section (edit/delete for editors via getAssignableUsers)
 - `7b605f3` docs: note cache-busting rule for always-live dashboardharyana.site
 - `f7a6364` fix: cache-bust assets on docs bundle (versioned URLs) + no-cache meta
 - `ed429f4` feat: date picker for date fields + live clock in topbar
