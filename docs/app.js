@@ -1027,10 +1027,28 @@ function renderKpiCards() {
 
 /* ---------------------------------- Dashboard: cards ---------------------------------- */
 
+function dashboardColumnKey_(label) {
+  const l = String(label || '').trim().toLowerCase();
+  if (l === '#' || l === 'id' || l === 'sr no' || l === 'sr no.') return 'id';
+  if (l === 'sector') return 'sector';
+  if (l === 'description') return 'description';
+  if (l.indexOf('entry') !== -1) return 'entryDate';
+  if (l.indexOf('review') !== -1) return 'reviewDate';
+  if (l.indexOf('action') !== -1) return 'actions';
+  return '';
+}
+
+function dashboardColumnVisible_(label) {
+  const columns = (appState.dashboardPrefs && appState.dashboardPrefs.columns) || {};
+  const key = dashboardColumnKey_(label);
+  return key ? columns[key] !== false : true;
+}
+
 function buildCardHtml(item) {
   const fieldsHtml = (item.displayFields || []).filter(function (field) {
-    const label = String(field && field.label || '').trim().toLowerCase();
-    return label !== '#' && label !== 'id' && label !== 'sr no';
+    const key = dashboardColumnKey_(field && field.label);
+    if (key === 'id') return false;
+    return dashboardColumnVisible_(field && field.label);
   }).map(function (field) {
     const isHeaderRowValue = field && field.label && String(field.label).trim() !== '';
     const valueHtml = field.html
@@ -1083,12 +1101,14 @@ function buildCardHtml(item) {
     ${appState.isEditor ? `<button class="btn btn-secondary btn-small" onclick="editItem('${escAttr(item.row)}')">Edit</button>` : ''}
     ${appState.isEditor ? `<button class="btn btn-danger btn-small" onclick="deleteItem('${escAttr(item.row)}')">Delete</button>` : ''}`;
 
+  const showId = dashboardColumnVisible_('id');
+  const showActions = dashboardColumnVisible_('actions');
   return `
     <article class="card ${item.reviewStatus === 'due' ? 'review-due' : ''}">
       ${reviewBadgeHtml}
-      <div class="card-title preserve-whitespace"><span class="id-badge">#${escapeHtml(item.id)}</span></div>
+      ${showId ? '<div class="card-title preserve-whitespace"><span class="id-badge">#' + escapeHtml(item.id) + '</span></div>' : ''}
       <div class="card-fields">${fieldsHtml || '<div class="card-field"><span class="field-label">Details</span><div class="field-value preserve-whitespace">No details available</div></div>'}${updateFieldsHtml}</div>
-      <div class="card-footer"><div class="actions">${actionsHtml}</div></div>
+      ${showActions ? '<div class="card-footer"><div class="actions">' + actionsHtml + '</div></div>' : ''}
     </article>`;
 }
 
@@ -3039,11 +3059,7 @@ function loadDashboardPreferences() {
 
 function applyDashboardPreferences() {
   const prefs = appState.dashboardPrefs || {};
-  if (prefs.viewMode === 'table') {
-    switchView('table');
-  } else {
-    switchView('cards');
-  }
+  toggleDashboardView(prefs.viewMode === 'table' ? 'table' : 'cards');
 }
 
 function saveDashboardPreferences() {
@@ -3060,6 +3076,7 @@ function saveDashboardPreferences() {
     showToast('Dashboard preferences saved.', 'success');
     appState.dashboardPrefs = prefs;
     applyDashboardPreferences();
+    closeColumnDialog();
   }).catch(function (err) {
     hideOverlay();
     if (handleServerFailure(err)) return;
