@@ -1,6 +1,9 @@
 # India Post Dashboard — Session State
 
-Last updated: 2026-08-07 06:14:32
+Last updated: 2026-08-07 17:35:30
+
+> Session transcript for resume: `session-ses_0259.md` (ses_025913513ffeiaXuZrL7DCm0Nw, created 2026-08-07). Latest state: AI-panel linked-file preview rendered as a table (server CSV rows), fitted/scrollable inside the panel; cache-buster `2026.08.07j`; live site = `docs/` on GitHub Pages, server = GAS deployment @162.
+
 
 ## Current Task (split-routing Worker: / → GitHub Pages, /app.html → GAS — DONE, deployed)
 Worker (`dashv1-proxy`) rewritten to split traffic on `dashboardharyana.site`:
