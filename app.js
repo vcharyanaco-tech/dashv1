@@ -338,6 +338,62 @@ function closeDialog(id) {
   }
 }
 
+/* ---------------------------------- AI Insights ---------------------------------- */
+
+function openAiInsights() {
+  if (!appState.isAdmin) { showToast('Admin access required', 'error'); return; }
+  openDialog('aiInsightsModal');
+  aiInsights();
+}
+
+function closeAiInsights() {
+  closeDialog('aiInsightsModal');
+}
+
+function aiInsights() {
+  const list = getEl('aiInsightsList');
+  const loading = getEl('aiInsightsLoading');
+  const regen = getEl('aiInsightsRegen');
+  if (list) list.innerHTML = '';
+  if (loading) loading.style.display = 'flex';
+  if (regen) regen.disabled = true;
+  ApiService.getAiInsights().then(function (data) {
+    if (!data || data.success !== true) {
+      const msg = (data && data.message) || 'Could not generate AI insights.';
+      showToast(msg, 'error');
+      renderAiInsight(msg, true);
+      return;
+    }
+    renderAiInsight(data.insights || '', false);
+  }).catch(function (err) {
+    if (handleServerFailure(err)) return;
+    const msg = err && err.message ? err.message : String(err || 'Unknown error');
+    showToast(msg, 'error');
+    renderAiInsight(msg, true);
+  }).then(function () {
+    if (loading) loading.style.display = 'none';
+    if (regen) regen.disabled = false;
+  });
+}
+
+function renderAiInsight(text, isError) {
+  const list = getEl('aiInsightsList');
+  if (!list) return;
+  if (isError) {
+    list.innerHTML = '<li style="color:var(--danger,#dc3545);">' + escapeHtml(text) + '</li>';
+    return;
+  }
+  const lines = String(text || '').split(/\r?\n/).map(function (line) {
+    return line.replace(/^[-*\u2022\u25CF\s]+/, '').trim();
+  }).filter(function (line) { return line; });
+  const items = lines.length ? lines : [String(text || '')];
+  list.innerHTML = items.map(function (line) {
+    return '<li style="display:flex;gap:8px;align-items:flex-start;font-size:14px;line-height:1.5;">' +
+      '<span style="color:var(--accent,#2563eb);font-weight:700;">&rsaquo;</span>' +
+      '<span>' + escapeHtml(line) + '</span></li>';
+  }).join('');
+}
+
 /* ---------------------------------- In-page link preview ---------------------------------- */
 /* Opens a URL in an embedded iframe inside the dashboard instead of a new tab.
    Drive document previews use the Google Drive /preview host; plain URLs are
@@ -580,6 +636,8 @@ function renderProfile() {
 
   const addButton = getEl('addButton');
   if (addButton) addButton.style.display = appState.isEditor ? 'inline-flex' : 'none';
+  const aiBtn = getEl('aiInsightsBtn');
+  if (aiBtn) aiBtn.style.display = appState.isAdmin ? 'inline-flex' : 'none';
 }
 
 /* ---------------------------------- Notifications ---------------------------------- */
@@ -3681,7 +3739,7 @@ function wireGlobalEvents() {
         cancelConfirmDialog();
         return;
       }
-      ['editModal', 'aboutModal', 'submissionsModal', 'recordDetailModal', 'editUserModal', 'reviewModal', 'taskModal', 'columnModal', 'commandPalette', 'previewModal', 'linkModal'].forEach(function (id) {
+      ['editModal', 'aboutModal', 'submissionsModal', 'recordDetailModal', 'editUserModal', 'reviewModal', 'taskModal', 'columnModal', 'commandPalette', 'previewModal', 'linkModal', 'aiInsightsModal'].forEach(function (id) {
         const el = getEl(id);
         if (el && !el.classList.contains('hidden')) closeDialog(id);
       });
@@ -3722,6 +3780,7 @@ function wireGlobalEvents() {
         else if (backdrop.id === 'confirmModal') cancelConfirmDialog();
         else if (backdrop.id === 'previewModal') closeLinkPreview();
         else if (backdrop.id === 'linkModal') closeLinkModal();
+        else if (backdrop.id === 'aiInsightsModal') closeAiInsights();
       }
     });
   });
