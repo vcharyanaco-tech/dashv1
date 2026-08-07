@@ -93,6 +93,7 @@ const ApiService = {
   adminEmailAllUsers: function (subject, body) { return apiCall_('adminEmailAllUsers', subject, body, getAuthToken()); },
   getMyNotifications: function () { return apiCall_('getMyNotifications', getAuthToken()); },
   markNotificationsRead: function (ids) { return apiCall_('markNotificationsRead', ids, getAuthToken()); },
+  clearMyNotifications: function () { return apiCall_('clearMyNotifications', getAuthToken()); },
   submitRecordReview: function (row, summary) { return apiCall_('submitRecordReview', row, summary, getAuthToken()); },
   getPendingApprovals: function () { return apiCall_('getPendingApprovals', getAuthToken()); },
   getMyApprovals: function () { return apiCall_('getMyApprovals', getAuthToken()); },
@@ -417,10 +418,10 @@ function toggleCardAi(row, btn) {
   if (!appState.isEditor) { showToast('Admin/editor access required', 'warning'); return; }
   const article = btn.closest('.card');
   if (!article) return;
-  let panel = article.querySelector('.card-ai-panel');
+  let panel = article.querySelector('.card-ai-insight');
   if (panel) { panel.classList.toggle('card-ai-collapsed'); return; }
   panel = document.createElement('div');
-  panel.className = 'card-ai-panel';
+  panel.className = 'card-ai-panel card-ai-insight';
   panel.innerHTML = cardAiPanelHtml_();
   article.appendChild(panel);
   loadCardAi(panel, row);
@@ -441,7 +442,7 @@ function toggleRowAi(row, btn) {
   panelTr.className = 'ai-insight-tr';
   const td = document.createElement('td');
   td.setAttribute('colspan', '7');
-  td.className = 'card-ai-panel';
+  td.className = 'card-ai-panel card-ai-insight';
   td.innerHTML = cardAiPanelHtml_();
   panelTr.appendChild(td);
   tr.parentNode.insertBefore(panelTr, tr.nextSibling);
@@ -472,17 +473,6 @@ function loadCardAi(panel, row) {
       return;
     }
     body.innerHTML = aiBulletsHtml_(data.insights || '', 'div');
-    if (data.hasLink) {
-      const linkWrap = document.createElement('div');
-      linkWrap.className = 'card-ai-link';
-      const linkBtn = document.createElement('button');
-      linkBtn.className = 'btn btn-secondary btn-small';
-      linkBtn.setAttribute('type', 'button');
-      linkBtn.textContent = 'Analyze linked file';
-      linkBtn.setAttribute('onclick', 'loadLinkAi(this, ' + Number(row) + ')');
-      linkWrap.appendChild(linkBtn);
-      body.appendChild(linkWrap);
-    }
   }).catch(function (err) {
     if (handleServerFailure(err)) return;
     const msg = err && err.message ? err.message : String(err || 'Unknown error');
@@ -490,64 +480,104 @@ function loadCardAi(panel, row) {
   });
 }
 
-function loadLinkAi(btn, row) {
+function cardLinkPanelHtml_() {
+  return '<div class="card-ai-head">' +
+    '<span class="card-ai-title">Linked file analysis</span>' +
+    '<button class="btn btn-small btn-ghost" type="button" onclick="collapseCardAi(this)">Collapse</button>' +
+    '</div>' +
+    '<div class="card-ai-body"></div>';
+}
+
+function toggleCardLink(row, btn) {
   if (!appState.isEditor) { showToast('Admin/editor access required', 'warning'); return; }
-  const body = btn.closest('.card-ai-body');
-  btn.disabled = true;
-  btn.textContent = 'Analyzing…';
-  const result = document.createElement('div');
-  result.className = 'card-ai-link-result';
-  if (body) body.appendChild(result);
+  const article = btn.closest('.card');
+  if (!article) return;
+  let panel = article.querySelector('.card-link-panel');
+  if (panel) { panel.classList.toggle('card-ai-collapsed'); return; }
+  panel = document.createElement('div');
+  panel.className = 'card-ai-panel card-link-panel';
+  panel.innerHTML = cardLinkPanelHtml_();
+  article.appendChild(panel);
+  loadCardLink(panel, row);
+}
+
+function toggleRowLink(row, btn) {
+  if (!appState.isEditor) { showToast('Admin/editor access required', 'warning'); return; }
+  const tr = btn.closest('tr');
+  if (!tr) return;
+  const next = tr.nextElementSibling;
+  if (next && next.classList && next.classList.contains('ai-link-tr')) { next.remove(); return; }
+  const panelTr = document.createElement('tr');
+  panelTr.className = 'ai-link-tr';
+  const td = document.createElement('td');
+  td.setAttribute('colspan', '7');
+  td.className = 'card-ai-panel card-link-panel';
+  td.innerHTML = cardLinkPanelHtml_();
+  panelTr.appendChild(td);
+  tr.parentNode.insertBefore(panelTr, tr.nextSibling);
+  loadCardLink(td, row);
+}
+
+function itemHasLink_(item) {
+  const links = (item && item.linkUrls) || {};
+  return Object.keys(links).some(function (k) { return !!links[k]; });
+}
+
+function loadCardLink(panel, row) {
+  const body = panel.querySelector('.card-ai-body');
+  if (!body) return;
+  body.innerHTML = '<div class="card-ai-loading">Analyzing linked file…</div>';
   ApiService.getLinkContentAiInsight(row).then(function (data) {
     if (!data || data.success !== true) {
       const msg = (data && data.message) || 'Could not analyze the linked file.';
-      result.innerHTML = '<div class="card-ai-error">' + escapeHtml(msg) + '</div>';
+      body.innerHTML = '<div class="card-ai-error">' + escapeHtml(msg) + '</div>';
       return;
     }
-    const head = '<div class="card-ai-link-label">' + escapeHtml(data.source || '') +
-      (data.contentRead && data.contentLength ? ' <span class="card-ai-size">' +
-        Number(data.contentLength).toLocaleString() + ' chars' +
-        (data.contentTruncated ? ' · truncated' : '') + '</span>' : '') +
-      (data.contentRead ? '' : ' <em>(content not readable — analyzed from record only)</em>') + '</div>';
-    let html = head + aiBulletsHtml_(data.insights || '', 'div');
-    if (data.previewFormat === 'table' && data.previewRows && data.previewRows.length) {
-      let rows = data.previewRows.slice();
-      let title = '';
-      if (rows.length > 1) {
-        const n0 = rows[0].filter(function (c) { return String(c).trim() !== ''; }).length;
-        const n1 = rows[1].filter(function (c) { return String(c).trim() !== ''; }).length;
-        if (n0 === 1 && n1 > n0) {
-          title = rows[0].filter(function (c) { return String(c).trim() !== ''; })[0];
-          rows = rows.slice(1);
-        }
-      }
-      const thead = '<thead><tr>' + (rows[0] || []).map(function (c) {
-        return '<th>' + escapeHtml(c) + '</th>';
-      }).join('') + '</tr></thead>';
-      const tbody = '<tbody>' + rows.slice(1).map(function (r) {
-        return '<tr>' + r.map(function (c) { return '<td>' + escapeHtml(c) + '</td>'; }).join('') + '</tr>';
-      }).join('') + '</tbody>';
-      const note = (data.previewRowTotal && data.previewRowTotal > data.previewRows.length)
-        ? '<div class="card-ai-table-note">Showing first ' + data.previewRows.length + ' of ' +
-          Number(data.previewRowTotal).toLocaleString() + ' rows</div>'
-        : '';
-      html += '<details class="card-ai-preview" open><summary>Linked file preview</summary>' +
-        (title ? '<div class="card-ai-table-title">' + escapeHtml(title) + '</div>' : '') +
-        '<div class="card-ai-table-wrap"><table class="card-ai-table">' + thead + tbody + '</table></div>' +
-        note + '</details>';
-    } else if (data.preview) {
-      html += '<details class="card-ai-preview"><summary>Linked file preview</summary>' +
-        '<div class="card-ai-preview-text">' + escapeHtml(data.preview) + '</div></details>';
-    }
-    result.innerHTML = html;
+    body.innerHTML = linkAiResultHtml_(data);
   }).catch(function (err) {
     if (handleServerFailure(err)) return;
     const msg = err && err.message ? err.message : String(err || 'Unknown error');
-    result.innerHTML = '<div class="card-ai-error">' + escapeHtml(msg) + '</div>';
-  }).then(function () {
-    btn.disabled = false;
-    btn.textContent = 'Analyze linked file';
+    body.innerHTML = '<div class="card-ai-error">' + escapeHtml(msg) + '</div>';
   });
+}
+
+function linkAiResultHtml_(data) {
+  const head = '<div class="card-ai-link-label">' + escapeHtml(data.source || '') +
+    (data.contentRead && data.contentLength ? ' <span class="card-ai-size">' +
+      Number(data.contentLength).toLocaleString() + ' chars' +
+      (data.contentTruncated ? ' · truncated' : '') + '</span>' : '') +
+    (data.contentRead ? '' : ' <em>(content not readable — analyzed from record only)</em>') + '</div>';
+  let html = head + aiBulletsHtml_(data.insights || '', 'div');
+  if (data.previewFormat === 'table' && data.previewRows && data.previewRows.length) {
+    let rows = data.previewRows.slice();
+    let title = '';
+    if (rows.length > 1) {
+      const n0 = rows[0].filter(function (c) { return String(c).trim() !== ''; }).length;
+      const n1 = rows[1].filter(function (c) { return String(c).trim() !== ''; }).length;
+      if (n0 === 1 && n1 > n0) {
+        title = rows[0].filter(function (c) { return String(c).trim() !== ''; })[0];
+        rows = rows.slice(1);
+      }
+    }
+    const thead = '<thead><tr>' + (rows[0] || []).map(function (c) {
+      return '<th>' + escapeHtml(c) + '</th>';
+    }).join('') + '</tr></thead>';
+    const tbody = '<tbody>' + rows.slice(1).map(function (r) {
+      return '<tr>' + r.map(function (c) { return '<td>' + escapeHtml(c) + '</td>'; }).join('') + '</tr>';
+    }).join('') + '</tbody>';
+    const note = (data.previewRowTotal && data.previewRowTotal > data.previewRows.length)
+      ? '<div class="card-ai-table-note">Showing first ' + data.previewRows.length + ' of ' +
+        Number(data.previewRowTotal).toLocaleString() + ' rows</div>'
+      : '';
+    html += '<details class="card-ai-preview" open><summary>Linked file preview</summary>' +
+      (title ? '<div class="card-ai-table-title">' + escapeHtml(title) + '</div>' : '') +
+      '<div class="card-ai-table-wrap"><table class="card-ai-table">' + thead + tbody + '</table></div>' +
+      note + '</details>';
+  } else if (data.preview) {
+    html += '<details class="card-ai-preview"><summary>Linked file preview</summary>' +
+      '<div class="card-ai-preview-text">' + escapeHtml(data.preview) + '</div></details>';
+  }
+  return html;
 }
 
 /* ---------------------------------- In-page link preview ---------------------------------- */
@@ -865,6 +895,17 @@ function markAllNotificationsRead() {
   }).catch(function (err) {
     if (handleServerFailure(err)) return;
     showToast('Could not update notifications: ' + (err.message || err), 'error');
+  });
+}
+
+function clearAllNotifications() {
+  ApiService.clearMyNotifications().then(function (data) {
+    appState.notifications = data || { unread: 0, recent: [] };
+    renderNotifications();
+    showToast('All notifications cleared.', 'success');
+  }).catch(function (err) {
+    if (handleServerFailure(err)) return;
+    showToast('Could not clear notifications: ' + (err.message || err), 'error');
   });
 }
 
@@ -1326,6 +1367,7 @@ function buildCardHtml(item) {
       </span>
     </div>
     ${appState.isEditor ? `<button class="btn btn-secondary btn-small" onclick="toggleCardAi('${escAttr(item.row)}', this)">AI insight</button>` : ''}
+    ${appState.isEditor && itemHasLink_(item) ? `<button class="btn btn-secondary btn-small" onclick="toggleCardLink('${escAttr(item.row)}', this)">Analyze link</button>` : ''}
     ${appState.isEditor ? `<button class="btn btn-secondary btn-small" onclick="editItem('${escAttr(item.row)}')">Edit</button>` : ''}
     ${appState.isEditor ? `<button class="btn btn-danger btn-small" onclick="deleteItem('${escAttr(item.row)}')">Delete</button>` : ''}`;
 
@@ -1400,6 +1442,7 @@ function buildTableRowHtml(item) {
     <div class="row-actions">
       <button class="btn btn-secondary btn-small" onclick="event.stopPropagation(); openSubmissionsModal('${escAttr(item.row)}','${escAttr(item.id)}')">Update${subCount ? ' (' + subCount + ')' : ''}</button>
       ${appState.isEditor ? `<button class="btn btn-secondary btn-small" onclick="event.stopPropagation(); toggleRowAi('${escAttr(item.row)}', this)">AI insight</button>` : ''}
+      ${appState.isEditor && itemHasLink_(item) ? `<button class="btn btn-secondary btn-small" onclick="event.stopPropagation(); toggleRowLink('${escAttr(item.row)}', this)">Analyze link</button>` : ''}
       ${appState.isEditor ? `<button class="btn btn-secondary btn-small" onclick="event.stopPropagation(); editItem('${escAttr(item.row)}')">Edit</button>` : ''}
       ${appState.isEditor ? `<button class="btn btn-danger btn-small" onclick="event.stopPropagation(); deleteItem('${escAttr(item.row)}')">Delete</button>` : ''}
     </div>`;
