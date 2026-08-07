@@ -1378,6 +1378,9 @@ function renderAnalytics() {
 /* ---------------------------------- Audit ---------------------------------- */
 
 function auditValue(row, key) {
+  if (key === 'timestamp' && row.timestampMs != null) {
+    return String(row.timestampMs).padStart(16, '0');
+  }
   return row[key] == null ? '' : String(row[key]);
 }
 

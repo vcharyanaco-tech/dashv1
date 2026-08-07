@@ -1206,30 +1206,40 @@ function adminGetUserActivity(token) {
   const startRow = Math.max(2, lastRow - CONFIG.USERS.ACTIVITY_LIMIT + 1);
   const values = sheet.getRange(startRow, 1, lastRow - startRow + 1, 5).getValues();
 
-  const perUser = {};
-  const recent = [];
-  let logins = 0;
-
-  values.forEach(function (row, i) {
-    const email = String(row[1] || '').toLowerCase().trim();
-    const action = String(row[2] || '');
-    const timestamp = row[0] ? row[0].toString() : '';
-
-    if (!perUser[email]) {
-      perUser[email] = { email: email || '(system)', actions: 0, logins: 0, lastSeen: timestamp };
-    }
-    perUser[email].actions++;
-    perUser[email].lastSeen = timestamp;
-    if (action === ACTIONS.LOGIN) {
-      perUser[email].logins++;
-      logins++;
-    }
-    if (recent.length < 30) {
-      recent.push({ timestamp: timestamp, user: email, action: action, recordId: row[3] || '', details: row[4] || '' });
-    }
+  const parsed = values.map(function (row) {
+    return {
+      ts: auditTimestampMs_(row[0]),
+      timestamp: row[0] ? row[0].toString() : '',
+      email: String(row[1] || '').toLowerCase().trim() || '(system)',
+      action: String(row[2] || ''),
+      recordId: row[3] || '',
+      details: row[4] || ''
+    };
   });
 
-  recent.reverse();
+  parsed.sort(function (a, b) { return b.ts - a.ts; });
+
+  const recent = parsed.slice(0, 30).map(function (row) {
+    return { timestamp: row.timestamp, user: row.email, action: row.action, recordId: row.recordId, details: row.details };
+  });
+
+  const perUser = {};
+  let logins = 0;
+
+  parsed.forEach(function (row) {
+    if (!perUser[row.email]) {
+      perUser[row.email] = { email: row.email, actions: 0, logins: 0, lastSeenMs: -1, lastSeen: '' };
+    }
+    perUser[row.email].actions++;
+    if (row.ts > perUser[row.email].lastSeenMs) {
+      perUser[row.email].lastSeenMs = row.ts;
+      perUser[row.email].lastSeen = row.timestamp;
+    }
+    if (row.action === ACTIONS.LOGIN) {
+      perUser[row.email].logins++;
+      logins++;
+    }
+  });
 
   const userList = Object.keys(perUser)
     .map(function (k) { return perUser[k]; })

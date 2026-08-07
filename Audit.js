@@ -33,7 +33,20 @@ function logAudit_(action, id, details, userEmail) {
 }
 
 /**
- * Reads the most recent audit entries (newest first).
+ * Numeric millisecond timestamp for an audit cell value (Date or string).
+ * Unparseable values sort as 0 (oldest) so they never break ordering.
+ * @param {*} value Audit timestamp cell.
+ * @returns {number}
+ */
+function auditTimestampMs_(value) {
+  const d = value instanceof Date ? value : new Date(value);
+  const t = d.getTime();
+  return isFinite(t) ? t : 0;
+}
+
+/**
+ * Reads the most recent audit entries, sorted by recorded date/time (newest
+ * first) regardless of physical row order.
  * @param {number} limit Maximum number of entries (default 100).
  * @returns {Object[]} Audit entries with physical row numbers.
  */
@@ -42,18 +55,22 @@ function getAuditEntries(limit) {
   const sheet = getAuditSheet_();
   const lastRow = sheet.getLastRow();
   if (lastRow < 2) return [];
-  const startRow = Math.max(2, lastRow - (limit || 100) + 1);
-  const rows = sheet.getRange(startRow, 1, Math.min(limit || 100, lastRow - 1), 5).getValues();
-  return rows.reverse().map(function (row, i) {
-    return {
-      row: lastRow - i,
-      timestamp: row[0] ? row[0].toString() : '',
-      user: row[1] || '',
-      action: row[2] || '',
-      recordId: row[3] || '',
-      details: row[4] || ''
-    };
-  });
+  const rows = sheet.getRange(2, 1, lastRow - 1, 5).getValues();
+  return rows
+    .map(function (vals, i) {
+      const ts = auditTimestampMs_(vals[0]);
+      return {
+        row: i + 2,
+        timestamp: vals[0] ? vals[0].toString() : '',
+        timestampMs: ts,
+        user: vals[1] || '',
+        action: vals[2] || '',
+        recordId: vals[3] || '',
+        details: vals[4] || ''
+      };
+    })
+    .sort(function (a, b) { return b.timestampMs - a.timestampMs || a.row - b.row; })
+    .slice(0, limit || 100);
 }
 
 /**
