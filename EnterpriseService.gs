@@ -15,6 +15,15 @@ var ENTERPRISE_AI_DEFAULT_ENDPOINT = 'https://generativelanguage.googleapis.com/
 var ENTERPRISE_AI_OPENROUTER_ENDPOINT = 'https://openrouter.ai/api/v1/chat/completions';
 var ENTERPRISE_AI_GROQ_ENDPOINT = 'https://api.groq.com/openai/v1/chat/completions';
 var ENTERPRISE_AI_HF_ENDPOINT = 'https://router.huggingface.co/v1/chat/completions';
+var ENTERPRISE_AI_SYSTEM_PROMPT = 'You are a concise data-analytics assistant for the India Post Haryana dashboard. ' +
+  'The user gives current dashboard summary numbers. Respond ONLY with exactly 3 short bullet ' +
+  'points of concrete follow-up actions derived from those numbers. Do not describe India, ' +
+  'its geography, history, or culture.';
+var ENTERPRISE_AI_RECORD_SYSTEM_PROMPT = 'You are a concise data-analytics assistant for the India Post Haryana dashboard. ' +
+  'The user gives one dashboard record and optionally the text of its linked file. Respond ONLY with exactly 3 short bullet ' +
+  'points of concrete follow-up actions derived from that record and link. Do not describe India, ' +
+  'its geography, history, or culture.';
+var ENTERPRISE_AI_LINK_MAX_CHARS = 25000;
 
 /* Builds an .ics feed of review-due records for the caller's office scope.
    Returns {success, filename, count, ics}. */
@@ -207,30 +216,14 @@ function postWhatsApp_(wa, toPhone, text) {
 
 function getAiInsights(token) {
   if (token) requireAdmin_(token);
-  var ai = (ENTERPRISE_SETTINGS || {}).AI_INSIGHTS || {};
-  var props = PropertiesService.getScriptProperties();
-  var aiEnabled = props.getProperty('AI_INSIGHTS_ENABLED') === 'true' || ai.enabled === true;
-  if (!aiEnabled) {
+  if (!aiEnabled_()) {
     return { success: false, message: 'AI insights are not enabled.' };
-  }
-  var provider = (props.getProperty('AI_PROVIDER') || ai.provider || 'openrouter').toLowerCase();
-  var apiKey = props.getProperty(aiKeyPropName_(provider)) || ai.apiKey || '';
-  if (!apiKey) {
-    return { success: false, message: 'AI credentials are not configured.' };
   }
   var data = getData();
   var summary = buildSummaryFromItems(data.items || []);
   var prompt = 'India Post dashboard: total=' + summary.total + ', reviewDue=' + summary.flagged +
     ', normal=' + summary.normal + '. Give exactly 3 concise bullet follow-up actions.';
-  var model = props.getProperty('AI_MODEL') || ai.model || aiDefaultModel_(provider);
-  try {
-    if (provider === 'gemini') return callGemini_(props, ai, apiKey, model, prompt);
-    if (provider === 'groq') return callGroq_(props, apiKey, model, prompt);
-    if (provider === 'huggingface') return callHuggingFace_(props, apiKey, model, prompt);
-    return callOpenRouter_(props, ai, apiKey, model, prompt);
-  } catch (err) {
-    return { success: false, message: String(err) };
-  }
+  return generateAiText_(prompt, ENTERPRISE_AI_SYSTEM_PROMPT);
 }
 
 function getAIInsights(token) { return getAiInsights(token); }
@@ -250,7 +243,7 @@ function aiDefaultModel_(provider) {
 }
 
 /* OpenAI-compatible chat completions (shared by OpenRouter, Groq, and Hugging Face). */
-function callOpenAiChat_(endpoint, apiKey, model, prompt) {
+function callOpenAiChat_(endpoint, apiKey, model, prompt, systemPrompt) {
   var resp = UrlFetchApp.fetch(endpoint, {
     method: 'post',
     contentType: 'application/json',
@@ -260,10 +253,7 @@ function callOpenAiChat_(endpoint, apiKey, model, prompt) {
       messages: [
         {
           role: 'system',
-          content: 'You are a concise data-analytics assistant for the India Post Haryana dashboard. ' +
-            'The user gives current dashboard summary numbers. Respond ONLY with exactly 3 short bullet ' +
-            'points of concrete follow-up actions derived from those numbers. Do not describe India, ' +
-            'its geography, history, or culture.'
+          content: systemPrompt || ENTERPRISE_AI_SYSTEM_PROMPT
         },
         { role: 'user', content: prompt }
       ]
@@ -283,30 +273,34 @@ function callOpenAiChat_(endpoint, apiKey, model, prompt) {
 }
 
 /* OpenRouter chat completions. */
-function callOpenRouter_(props, ai, apiKey, model, prompt) {
+function callOpenRouter_(props, ai, apiKey, model, prompt, systemPrompt) {
   var endpoint = props.getProperty('OPENROUTER_ENDPOINT') || ai.endpoint || ENTERPRISE_AI_OPENROUTER_ENDPOINT;
-  return callOpenAiChat_(endpoint, apiKey, model, prompt);
+  return callOpenAiChat_(endpoint, apiKey, model, prompt, systemPrompt);
 }
 
 /* Groq chat completions (free tier). */
-function callGroq_(props, apiKey, model, prompt) {
+function callGroq_(props, apiKey, model, prompt, systemPrompt) {
   var endpoint = props.getProperty('GROQ_ENDPOINT') || ENTERPRISE_AI_GROQ_ENDPOINT;
-  return callOpenAiChat_(endpoint, apiKey, model, prompt);
+  return callOpenAiChat_(endpoint, apiKey, model, prompt, systemPrompt);
 }
 
 /* Hugging Face Inference Providers (OpenAI-compatible router, free tier). */
-function callHuggingFace_(props, apiKey, model, prompt) {
+function callHuggingFace_(props, apiKey, model, prompt, systemPrompt) {
   var endpoint = props.getProperty('HUGGINGFACE_ENDPOINT') || ENTERPRISE_AI_HF_ENDPOINT;
-  return callOpenAiChat_(endpoint, apiKey, model, prompt);
+  return callOpenAiChat_(endpoint, apiKey, model, prompt, systemPrompt);
 }
 
 /* Google Gemini via generateContent. */
-function callGemini_(props, ai, apiKey, model, prompt) {
+function callGemini_(props, ai, apiKey, model, prompt, systemPrompt) {
   var endpoint = props.getProperty('GEMINI_ENDPOINT') || ENTERPRISE_AI_DEFAULT_ENDPOINT;
+  var payload = { contents: [{ parts: [{ text: prompt }] }] };
+  if (systemPrompt) {
+    payload.systemInstruction = { parts: [{ text: systemPrompt }] };
+  }
   var resp = UrlFetchApp.fetch(endpoint + '?key=' + encodeURIComponent(apiKey), {
     method: 'post',
     contentType: 'application/json',
-    payload: JSON.stringify({ contents: [{ parts: [{ text: prompt }] }] }),
+    payload: JSON.stringify(payload),
     muteHttpExceptions: true
   });
   var body = JSON.parse(resp.getContentText());
@@ -320,6 +314,192 @@ function callGemini_(props, ai, apiKey, model, prompt) {
     body.candidates[0].content.parts[0].text;
   if (!text) return { success: false, message: 'No text returned by Gemini.' };
   return { success: true, insights: text };
+}
+
+/* Shared provider dispatch: resolves the configured provider/key/model and runs a
+   prompt through it. Returns {success, insights} or {success: false, message}. */
+function generateAiText_(prompt, systemPrompt) {
+  var ai = (ENTERPRISE_SETTINGS || {}).AI_INSIGHTS || {};
+  var props = PropertiesService.getScriptProperties();
+  var provider = (props.getProperty('AI_PROVIDER') || ai.provider || 'openrouter').toLowerCase();
+  var apiKey = props.getProperty(aiKeyPropName_(provider)) || ai.apiKey || '';
+  if (!apiKey) {
+    return { success: false, message: 'AI credentials are not configured.' };
+  }
+  var model = props.getProperty('AI_MODEL') || ai.model || aiDefaultModel_(provider);
+  try {
+    if (provider === 'gemini') return callGemini_(props, ai, apiKey, model, prompt, systemPrompt);
+    if (provider === 'groq') return callGroq_(props, apiKey, model, prompt, systemPrompt);
+    if (provider === 'huggingface') return callHuggingFace_(props, apiKey, model, prompt, systemPrompt);
+    return callOpenRouter_(props, ai, apiKey, model, prompt, systemPrompt);
+  } catch (err) {
+    return { success: false, message: String(err) };
+  }
+}
+
+function aiEnabled_() {
+  var ai = (ENTERPRISE_SETTINGS || {}).AI_INSIGHTS || {};
+  var props = PropertiesService.getScriptProperties();
+  return props.getProperty('AI_INSIGHTS_ENABLED') === 'true' || ai.enabled === true;
+}
+
+function findItemByRow_(row) {
+  var items = getData().items || [];
+  for (var i = 0; i < items.length; i++) {
+    if (String(items[i].row) === String(row)) return items[i];
+  }
+  return null;
+}
+
+/* First usable link on a record, preferring the action field. */
+function firstLinkUrl_(item) {
+  var links = (item && item.linkUrls) || {};
+  if (links.action) return links.action;
+  var keys = Object.keys(links);
+  for (var i = 0; i < keys.length; i++) {
+    if (links[keys[i]]) return links[keys[i]];
+  }
+  return '';
+}
+
+/* Editor/admin-gated: AI insight for one record (its own fields only). */
+function getCardAiInsight(token, row) {
+  requireEditor_(token);
+  if (!aiEnabled_()) {
+    return { success: false, message: 'AI insights are not enabled.' };
+  }
+  var item = findItemByRow_(row);
+  if (!item) return { success: false, message: 'Record not found.' };
+  var linkUrl = firstLinkUrl_(item);
+  var prompt = 'India Post dashboard record #' + (item.id || '') + ':\n' +
+    'Sector: ' + (item.sector || '') + '\n' +
+    'Description: ' + (item.description || '') + '\n' +
+    'Action: ' + (item.action || '') + '\n' +
+    'Responsibility: ' + (item.responsibility || '') + '\n' +
+    'Entry date: ' + (item.entryDate || '') + '\n' +
+    'Review date: ' + (item.reviewDate || '') + '\n' +
+    'Review status: ' + (item.reviewStatus || '') + '\n' +
+    (linkUrl ? 'Linked file URL: ' + linkUrl + '\n' : '') +
+    'Give exactly 3 concise bullet follow-up actions for this record.';
+  var result = generateAiText_(prompt, ENTERPRISE_AI_RECORD_SYSTEM_PROMPT);
+  if (result.success === true) {
+    result.row = item.row;
+    result.id = item.id;
+    result.hasLink = !!linkUrl;
+  }
+  return result;
+}
+
+/* Editor/admin-gated: fetches the record's linked file content (public URLs and
+   "anyone with the link" Drive files only) and runs AI analysis over it. */
+function getLinkContentAiInsight(token, row) {
+  requireEditor_(token);
+  if (!aiEnabled_()) {
+    return { success: false, message: 'AI insights are not enabled.' };
+  }
+  var item = findItemByRow_(row);
+  if (!item) return { success: false, message: 'Record not found.' };
+  var url = firstLinkUrl_(item);
+  if (!url) return { success: false, message: 'This record has no linked file.' };
+  if (!isSafeLinkUrl_(url)) return { success: false, message: 'Unsafe link rejected.' };
+  var text = fetchLinkText_(url);
+  text = String(text || '').replace(/\s+/g, ' ').trim();
+  if (text.length > ENTERPRISE_AI_LINK_MAX_CHARS) text = text.substring(0, ENTERPRISE_AI_LINK_MAX_CHARS);
+  var contentRead = text.length > 40;
+  var prompt = 'India Post dashboard record #' + (item.id || '') + ' (sector: ' + (item.sector || '') + ').\n' +
+    'Linked file URL: ' + url + '\n' +
+    (contentRead
+      ? 'Linked file content: ' + text + '\n'
+      : 'The linked file content could not be read (private, blocked, or unreadable). Base your answer on the record and URL only.\n') +
+    'Give exactly 3 concise bullet follow-up actions.';
+  var result = generateAiText_(prompt, ENTERPRISE_AI_RECORD_SYSTEM_PROMPT);
+  if (result.success === true) {
+    result.row = item.row;
+    result.id = item.id;
+    result.source = url;
+    result.contentRead = contentRead;
+  }
+  return result;
+}
+
+/* SSRF guard: only http(s), no localhost/private/link-local/metadata hosts. */
+function isSafeLinkUrl_(url) {
+  var s = String(url || '').trim();
+  var m = s.match(/^(https?):\/\/([^\/?#:]+)(?::\d+)?([\/?#]|$)/i);
+  if (!m) return false;
+  if (m[1].toLowerCase() !== 'http' && m[1].toLowerCase() !== 'https') return false;
+  var host = m[2].toLowerCase();
+  if (host.indexOf('@') !== -1) return false;
+  if (host === 'localhost' || host.indexOf('.localhost') !== -1 || host.indexOf('.local') !== -1) return false;
+  if (host === '169.254.169.254') return false;
+  if (/^127\./.test(host) || /^10\./.test(host) || /^192\.168\./.test(host) || /^169\.254\./.test(host) || /^0\./.test(host)) return false;
+  var r = host.match(/^172\.(\d+)\./);
+  if (r) { var n = parseInt(r[1], 10); if (n >= 16 && n <= 31) return false; }
+  return true;
+}
+
+/* Rewrites Google Drive/Docs links to plain-text-readable forms. */
+function toReadableLinkUrl_(url) {
+  var doc = url.match(/docs\.google\.com\/document\/d\/([^/?#]+)/);
+  if (doc) return 'https://docs.google.com/document/d/' + doc[1] + '/export?format=txt';
+  var sheets = url.match(/docs\.google\.com\/spreadsheets\/d\/([^/?#]+)/);
+  if (sheets) return 'https://docs.google.com/spreadsheets/d/' + sheets[1] + '/export?format=csv';
+  var file = url.match(/drive\.google\.com\/file\/d\/([^/?#]+)/);
+  if (file) return 'https://drive.google.com/uc?export=download&id=' + file[1];
+  var open = url.match(/drive\.google\.com\/open\?id=([^&#]+)/);
+  if (open) return 'https://drive.google.com/uc?export=download&id=' + open[1];
+  return url;
+}
+
+/* Crude HTML-to-text for link content extraction. */
+function htmlToText_(html) {
+  var s = String(html || '');
+  s = s.replace(/<script[\s\S]*?<\/script>/gi, ' ');
+  s = s.replace(/<style[\s\S]*?<\/style>/gi, ' ');
+  s = s.replace(/<[^>]+>/g, ' ');
+  s = s.replace(/&nbsp;/gi, ' ');
+  s = s.replace(/&amp;/gi, '&').replace(/&lt;/gi, '<').replace(/&gt;/gi, '>');
+  s = s.replace(/&quot;/gi, '"').replace(/&#39;/gi, "'");
+  s = s.replace(/\s+/g, ' ').trim();
+  return s;
+}
+
+/* Fetches link content as plain text, trying the readable export URL first,
+   then the raw URL (htmlToText_). Returns '' when unreadable/private/blocked. */
+function fetchLinkText_(url) {
+  var candidates = [toReadableLinkUrl_(url), url];
+  var seen = {};
+  for (var i = 0; i < candidates.length; i++) {
+    var candidate = candidates[i];
+    if (!candidate || seen[candidate]) continue;
+    seen[candidate] = true;
+    var raw = fetchRawText_(candidate);
+    if (isReadableAiText_(raw)) return raw;
+  }
+  return '';
+}
+
+function fetchRawText_(url) {
+  try {
+    var resp = UrlFetchApp.fetch(url, { muteHttpExceptions: true, timeoutSeconds: 15, followRedirects: false });
+    if (resp.getResponseCode() < 200 || resp.getResponseCode() >= 300) return '';
+    var body = resp.getContentText();
+    if (!body || body.indexOf('\u0000') !== -1) return '';
+    var lower = body.substring(0, 500).toLowerCase();
+    if (lower.indexOf('<html') !== -1 || lower.indexOf('<!doctype') !== -1) {
+      return htmlToText_(body);
+    }
+    return String(body).replace(/\s+/g, ' ').trim();
+  } catch (err) { return ''; }
+}
+
+function isReadableAiText_(text) {
+  var t = String(text || '').trim();
+  if (t.length <= 40) return false;
+  var low = t.toLowerCase();
+  if (low.indexOf('request access') !== -1) return false;
+  if (low.indexOf('sign in to continue') !== -1) return false;
+  return true;
 }
 
 /* Admin-gated: stores the OpenRouter API key in Script Properties so the

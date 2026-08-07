@@ -121,7 +121,12 @@ const ApiService = {
   adminClearAudit: function () { return apiCall_('adminClearAudit', getAuthToken()); },
   exportToSpreadsheet: function () { return apiCall_('exportToSpreadsheet', getAuthToken()); },
   createPdfReport: function () { return apiCall_('createPdfReport', getAuthToken()); },
-  emailReport: function (recipient, templateKey) { return apiCall_('emailReport', getAuthToken(), recipient, templateKey); }
+  emailReport: function (recipient, templateKey) { return apiCall_('emailReport', getAuthToken(), recipient, templateKey); },
+  exportReviewCalendarIcs: function () { return apiCall_('exportReviewCalendarIcs', getAuthToken()); },
+  sendWhatsAppReviewReminders: function () { return apiCall_('sendWhatsAppReviewReminders', getAuthToken()); },
+  getAiInsights: function () { return apiCall_('getAiInsights', getAuthToken()); },
+  getCardAiInsight: function (row) { return apiCall_('getCardAiInsight', getAuthToken(), row); },
+  getLinkContentAiInsight: function (row) { return apiCall_('getLinkContentAiInsight', getAuthToken(), row); }
 };
 
 const appState = {
@@ -393,6 +398,123 @@ function renderAiInsight(text, isError) {
       '<span style="color:var(--accent,#2563eb);font-weight:700;">&rsaquo;</span>' +
       '<span>' + escapeHtml(line) + '</span></li>';
   }).join('');
+}
+
+/* ---------------------------------- Per-record AI insight (cards + table rows) ---------------------------------- */
+/* "AI insight" toggles an inline collapsible panel under a card / table row
+   (editors and admins). If the record has a linked file, an "Analyze linked
+   file" button fetches the link content and runs AI analysis over it. */
+
+function cardAiPanelHtml_() {
+  return '<div class="card-ai-head">' +
+    '<span class="card-ai-title">AI insight</span>' +
+    '<button class="btn btn-small btn-ghost" type="button" onclick="collapseCardAi(this)">Collapse</button>' +
+    '</div>' +
+    '<div class="card-ai-body"></div>';
+}
+
+function toggleCardAi(row, btn) {
+  if (!appState.isEditor) { showToast('Admin/editor access required', 'warning'); return; }
+  const article = btn.closest('.card');
+  if (!article) return;
+  let panel = article.querySelector('.card-ai-panel');
+  if (panel) { panel.classList.toggle('card-ai-collapsed'); return; }
+  panel = document.createElement('div');
+  panel.className = 'card-ai-panel';
+  panel.innerHTML = cardAiPanelHtml_();
+  article.appendChild(panel);
+  loadCardAi(panel, row);
+}
+
+function collapseCardAi(btn) {
+  const panel = btn.closest('.card-ai-panel');
+  if (panel) panel.classList.add('card-ai-collapsed');
+}
+
+function toggleRowAi(row, btn) {
+  if (!appState.isEditor) { showToast('Admin/editor access required', 'warning'); return; }
+  const tr = btn.closest('tr');
+  if (!tr) return;
+  const next = tr.nextElementSibling;
+  if (next && next.classList && next.classList.contains('ai-insight-tr')) { next.remove(); return; }
+  const panelTr = document.createElement('tr');
+  panelTr.className = 'ai-insight-tr';
+  const td = document.createElement('td');
+  td.setAttribute('colspan', '7');
+  td.className = 'card-ai-panel';
+  td.innerHTML = cardAiPanelHtml_();
+  panelTr.appendChild(td);
+  tr.parentNode.insertBefore(panelTr, tr.nextSibling);
+  loadCardAi(td, row);
+}
+
+function aiBulletsHtml_(text, tag) {
+  const t = tag === 'li' ? 'li' : 'div';
+  const lines = String(text || '').split(/\r?\n/).map(function (line) {
+    return line.replace(/^[-*\u2022\u25CF\s]+/, '').trim();
+  }).filter(function (line) { return line; });
+  const items = lines.length ? lines : [String(text || '')];
+  return items.map(function (line) {
+    return '<' + t + ' style="display:flex;gap:8px;align-items:flex-start;font-size:14px;line-height:1.5;">' +
+      '<span style="color:var(--accent,#2563eb);font-weight:700;">&rsaquo;</span>' +
+      '<span>' + escapeHtml(line) + '</span></' + t + '>';
+  }).join('');
+}
+
+function loadCardAi(panel, row) {
+  const body = panel.querySelector('.card-ai-body');
+  if (!body) return;
+  body.innerHTML = '<div class="card-ai-loading">Generating insight…</div>';
+  ApiService.getCardAiInsight(row).then(function (data) {
+    if (!data || data.success !== true) {
+      const msg = (data && data.message) || 'Could not generate AI insight.';
+      body.innerHTML = '<div class="card-ai-error">' + escapeHtml(msg) + '</div>';
+      return;
+    }
+    body.innerHTML = aiBulletsHtml_(data.insights || '', 'div');
+    if (data.hasLink) {
+      const linkWrap = document.createElement('div');
+      linkWrap.className = 'card-ai-link';
+      const linkBtn = document.createElement('button');
+      linkBtn.className = 'btn btn-secondary btn-small';
+      linkBtn.setAttribute('type', 'button');
+      linkBtn.textContent = 'Analyze linked file';
+      linkBtn.setAttribute('onclick', 'loadLinkAi(this, ' + Number(row) + ')');
+      linkWrap.appendChild(linkBtn);
+      body.appendChild(linkWrap);
+    }
+  }).catch(function (err) {
+    if (handleServerFailure(err)) return;
+    const msg = err && err.message ? err.message : String(err || 'Unknown error');
+    body.innerHTML = '<div class="card-ai-error">' + escapeHtml(msg) + '</div>';
+  });
+}
+
+function loadLinkAi(btn, row) {
+  if (!appState.isEditor) { showToast('Admin/editor access required', 'warning'); return; }
+  const body = btn.closest('.card-ai-body');
+  btn.disabled = true;
+  btn.textContent = 'Analyzing…';
+  const result = document.createElement('div');
+  result.className = 'card-ai-link-result';
+  if (body) body.appendChild(result);
+  ApiService.getLinkContentAiInsight(row).then(function (data) {
+    if (!data || data.success !== true) {
+      const msg = (data && data.message) || 'Could not analyze the linked file.';
+      result.innerHTML = '<div class="card-ai-error">' + escapeHtml(msg) + '</div>';
+      return;
+    }
+    const head = '<div class="card-ai-link-label">' + escapeHtml(data.source || '') +
+      (data.contentRead ? '' : ' <em>(content not readable — analyzed from record only)</em>') + '</div>';
+    result.innerHTML = head + aiBulletsHtml_(data.insights || '', 'div');
+  }).catch(function (err) {
+    if (handleServerFailure(err)) return;
+    const msg = err && err.message ? err.message : String(err || 'Unknown error');
+    result.innerHTML = '<div class="card-ai-error">' + escapeHtml(msg) + '</div>';
+  }).then(function () {
+    btn.disabled = false;
+    btn.textContent = 'Analyze linked file';
+  });
 }
 
 /* ---------------------------------- In-page link preview ---------------------------------- */
@@ -1170,6 +1292,7 @@ function buildCardHtml(item) {
         <button class="menu-dropdown-item" type="button" onclick="event.stopPropagation(); closeDropdowns(); printCard('${escAttr(item.row)}', false);">Without submissions</button>
       </span>
     </div>
+    ${appState.isEditor ? `<button class="btn btn-secondary btn-small" onclick="toggleCardAi('${escAttr(item.row)}', this)">AI insight</button>` : ''}
     ${appState.isEditor ? `<button class="btn btn-secondary btn-small" onclick="editItem('${escAttr(item.row)}')">Edit</button>` : ''}
     ${appState.isEditor ? `<button class="btn btn-danger btn-small" onclick="deleteItem('${escAttr(item.row)}')">Delete</button>` : ''}`;
 
@@ -1243,6 +1366,7 @@ function buildTableRowHtml(item) {
   const actions = `
     <div class="row-actions">
       <button class="btn btn-secondary btn-small" onclick="event.stopPropagation(); openSubmissionsModal('${escAttr(item.row)}','${escAttr(item.id)}')">Update${subCount ? ' (' + subCount + ')' : ''}</button>
+      ${appState.isEditor ? `<button class="btn btn-secondary btn-small" onclick="event.stopPropagation(); toggleRowAi('${escAttr(item.row)}', this)">AI insight</button>` : ''}
       ${appState.isEditor ? `<button class="btn btn-secondary btn-small" onclick="event.stopPropagation(); editItem('${escAttr(item.row)}')">Edit</button>` : ''}
       ${appState.isEditor ? `<button class="btn btn-danger btn-small" onclick="event.stopPropagation(); deleteItem('${escAttr(item.row)}')">Delete</button>` : ''}
     </div>`;
