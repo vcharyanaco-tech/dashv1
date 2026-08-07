@@ -17,8 +17,8 @@
   },
   AI_INSIGHTS: {
     enabled: true,
-    provider: 'groq',       // 'groq' | 'openrouter' | 'gemini' (override via AI_PROVIDER Script Property)
-    apiKey: '',             // PLACEHOLDER - real key goes in Script Properties (GROQ_API_KEY / OPENROUTER_API_KEY / GEMINI_API_KEY)
+    provider: 'groq',       // 'groq' | 'huggingface' | 'openrouter' | 'gemini' (override via AI_PROVIDER Script Property)
+    apiKey: '',             // PLACEHOLDER - real key goes in Script Properties (GROQ_API_KEY / HUGGINGFACE_API_KEY / OPENROUTER_API_KEY / GEMINI_API_KEY)
     endpoint: 'https://api.groq.com/openai/v1/chat/completions',
     model: 'llama-3.3-70b-versatile',
     dailySummary: {

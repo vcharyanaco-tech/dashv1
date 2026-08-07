@@ -4,7 +4,8 @@
  * EnterpriseService.gs
  * Enterprise addons server endpoints: review calendar (.ics),
  * WhatsApp review reminders (Meta WhatsApp Cloud API), and
- * AI dashboard insights (Google Gemini).
+ * AI dashboard insights (provider-switchable: Groq, Hugging Face,
+ * OpenRouter, or Google Gemini).
  * All features are gated by ENTERPRISE_SETTINGS (EnterpriseSettings.js)
  * and optional Script Properties overrides.
  * ============================================================
@@ -13,6 +14,7 @@
 var ENTERPRISE_AI_DEFAULT_ENDPOINT = 'https://generativelanguage.googleapis.com/v1beta/models/gemini-2.0-flash:generateContent';
 var ENTERPRISE_AI_OPENROUTER_ENDPOINT = 'https://openrouter.ai/api/v1/chat/completions';
 var ENTERPRISE_AI_GROQ_ENDPOINT = 'https://api.groq.com/openai/v1/chat/completions';
+var ENTERPRISE_AI_HF_ENDPOINT = 'https://router.huggingface.co/v1/chat/completions';
 
 /* Builds an .ics feed of review-due records for the caller's office scope.
    Returns {success, filename, count, ics}. */
@@ -200,7 +202,7 @@ function postWhatsApp_(wa, toPhone, text) {
 }
 
 /* ------------------------------------------------------------------ */
-/* AI Smart Insights — Google Gemini via generateContent.              */
+/* AI Smart Insights — provider-switchable via AI_PROVIDER.            */
 /* ------------------------------------------------------------------ */
 
 function getAiInsights(token) {
@@ -224,6 +226,7 @@ function getAiInsights(token) {
   try {
     if (provider === 'gemini') return callGemini_(props, ai, apiKey, model, prompt);
     if (provider === 'groq') return callGroq_(props, apiKey, model, prompt);
+    if (provider === 'huggingface') return callHuggingFace_(props, apiKey, model, prompt);
     return callOpenRouter_(props, ai, apiKey, model, prompt);
   } catch (err) {
     return { success: false, message: String(err) };
@@ -235,16 +238,18 @@ function getAIInsights(token) { return getAiInsights(token); }
 function aiKeyPropName_(provider) {
   if (provider === 'gemini') return 'GEMINI_API_KEY';
   if (provider === 'groq') return 'GROQ_API_KEY';
+  if (provider === 'huggingface') return 'HUGGINGFACE_API_KEY';
   return 'OPENROUTER_API_KEY';
 }
 
 function aiDefaultModel_(provider) {
   if (provider === 'gemini') return 'gemini-2.0-flash';
   if (provider === 'groq') return 'llama-3.3-70b-versatile';
+  if (provider === 'huggingface') return 'meta-llama/Llama-3.3-70B-Instruct';
   return 'openai/gpt-4o-mini';
 }
 
-/* OpenAI-compatible chat completions (shared by OpenRouter and Groq). */
+/* OpenAI-compatible chat completions (shared by OpenRouter, Groq, and Hugging Face). */
 function callOpenAiChat_(endpoint, apiKey, model, prompt) {
   var resp = UrlFetchApp.fetch(endpoint, {
     method: 'post',
@@ -286,6 +291,12 @@ function callOpenRouter_(props, ai, apiKey, model, prompt) {
 /* Groq chat completions (free tier). */
 function callGroq_(props, apiKey, model, prompt) {
   var endpoint = props.getProperty('GROQ_ENDPOINT') || ENTERPRISE_AI_GROQ_ENDPOINT;
+  return callOpenAiChat_(endpoint, apiKey, model, prompt);
+}
+
+/* Hugging Face Inference Providers (OpenAI-compatible router, free tier). */
+function callHuggingFace_(props, apiKey, model, prompt) {
+  var endpoint = props.getProperty('HUGGINGFACE_ENDPOINT') || ENTERPRISE_AI_HF_ENDPOINT;
   return callOpenAiChat_(endpoint, apiKey, model, prompt);
 }
 
@@ -340,6 +351,17 @@ function setGroqApiKey(token, apiKey) {
     return { ok: false, message: 'Missing API key.' };
   }
   PropertiesService.getScriptProperties().setProperty('GROQ_API_KEY', apiKey.trim());
+  return { ok: true };
+}
+
+/* Admin-gated: stores the Hugging Face token in Script Properties so the
+   real credential is never committed to the repo. Never echoes the value back. */
+function setHuggingFaceApiKey(token, apiKey) {
+  requireAdmin_(token);
+  if (!apiKey || typeof apiKey !== 'string' || !apiKey.trim()) {
+    return { ok: false, message: 'Missing API token.' };
+  }
+  PropertiesService.getScriptProperties().setProperty('HUGGINGFACE_API_KEY', apiKey.trim());
   return { ok: true };
 }
 
