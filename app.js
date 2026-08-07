@@ -505,8 +505,16 @@ function loadLinkAi(btn, row) {
       return;
     }
     const head = '<div class="card-ai-link-label">' + escapeHtml(data.source || '') +
+      (data.contentRead && data.contentLength ? ' <span class="card-ai-size">' +
+        Number(data.contentLength).toLocaleString() + ' chars' +
+        (data.contentTruncated ? ' · truncated' : '') + '</span>' : '') +
       (data.contentRead ? '' : ' <em>(content not readable — analyzed from record only)</em>') + '</div>';
-    result.innerHTML = head + aiBulletsHtml_(data.insights || '', 'div');
+    let html = head + aiBulletsHtml_(data.insights || '', 'div');
+    if (data.preview) {
+      html += '<details class="card-ai-preview"><summary>Linked file preview</summary>' +
+        '<div>' + escapeHtml(data.preview) + '</div></details>';
+    }
+    result.innerHTML = html;
   }).catch(function (err) {
     if (handleServerFailure(err)) return;
     const msg = err && err.message ? err.message : String(err || 'Unknown error');

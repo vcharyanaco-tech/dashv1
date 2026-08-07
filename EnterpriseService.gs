@@ -402,9 +402,9 @@ function getLinkContentAiInsight(token, row) {
   var url = firstLinkUrl_(item);
   if (!url) return { success: false, message: 'This record has no linked file.' };
   if (!isSafeLinkUrl_(url)) return { success: false, message: 'Unsafe link rejected.' };
-  var text = fetchLinkText_(url);
-  text = String(text || '').replace(/\s+/g, ' ').trim();
-  if (text.length > ENTERPRISE_AI_LINK_MAX_CHARS) text = text.substring(0, ENTERPRISE_AI_LINK_MAX_CHARS);
+  var fetched = String(fetchLinkText_(url) || '').replace(/\s+/g, ' ').trim();
+  var contentTruncated = fetched.length > ENTERPRISE_AI_LINK_MAX_CHARS;
+  var text = contentTruncated ? fetched.substring(0, ENTERPRISE_AI_LINK_MAX_CHARS) : fetched;
   var contentRead = text.length > 40;
   var prompt = 'India Post dashboard record #' + (item.id || '') + ' (sector: ' + (item.sector || '') + ').\n' +
     'Linked file URL: ' + url + '\n' +
@@ -418,6 +418,9 @@ function getLinkContentAiInsight(token, row) {
     result.id = item.id;
     result.source = url;
     result.contentRead = contentRead;
+    result.contentLength = text.length;
+    result.contentTruncated = contentTruncated;
+    result.preview = contentRead ? text.substring(0, 600) : '';
   }
   return result;
 }
