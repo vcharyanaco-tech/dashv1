@@ -226,6 +226,11 @@ function getAiInsights(token) {
       muteHttpExceptions: true
     });
     var body = JSON.parse(resp.getContentText());
+    var code = resp.getResponseCode();
+    if (code < 200 || code >= 300) {
+      var apiErr = body && body.error && (body.error.message || body.error.status);
+      return { success: false, message: apiErr || ('Gemini HTTP ' + code) };
+    }
     var text = body && body.candidates && body.candidates[0] && body.candidates[0].content &&
       body.candidates[0].content.parts && body.candidates[0].content.parts[0] &&
       body.candidates[0].content.parts[0].text;
