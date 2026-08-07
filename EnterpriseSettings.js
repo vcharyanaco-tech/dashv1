@@ -16,8 +16,8 @@
     outputSheetName: 'ICS_EXPORT'
   },
   AI_INSIGHTS: {
-    enabled: false,
-    apiKey: '',             // PLACEHOLDER - never commit real credentials
+    enabled: true,
+    apiKey: '',             // PLACEHOLDER - real key goes in Script Properties (GEMINI_API_KEY)
     endpoint: 'https://generativelanguage.googleapis.com/v1beta/models/gemini-2.0-flash:generateContent',
     model: 'gemini-2.0-flash',
     dailySummary: {

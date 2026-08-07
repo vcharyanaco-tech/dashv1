@@ -204,10 +204,13 @@ function postWhatsApp_(wa, toPhone, text) {
 function getAiInsights(token) {
   if (token) requireAdmin_(token);
   var ai = (ENTERPRISE_SETTINGS || {}).AI_INSIGHTS || {};
-  if (!ai.enabled) {
+  var props = PropertiesService.getScriptProperties();
+  var aiEnabled = props.getProperty('AI_INSIGHTS_ENABLED') === 'true' || ai.enabled === true;
+  if (!aiEnabled) {
     return { success: false, message: 'AI insights are not enabled.' };
   }
-  if (!ai.apiKey) {
+  var apiKey = props.getProperty('GEMINI_API_KEY') || ai.apiKey || '';
+  if (!apiKey) {
     return { success: false, message: 'AI credentials are not configured.' };
   }
   var data = getData();
@@ -216,7 +219,7 @@ function getAiInsights(token) {
     ', normal=' + summary.normal + '. Give exactly 3 concise bullet follow-up actions.';
   var endpoint = ai.endpoint || ENTERPRISE_AI_DEFAULT_ENDPOINT;
   try {
-    var resp = UrlFetchApp.fetch(endpoint + '?key=' + encodeURIComponent(ai.apiKey), {
+    var resp = UrlFetchApp.fetch(endpoint + '?key=' + encodeURIComponent(apiKey), {
       method: 'post',
       contentType: 'application/json',
       payload: JSON.stringify({ contents: [{ parts: [{ text: prompt }] }] }),
@@ -234,6 +237,22 @@ function getAiInsights(token) {
 }
 
 function getAIInsights(token) { return getAiInsights(token); }
+
+/* Admin-gated: stores the Gemini API key in Script Properties so the real
+   credential is never committed to the repo. Never echoes the value back. */
+function setGeminiApiKey(token, apiKey) {
+  requireAdmin_(token);
+  if (!apiKey || typeof apiKey !== 'string' || !apiKey.trim()) {
+    return { ok: false, message: 'Missing API key.' };
+  }
+  PropertiesService.getScriptProperties().setProperty('GEMINI_API_KEY', apiKey.trim());
+  return { ok: true };
+}
+
+function aiKeyConfigured_() {
+  var ai = (ENTERPRISE_SETTINGS || {}).AI_INSIGHTS || {};
+  return !!PropertiesService.getScriptProperties().getProperty('GEMINI_API_KEY') || !!ai.apiKey;
+}
 
 /* ------------------------------------------------------------------ */
 /* Offline queue replay (client calls after reconnecting).             */
@@ -307,6 +326,7 @@ function validateEnterpriseConfiguration() {
     workerUrlSet: !!cfg.workerUrl,
     workerTokenSet: !!cfg.workerToken,
     aiEnabled: cfg.aiEnabled,
+    aiKeySet: aiKeyConfigured_(),
     whatsappEnabled: cfg.whatsappEnabled,
     pwaEnabled: cfg.pwaEnabled,
     calendarEnabled: cfg.calendarEnabled,
@@ -320,6 +340,7 @@ function getEnterpriseHealth() {
   return {
     enabled: cfg.enabled,
     aiEnabled: cfg.aiEnabled,
+    aiKeySet: aiKeyConfigured_(),
     whatsappEnabled: cfg.whatsappEnabled,
     pwaEnabled: cfg.pwaEnabled,
     calendarEnabled: cfg.calendarEnabled,
