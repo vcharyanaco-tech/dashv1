@@ -197,10 +197,11 @@ function getData() {
  * when the text is unchanged.
  * @param {Object} item The record payload (includes the sheet row number).
  * @param {string} token Session token (editor+ required).
- * @returns {Object} Fresh getData() payload.
+ * @returns {Object} Fresh getAppData() payload (items, summary, analytics).
  */
 function updateItem(item, token) {
-  return RecordService.update(item, token);
+  RecordService.update(item, token);
+  return getAppData(token);
 }
 
 
@@ -213,20 +214,22 @@ function updateItem(item, token) {
  * and a review-date flag background.
  * @param {Object} item The record payload.
  * @param {string} token Session token (editor+ required).
- * @returns {Object} Fresh getData() payload.
+ * @returns {Object} Fresh getAppData() payload (items, summary, analytics).
  */
 function addItem(item, token) {
-  return RecordService.add(item, token);
+  RecordService.add(item, token);
+  return getAppData(token);
 }
 
 /**
  * Deletes a record row and re-sequences the remaining IDs.
  * @param {number} row The physical sheet row to delete.
  * @param {string} token Session token (editor+ required).
- * @returns {Object} Fresh getData() payload.
+ * @returns {Object} Fresh getAppData() payload (items, summary, analytics).
  */
 function deleteItem(row, token) {
-  return RecordService.remove(row, token);
+  RecordService.remove(row, token);
+  return getAppData(token);
 }
 
 /**
@@ -385,31 +388,21 @@ function absUrl_(u) {
 
 
 /**
- * Restricts the visible records to the caller's department/office when those
- * are set (department matches the record's sector; office matches its
- * responsibility). Admins and users without a scope see everything.
+ * Returns the records visible to the caller. Office/department scoping was
+ * removed by decision: every logged-in user (any role) sees all records.
+ * Kept as a single chokepoint so the review-calendar export and the main
+ * dashboard load behave identically.
  * @param {Object[]} items Display-ready items from getData().
  * @param {Object} user Authenticated user context.
- * @returns {Object[]} Scoped item list.
+ * @returns {Object[]} All items.
  */
 function scopeItemsForUser_(items, user) {
-  const department = String((user && user.department) || '').trim().toLowerCase();
-  const office = String((user && user.office) || '').trim().toLowerCase();
-  if ((!department && !office) || (user && user.role === ROLES.ADMIN)) {
-    return items;
-  }
-  return items.filter(function (item) {
-    const sector = String(item.sector || '').trim().toLowerCase();
-    const responsibility = String(item.responsibility || '').trim().toLowerCase();
-    const departmentOk = !department || (sector === department || (sector && sector.indexOf(department) !== -1) || (department && department.indexOf(sector) !== -1));
-    const officeOk = !office || responsibilityMatchesUser_(item.responsibility, user);
-    return departmentOk && officeOk;
-  });
+  return items;
 }
 
 /**
  * Matches a record responsibility against a user's office (case-insensitive,
- * both exact and partial containment, mirroring scopeItemsForUser_).
+ * both exact and partial containment). Used by review reminders/notifications.
  * @param {string} responsibility Record responsibility.
  * @param {string} office User office.
  * @returns {boolean}

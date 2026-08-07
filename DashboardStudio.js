@@ -60,7 +60,7 @@ function getDashboardPreferences(token) {
   };
 }
 
-function saveDashboardPreferences(token, prefs) {
+function saveDashboardPreferences(prefs, token) {
   const user = requireLogin_(token);
   const merged = getUserPreferences_(user.email);
   merged[DASHBOARD_PREF_KEYS.VIEW_MODE] = prefs.viewMode || merged[DASHBOARD_PREF_KEYS.VIEW_MODE] || VIEW_MODES.CARDS;
