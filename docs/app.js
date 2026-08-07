@@ -921,13 +921,6 @@ function renderReviewDateBanner() {
   const cloneEl = getEl('reviewDateBannerTextClone');
   if (!banner || !textEl || !cloneEl) return;
 
-  // Hide for admin users
-  const user = appState.user;
-  if (user && user.role === 'ADMIN') {
-    banner.classList.add('hidden');
-    return;
-  }
-
   // Check if dismissed this session
   if (isReviewDateBannerDismissed()) {
     banner.classList.add('hidden');

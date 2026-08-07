@@ -1050,11 +1050,6 @@ body.sidebar-collapsed .nav-item.active { box-shadow: inset 0 0 0 2px var(--seco
   animation-play-state: paused;
 }
 
-/* Hide for admin users */
-body.is-admin .review-date-banner {
-  display: none !important;
-}
-
 /* Pause animation when reduced motion is preferred */
 @media (prefers-reduced-motion: reduce) {
   .review-date-banner-text {

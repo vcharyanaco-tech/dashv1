@@ -1229,6 +1229,8 @@ function adminGetUserActivity(token) {
     }
   });
 
+  recent.reverse();
+
   const userList = Object.keys(perUser)
     .map(function (k) { return perUser[k]; })
     .sort(function (a, b) { return b.actions - a.actions; });

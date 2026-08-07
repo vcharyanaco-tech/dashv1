@@ -165,7 +165,7 @@ function updateTask(id, fields, token) {
 
     const existing = taskRecordFromRow_(values[rowIdx - 2]);
     const isAssignee = existing.assignee === user.email;
-    const isEditor = isEditor_(user.email);
+    const isEditor = isEditor(user.email);
 
     if (!isEditor && !isAssignee) throw new Error('Permission denied.');
 
