@@ -9,3 +9,4 @@ SESSION_EXPORT.md
 .claspignore
 app.js
 docs/**
+deploy-worker-api.js
