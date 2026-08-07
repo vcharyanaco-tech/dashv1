@@ -446,7 +446,10 @@ function toReadableLinkUrl_(url) {
   var doc = url.match(/docs\.google\.com\/document\/d\/([^/?#]+)/);
   if (doc) return 'https://docs.google.com/document/d/' + doc[1] + '/export?format=txt';
   var sheets = url.match(/docs\.google\.com\/spreadsheets\/d\/([^/?#]+)/);
-  if (sheets) return 'https://docs.google.com/spreadsheets/d/' + sheets[1] + '/export?format=csv';
+  if (sheets) {
+    var gid = (url.match(/[?&#]gid=(\d+)/) || [])[1];
+    return 'https://docs.google.com/spreadsheets/d/' + sheets[1] + '/export?format=csv' + (gid ? '&gid=' + gid : '');
+  }
   var file = url.match(/drive\.google\.com\/file\/d\/([^/?#]+)/);
   if (file) return 'https://drive.google.com/uc?export=download&id=' + file[1];
   var open = url.match(/drive\.google\.com\/open\?id=([^&#]+)/);
@@ -483,17 +486,48 @@ function fetchLinkText_(url) {
 }
 
 function fetchRawText_(url) {
-  try {
-    var resp = UrlFetchApp.fetch(url, { muteHttpExceptions: true, timeoutSeconds: 15, followRedirects: false });
-    if (resp.getResponseCode() < 200 || resp.getResponseCode() >= 300) return '';
-    var body = resp.getContentText();
-    if (!body || body.indexOf('\u0000') !== -1) return '';
-    var lower = body.substring(0, 500).toLowerCase();
-    if (lower.indexOf('<html') !== -1 || lower.indexOf('<!doctype') !== -1) {
-      return htmlToText_(body);
-    }
-    return String(body).replace(/\s+/g, ' ').trim();
-  } catch (err) { return ''; }
+  var current = String(url || '');
+  var hops = 5;
+  var guard = {};
+  while (hops-- > 0) {
+    try {
+      if (!isSafeLinkUrl_(current)) return '';
+      if (guard[current]) return '';
+      guard[current] = true;
+      var resp = UrlFetchApp.fetch(current, { muteHttpExceptions: true, timeoutSeconds: 15, followRedirects: false });
+      var code = resp.getResponseCode();
+      if (code >= 300 && code < 400) {
+        var loc = '';
+        var hdr = resp.getHeaders();
+        for (var k in hdr) { if (String(k).toLowerCase() === 'location') loc = hdr[k]; }
+        current = toAbsoluteUrl_(current, loc);
+        if (!current) return '';
+        continue;
+      }
+      if (code < 200 || code >= 300) return '';
+      var body = resp.getContentText();
+      if (!body || body.indexOf('\u0000') !== -1) return '';
+      var lower = body.substring(0, 500).toLowerCase();
+      if (lower.indexOf('<html') !== -1 || lower.indexOf('<!doctype') !== -1) {
+        return htmlToText_(body);
+      }
+      return String(body).replace(/\s+/g, ' ').trim();
+    } catch (err) { return ''; }
+  }
+  return '';
+}
+
+/* Resolves a Location header against the current URL (absolute or relative). */
+function toAbsoluteUrl_(base, loc) {
+  loc = String(loc || '').trim();
+  if (!loc) return '';
+  if (/^https?:\/\//i.test(loc)) return loc;
+  if (loc.charAt(0) === '/') {
+    var m = String(base || '').match(/^https?:\/\/[^\/]+/i);
+    return m ? m[0] + loc : '';
+  }
+  var idx = String(base || '').lastIndexOf('/');
+  return idx !== -1 ? base.substring(0, idx + 1) + loc : loc;
 }
 
 function isReadableAiText_(text) {
@@ -502,6 +536,12 @@ function isReadableAiText_(text) {
   var low = t.toLowerCase();
   if (low.indexOf('request access') !== -1) return false;
   if (low.indexOf('sign in to continue') !== -1) return false;
+  if (low.indexOf('javascript isn\'t enabled') !== -1) return false;
+  if (low.indexOf('can\'t be opened') !== -1) return false;
+  if (low.indexOf('enable and reload') !== -1) return false;
+  if (low.indexOf('this browser version is no longer supported') !== -1) return false;
+  if (low.indexOf('unable to load') !== -1) return false;
+  if (low.indexOf('an error occurred') !== -1) return false;
   return true;
 }
 
