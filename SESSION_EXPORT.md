@@ -1,67 +1,89 @@
-# Session Export — 2026-08-05
+# Session Export — 2026-08-08
 
 ## Goal
-Serve the frontend from GitHub Pages and use Apps Script only as a backend API, so the "This application was created by a Google Apps Script user" banner disappears from `dashboardharyana.site`.
+Fix the user's meeting-recording failures end-to-end:
+1. Segmented transcription aborted at part 4–5 of a 1h09m recording — real
+   speech segments were tripping Cloudflare's ~100s origin timeout (HTTP 524),
+   and there was no per-segment retry, so one 524 killed the whole run.
+2. Tapping outside the recording dialog (or reopening it) cancelled the live
+   recording. It should keep running in the background with a persistent
+   floating "REC" indicator button that reopens the dialog.
 
 ## Completed
-- Added `doPost()` API handler to `code.js` with JSON-routed `eval(fn)` dispatch
-- Rewrote `script.html` to use `fetch()` (text/plain) instead of `google.script.run`
-- Rewrote `index.html` as a standalone static page (relative paths to `assets/styles.css` and `app.js`)
-- Changed `code.js` `doGet()` to return a JS redirect to GitHub Pages `https://www.dashboardharyana.site/app.html`
-- Created static bundle under `docs/`: `app.html`, `app.js`, `assets/styles.css`
-- Updated `docs/index.html` landing page with "Open Dashboard" CTA
-- Committed and pushed to origin/main (`e42e3dc`)
-- Pushed to Apps Script via `clasp push --force`
-- Created deployment **@109** (`AKfycbwNiYcg4uSCLhNSO3xx0o-YdbR7S-ZBK1t5I8lhJFpNuJS5E29253V-gNZDAgti-TY1`) with public access
 
-## Blocked — ROOT CAUSE FOUND & FIXED (2026-08-05)
-- Apps Script project still contained a stale `app.js` (server file) that was the original client-side build artifact.
-- That file crashes at load time with `ReferenceError: document is not defined (line 152, file "app")` — and later with `ReferenceError: <base64 stub> is not defined` after an empty-stub workaround.
-- `clasp push` does NOT delete remote files, so the stale `app` kept loading on every deployment.
-- **Fix:** removed the `app` file from the Apps Script project via the REST API (`projects.updateContent`, full file list minus `app`), added `app.js` + `docs/**` + `SESSION_EXPORT.md` to `.claspignore`, then `clasp push --force` + new version **112** + redeployed **@110** to v112.
+### 1. Segmented transcription hardening (client-side, all 3 JS copies identical)
+- Segments halved `8min -> 5min` (`MEETING_SEGMENT_SECONDS = 5 * 60`,
+  `MEETING_SEGMENT_MAX_ATTEMPTS = 3`).
+- New `transcribeSegmentWithRetry_()`: per-segment retry on transient failures
+  (`HTTP *`, `TypeError`, `NetworkError`, `Failed to fetch`) with backoff
+  `1500ms * attempt`.
+- The run now continues past a failed segment instead of aborting everything
+  (failures reported as "parts X, Y"); minutes are drafted from whatever
+  segments succeeded.
+- Duration pre-check: after local `AudioContext` decode, if
+  `audioBuffer.duration > MEETING_SEGMENT_SECONDS * 2` (10 min) it goes
+  straight to segmented processing.
+- Single-file path still attempts the direct `processMeetingRecording` call and
+  falls back to segments on `"Internal Server Error"` (mixed-sample-rate VBR
+  MP3) or any `HTTP xxx` timeout.
+- `script.html` (GAS inline client) had been missed by an earlier rewrite and
+  still contained the old 8-min non-retry code — replaced its whole meeting
+  block. Removed a stray leftover `reader.readAsDataURL(file);` line in `app.js`.
+- Verified: all three copies (`docs/app.js`, `app.js`, `script.html`) byte-
+  identical for the meeting block; `node --check` passes on all three.
 
-## Resumed — completed
-- @110 (`AKfycbykqb0AE0a6bwHGk4Q_e5LTXhefKtjao9_r7G0zR1cODl5JP5lH_ooqrgFt2hu3oDo2`) now serves HEAD with **no** `app` file.
-- Verified: `POST .../exec {"function":"getData","args":[]}` → JSON with **19 live items** (no ReferenceError).
-- Verified: `@108`/`@109` return HTML (no working `doPost`), so they are NOT usable as the API. `@110` is the only working API deployment.
-- The frontend's `API_URL` (`script.html:49`, `docs/app.js:47`, `app.js:47`) was pointing at a **deleted** deployment (404). Repointed all three to **@110**.
-- `wrangler.toml` `GAS_URL`/`GAS_SCRIPT_URL` pointed at @108 (no `doPost`). Repointed both to **@110**.
-- `.claspignore` now excludes `app.js`, `docs/**`, `SESSION_EXPORT.md` (so the client bundle is never pushed to Apps Script again).
+### 2. Background recording + floating REC indicator
+- Root cause of "tap outside cancels": `openMeetingNotes()` always called
+  `cancelMeetingRecording()` when a recorder existed, and reopening the dialog
+  after tap-outside therefore killed the live capture.
+- `openMeetingNotes()` now detects `meetingRecorder.state === 'recording'` and
+  restores the recording UI (timer / End / Cancel buttons, disabled
+  "Recording…" Go button) instead of cancelling.
+- `closeMeetingNotes()` keeps the recorder alive; backdrop click and ESC paths
+  now route `meetingNotesModal` through it (ESC no longer uses the generic
+  `closeDialog` for this modal).
+- New floating pill `#meetingRecFloat` (red pulsing dot + live `mm:ss` timer,
+  bottom-right, `z-index: 1490`) appears while the dialog is closed during a
+  recording; clicking it reopens the dialog and resumes.
+- Timer helpers: `fmtMeetingRecElapsed_()`, `syncMeetingRecFloat_()`; the
+  ticker updates both the in-dialog timer and the floating timer.
+- Markup added to `docs/app.html` and `index.html`; CSS (`.meeting-rec-float`,
+  `@keyframes rec-dot-pulse`) added to `docs/assets/styles.css` and `styles.html`.
 
-## Remaining (all done)
-1. `git commit` + `git push` the fixes (`.claspignore`, `script.html`, `docs/app.js`, `app.js`, `wrangler.toml`) — committed as `e7f69bb`.
-2. `wrangler deploy` so the Worker proxy uses @110 (strips the Google banner on the proxied path) — deployed.
-3. Verify `https://www.dashboardharyana.site/app.html` loads and the API returns data with no banner.
+### 3. Deploy (all live)
+- Commit `a84bf44` pushed to `origin/main`.
+- `clasp push --force` -> 25 GAS files updated.
+- GAS version **171** created; repointed the 3 in-use deployments:
+  - `AKfycbykqb0AE0a6bwHGk4Q_e5LTXhefKtjao9_r7G0zR1cODl5JP5lH_ooqrgFt2hu3oDo2` (primary API)
+  - `AKfycbxPwINC2LOPQ-II6vhMXuEqy30Fim32INQNjK3j0sK_9kBClr2MrbSPDnR91AmC7Ian` (Worker proxy `dashboardharyana.site/macros/...`)
+  - `AKfycbzVWcFmpyL1WonxJaaunXugpNnLyigb0ZUsegVYrKM-47jLNX2_DCuBsZkGIQOpAq62` (direct `script.google.com`)
+  - One legacy read-only deployment (`AKfycbw_jyy…`) could not be repointed — unused, safe.
+- Cache-buster bumped `2026.08.08g -> 2026.08.08h` (`docs/app.html`, `docs/sw.js`).
+- Live-verified:
+  - `dashboardharyana.site/app.js?v=2026.08.08h` -> float sync + recording branch + 5-min segmented const present.
+  - `dashboardharyana.site/app.html` + `assets/styles.css?v=2026.08.08h` + `sw.js` -> `.08h` buster and `.meeting-rec-float` CSS live.
+  - GAS web app via `script.google.com` proxy URL -> `syncMeetingRecFloat_` present.
 
-## BANNER STILL SHOWING — ROOT CAUSE FOUND & FIXED (Cloudflare, not code)
-The Google "created by a Google Apps Script user" banner persisted because **Cloudflare Worker routes**
-intercepted the whole domain and 302-redirected it to the Apps Script web app @108:
-- `dashboardharyana.site/*`        -> worker `dashboard-redirect`
-- `www.dashboardharyana.site/*`    -> worker `dashboard-redirect`
-The `dashboard-redirect` worker issued the 302 to `script.google.com/macros/s/AKfycbwc…hkK/exec` (Apps Script HTML UI = banner).
-DNS was already correct (apex `A` -> GitHub Pages IPs; `www` CNAME -> `vcharyanaco-tech.github.io`, both proxied).
-**Fix:** deleted the two `dashboard-redirect` worker routes via Cloudflare API. The domain now serves the
-GitHub Pages frontend directly. Verified: `www.dashboardharyana.site/app.html`, `dashboardharyana.site`,
-and `www.dashboardharyana.site` all return 200 with the frontend and **no banner**.
-
-## Notes / cleanup
-- The `dashboard-redirect` worker script itself was left in place (only its routes were removed). Delete it if no longer needed.
-- `@108`/`@109` are dead API deployments (no working `doPost`); `@110` (v112) is the live API.
-- Temp diagnostic scripts: `C:\Users\admin\AppData\Local\Temp\kilo\cf-*.ps1`.
+## Remaining / not verified
+- Endpoint smoke test (`transcribeMeetingSegment` / `generateMeetingMinutes`)
+  still needs a valid session token (mint via login; not available in the CLI).
+  Run `node C:\Users\vikph\AppData\Local\Temp\opencode\test-segments.mjs <token>`
+  against `dashboardharyana.site/macros/s/AKfycbxPwIN…/exec`.
+- Drive saves remain disabled (Apps Script project not bound to a spreadsheet,
+  so `getSpreadsheet_()` returns null and "Saved to Drive" links never render).
+  Non-fatal — transcription/minutes work without it.
 
 ## Key facts
 - GitHub repo: `https://github.com/vcharyanaco-tech/dashv1.git`
 - Apps Script project ID: `1QYwVDQGWPL5o64Xrvv9kKfE-AFT2nUuVMlvOc5CTK46qClfTCu3ofWcU`
 - GitHub Pages site: `https://www.dashboardharyana.site`
-- `.clasp.json` `skipSubdirectories: true`; `.claspignore` excludes `node_modules/**`, `worker.js`, `wrangler.toml`, `auto-commit.ps1`, `.gitignore`, `.git/**`, `SESSION.md`, `.claspignore`
-- doPost uses `text/plain` content type to avoid CORS preflight (Apps Script does not handle OPTIONS)
-- `eval(fn)` is used in doPost because Apps Script V8 global functions are not reliably accessible via `this[fn]`
-
-## Temporary scripts (C:\Users\vikph\AppData\Local\Temp\)
-- `delete_app_js.js` — list + delete a single file (list returned 404)
-- `update_app_js.js` — overwrite one file via PUT (400: needs full manifest)
-- `list_project_files.js` — list files via GET /v1/projects/{id}/content (200, works)
-- `fix_app_js.js` — GET full content, replace `app`, PUT back (200, works)
-- `update_deploy.js` — tried repointing @109 to HEAD (400: read-only)
-- `empty_app.js` — set `app` to empty string via full-content PUT (200)
-- `inspect_app.js` — decode and print the remote `app` file (works)
+- Relevant files:
+  - `docs/app.js`, `app.js`, `script.html` — client (all three kept in sync)
+  - `docs/app.html`, `index.html` — `meetingNotesModal` markup + `#meetingRecFloat`
+  - `docs/assets/styles.css`, `styles.html` — `.meeting-rec-float` CSS
+  - `EnterpriseService.gs` — server endpoints (`processMeetingRecording`,
+    `transcribeMeetingSegment`, `generateMeetingMinutes`)
+  - `Settings.js` — `CACHE.TTL` = 60 (auto-refresh)
+  - `C:\Users\vikph\Downloads\2026-07-20 15_01_03.mp3` — user's failing 1h09m test file
+- Temp tooling: `C:\Users\vikph\AppData\Local\Temp\opencode\test-segments.mjs`,
+  `gas-version-bump.mjs`, `repro.mjs`, `tone*.wav`.
