@@ -362,20 +362,39 @@ function openMeetingNotes() {
   const body = getEl('meetingNotesResult');
   const loading = getEl('meetingNotesLoading');
   const go = getEl('meetingNotesGo');
-  if (title) title.value = '';
-  if (file) file.value = '';
-  if (body) body.innerHTML = '';
-  if (loading) loading.style.display = 'none';
-  if (go) go.disabled = false;
-  if (meetingRecorder) cancelMeetingRecording();
-  resetMeetingRecUi_();
   const player = getEl('meetingNotesPlayer');
-  if (player) { player.removeAttribute('src'); player.style.display = 'none'; }
-  setMeetingRecStatus('');
+  if (meetingRecorder && meetingRecorder.state === 'recording') {
+    // Reopening the dialog must NOT cancel an active recording. Restore the
+    // recording UI (timer / End / Cancel) and keep capturing.
+    const startBtn = getEl('meetingNotesStartBtn');
+    const endBtn = getEl('meetingNotesEndBtn');
+    const cancelBtn = getEl('meetingNotesCancelBtn');
+    const timer = getEl('meetingNotesRecTimer');
+    if (startBtn) startBtn.style.display = 'none';
+    if (endBtn) { endBtn.style.display = 'inline-flex'; endBtn.disabled = false; endBtn.textContent = 'End recording'; }
+    if (cancelBtn) cancelBtn.style.display = 'inline-flex';
+    if (timer) timer.style.display = 'inline-flex';
+    if (go) { go.disabled = true; go.textContent = 'Recording\u2026'; }
+    if (loading) loading.style.display = 'none';
+    startMeetingRecTimer();
+  } else {
+    if (title) title.value = '';
+    if (file) file.value = '';
+    if (body) body.innerHTML = '';
+    if (loading) loading.style.display = 'none';
+    if (go) go.disabled = false;
+    if (player) { player.removeAttribute('src'); player.style.display = 'none'; }
+    resetMeetingRecUi_();
+    setMeetingRecStatus('');
+  }
+  syncMeetingRecFloat_();
 }
 
 function closeMeetingNotes() {
   closeDialog('meetingNotesModal');
+  // A live recording keeps running in the background; the floating indicator
+  // lets the user reopen the dialog and stop it later.
+  syncMeetingRecFloat_();
 }
 
 function processMeetingNotes() {
@@ -400,63 +419,79 @@ function processMeetingNotes() {
   if (body) body.innerHTML = '';
 
   // Files over the 25 MB cap cannot be sent in one request; re-encode locally
-  // into ~8-minute segments so the raw file never crosses the limit.
+  // into ~5-minute segments so the raw file never crosses the limit. Long
+  // recordings also go straight to segments: a single request on a long file
+  // makes Groq churn for minutes and can trip Cloudflare's origin timeout.
   if (file.size > 25 * 1024 * 1024) {
     processMeetingNotesSegmented(file, title, go, loading);
     return;
   }
 
-  const reader = new FileReader();
-  reader.onload = function () {
-    const base64 = String(reader.result || '').replace(/^data:[^;]*;base64,/, '');
-    ApiService.processMeetingRecording({
-      title: title,
-      base64: base64,
-      mimeType: file.type || 'audio/mpeg',
-      fileName: file.name
-    }).then(function (data) {
-      if (!data || data.success !== true) {
-        const msg = (data && data.message) || 'Could not process the recording.';
-        // Groq rejects some encodings (e.g. mixed sample-rate VBR MP3) with a
-        // generic "Internal Server Error". Retry through the local re-encode path.
-        if (msg === 'Internal Server Error') {
+  readAudioBuffer_(file).then(function (audioBuffer) {
+    if (audioBuffer.duration > MEETING_SEGMENT_SECONDS * 2) {
+      processMeetingNotesSegmented(file, title, go, loading);
+      return;
+    }
+    const reader = new FileReader();
+    reader.onload = function () {
+      const base64 = String(reader.result || '').replace(/^data:[^;]*;base64,/, '');
+      ApiService.processMeetingRecording({
+        title: title,
+        base64: base64,
+        mimeType: file.type || 'audio/mpeg',
+        fileName: file.name
+      }).then(function (data) {
+        if (!data || data.success !== true) {
+          const msg = (data && data.message) || 'Could not process the recording.';
+          // Groq rejects some encodings (e.g. mixed sample-rate VBR MP3) with a
+          // generic "Internal Server Error". Retry through the local re-encode path.
+          if (msg === 'Internal Server Error') {
+            return processMeetingNotesSegmented(file, title, go, loading);
+          }
+          showToast(msg, 'error');
+          renderMeetingMinutesError(msg);
+          return;
+        }
+        renderMeetingMinutes(data);
+      }).catch(function (err) {
+        if (handleServerFailure(err)) return;
+        const msg = err && err.message ? err.message : String(err || 'Unknown error');
+        // Timeouts (e.g. Cloudflare 524 while Groq churns through a long file)
+        // and transient failures retry through the local re-encode path.
+        if (/^HTTP \d{3}/.test(msg)) {
           return processMeetingNotesSegmented(file, title, go, loading);
         }
         showToast(msg, 'error');
         renderMeetingMinutesError(msg);
-        return;
-      }
-      renderMeetingMinutes(data);
-    }).catch(function (err) {
-      if (handleServerFailure(err)) return;
-      const msg = err && err.message ? err.message : String(err || 'Unknown error');
-      // Timeouts (e.g. Cloudflare 524 while Groq churns through a long file)
-      // and transient failures retry through the local re-encode path.
-      if (/^HTTP \d{3}/.test(msg)) {
-        return processMeetingNotesSegmented(file, title, go, loading);
-      }
-      showToast(msg, 'error');
-      renderMeetingMinutesError(msg);
-    }).then(function () {
+      }).then(function () {
+        if (go) go.disabled = false;
+        if (go) go.textContent = 'Transcribe & summarize';
+        if (loading) loading.style.display = 'none';
+        resetMeetingRecUi_();
+      });
+    };
+    reader.onerror = function () {
+      showToast('Could not read the audio file.', 'error');
       if (go) go.disabled = false;
-      if (go) go.textContent = 'Transcribe & summarize';
-      if (loading) loading.style.display = 'none';
-      resetMeetingRecUi_();
-    });
-  };
-  reader.onerror = function () {
-    showToast('Could not read the audio file.', 'error');
+    };
+    reader.readAsDataURL(file);
+  }).catch(function (err) {
+    if (handleServerFailure(err)) return;
+    const msg = err && err.message ? err.message : String(err || 'Unknown error');
+    showToast(msg, 'error');
+    renderMeetingMinutesError(msg);
     if (go) go.disabled = false;
-  };
-  reader.readAsDataURL(file);
+  });
 }
 
 /* Fallback for recordings that exceed the 25 MB single-request cap or that
-   Groq refuses to decode: decode in the browser, split into ~8-minute chunks,
+   Groq refuses to decode: decode in the browser, split into ~5-minute chunks,
    re-encode each as a compact 16 kHz mono WAV, then transcribe + draft minutes
-   via sequential API calls (each request stays well under the cap). */
-const MEETING_SEGMENT_SECONDS = 8 * 60;
+   via sequential API calls. Each segment is retried on transient failures and
+   the run continues past a bad segment instead of aborting everything. */
+const MEETING_SEGMENT_SECONDS = 5 * 60;
 const MEETING_SEGMENT_SAMPLE_RATE = 16000;
+const MEETING_SEGMENT_MAX_ATTEMPTS = 3;
 
 function processMeetingNotesSegmented(file, title, go, loading) {
   if (go) go.disabled = true;
@@ -468,12 +503,14 @@ function processMeetingNotesSegmented(file, title, go, loading) {
     const totalSeconds = audioBuffer.duration;
     const count = Math.max(1, Math.ceil(totalSeconds / MEETING_SEGMENT_SECONDS));
     const transcripts = [];
+    const failures = [];
     let index = 0;
     const runNext = function () {
       if (index >= count) {
         const combined = transcripts.join('\n').trim();
         if (!combined) {
-          renderMeetingMinutesError('No speech was detected in the recording.');
+          renderMeetingMinutesError('No segments could be transcribed' +
+            (failures.length ? ' (parts ' + failures.join(', ') + ')' : '') + '.');
           return;
         }
         setMeetingNotesLoadingText(loading, 'Drafting minutes\u2026');
@@ -487,21 +524,13 @@ function processMeetingNotesSegmented(file, title, go, loading) {
           renderMeetingMinutes(data);
         });
       }
-      setMeetingNotesLoadingText(loading, 'Re-encoding + transcribing part ' + (index + 1) + ' of ' + count + '\u2026');
+      const partNum = index + 1;
       const start = index * MEETING_SEGMENT_SECONDS;
       const duration = Math.min(MEETING_SEGMENT_SECONDS, totalSeconds - start);
-      return encodeWavSegment_(audioBuffer, start, duration).then(function (wav) {
-        return ApiService.transcribeMeetingSegment({
-          title: title,
-          base64: wav.base64,
-          mimeType: 'audio/wav',
-          fileName: 'part_' + (index + 1) + '.wav'
-        });
-      }).then(function (data) {
-        if (!data || data.success !== true) {
-          throw new Error((data && data.message) || 'Could not transcribe part ' + (index + 1) + '.');
-        }
-        transcripts.push(String(data.transcript || '').trim());
+      setMeetingNotesLoadingText(loading, 'Re-encoding + transcribing part ' + partNum + ' of ' + count + '\u2026');
+      return transcribeSegmentWithRetry_(audioBuffer, start, duration, partNum, title, loading).then(function (text) {
+        if (text) transcripts.push(text);
+        else failures.push(partNum);
         index++;
         return runNext();
       });
@@ -517,6 +546,42 @@ function processMeetingNotesSegmented(file, title, go, loading) {
     if (go) go.textContent = 'Transcribe & summarize';
     if (loading) loading.style.display = 'none';
     resetMeetingRecUi_();
+  });
+}
+
+/* Transcribes one segment, retrying on transient HTTP/network failures. Returns
+   the transcript, or '' if the segment could not be transcribed after all
+   attempts (the caller continues with the remaining segments). */
+function transcribeSegmentWithRetry_(audioBuffer, start, duration, partNum, title, loading) {
+  let attempt = 0;
+  const tryOnce = function () {
+    attempt++;
+    if (attempt > 1) {
+      setMeetingNotesLoadingText(loading, 'Retrying part ' + partNum + ' (attempt ' + attempt + ')\u2026');
+    }
+    return encodeWavSegment_(audioBuffer, start, duration).then(function (wav) {
+      return ApiService.transcribeMeetingSegment({
+        title: title,
+        base64: wav.base64,
+        mimeType: 'audio/wav',
+        fileName: 'part_' + partNum + '.wav'
+      });
+    }).then(function (data) {
+      if (!data || data.success !== true) {
+        throw new Error((data && data.message) || 'Could not transcribe part ' + partNum + '.');
+      }
+      return String(data.transcript || '').trim();
+    }).catch(function (err) {
+      if (handleServerFailure(err)) throw err;
+      const msg = err && err.message ? err.message : String(err || '');
+      if (attempt < MEETING_SEGMENT_MAX_ATTEMPTS && /^(HTTP|TypeError|NetworkError|Failed to fetch)/.test(msg)) {
+        return new Promise(function (resolve) { setTimeout(resolve, 1500 * attempt); }).then(tryOnce);
+      }
+      throw err;
+    });
+  };
+  return tryOnce().catch(function () {
+    return '';
   });
 }
 
@@ -818,6 +883,7 @@ function startMeetingRecording() {
     if (go) { go.disabled = true; go.textContent = 'Recording\u2026'; }
     if (status) status.textContent = '';
     startMeetingRecTimer();
+    syncMeetingRecFloat_();
     showToast('Recording started. Click "End recording" when done.', 'info');
   }).catch(function (err) {
     showToast('Microphone access denied or unavailable: ' + (err && err.message ? err.message : 'error'), 'error');
@@ -828,13 +894,37 @@ function startMeetingRecTimer() {
   stopMeetingRecTimer();
   const timer = getEl('meetingNotesRecTimer');
   if (timer) {
-    timer.textContent = '\u25CF 00:00';
+    timer.textContent = '\u25CF ' + fmtMeetingRecElapsed_();
+    const floatTimer = getEl('meetingRecFloatTimer');
+    if (floatTimer) floatTimer.textContent = fmtMeetingRecElapsed_();
     meetingRecTimerId = setInterval(function () {
       meetingRecElapsed++;
-      const m = String(Math.floor(meetingRecElapsed / 60)).padStart(2, '0');
-      const s = String(meetingRecElapsed % 60).padStart(2, '0');
-      timer.textContent = '\u25CF ' + m + ':' + s;
+      const t = fmtMeetingRecElapsed_();
+      timer.textContent = '\u25CF ' + t;
+      const floatTimer2 = getEl('meetingRecFloatTimer');
+      if (floatTimer2) floatTimer2.textContent = t;
     }, 1000);
+  }
+}
+
+function fmtMeetingRecElapsed_() {
+  const m = String(Math.floor(meetingRecElapsed / 60)).padStart(2, '0');
+  const s = String(meetingRecElapsed % 60).padStart(2, '0');
+  return m + ':' + s;
+}
+
+function syncMeetingRecFloat_() {
+  const floatBtn = getEl('meetingRecFloat');
+  if (!floatBtn) return;
+  const recording = !!(meetingRecorder && meetingRecorder.state === 'recording');
+  const modal = getEl('meetingNotesModal');
+  const modalOpen = modal && !modal.classList.contains('hidden');
+  if (recording && !modalOpen) {
+    const floatTimer = getEl('meetingRecFloatTimer');
+    if (floatTimer) floatTimer.textContent = fmtMeetingRecElapsed_();
+    floatBtn.classList.remove('hidden');
+  } else {
+    floatBtn.classList.add('hidden');
   }
 }
 
@@ -852,6 +942,7 @@ function stopMeetingRecording() {
   if (endBtn) { endBtn.disabled = true; endBtn.textContent = 'Processing\u2026'; }
   if (cancelBtn) cancelBtn.style.display = 'none';
   if (timer) timer.textContent = '\u25CF Saving\u2026';
+  syncMeetingRecFloat_();
 }
 
 function cancelMeetingRecording() {
@@ -867,6 +958,7 @@ function cancelMeetingRecording() {
     resetMeetingRecUi_();
     setMeetingRecStatus('Recording cancelled.');
   }
+  syncMeetingRecFloat_();
 }
 
 function resetMeetingRecUi_() {
@@ -878,6 +970,7 @@ function resetMeetingRecUi_() {
   if (endBtn) { endBtn.style.display = 'none'; endBtn.disabled = false; endBtn.textContent = 'End recording'; }
   if (cancelBtn) cancelBtn.style.display = 'none';
   if (timer) timer.style.display = 'none';
+  syncMeetingRecFloat_();
 }
 
 function setMeetingRecStatus(msg) {
@@ -4468,10 +4561,12 @@ function wireGlobalEvents() {
         cancelConfirmDialog();
         return;
       }
-      ['editModal', 'aboutModal', 'submissionsModal', 'recordDetailModal', 'editUserModal', 'reviewModal', 'taskModal', 'columnModal', 'commandPalette', 'previewModal', 'linkModal', 'meetingNotesModal'].forEach(function (id) {
+      ['editModal', 'aboutModal', 'submissionsModal', 'recordDetailModal', 'editUserModal', 'reviewModal', 'taskModal', 'columnModal', 'commandPalette', 'previewModal', 'linkModal'].forEach(function (id) {
         const el = getEl(id);
         if (el && !el.classList.contains('hidden')) closeDialog(id);
       });
+      const meetingModal = getEl('meetingNotesModal');
+      if (meetingModal && !meetingModal.classList.contains('hidden')) closeMeetingNotes();
       document.body.classList.remove('sidebar-open');
       const backdrop = getEl('sidebarBackdrop');
       if (backdrop) backdrop.classList.add('hidden');
