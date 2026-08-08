@@ -191,6 +191,10 @@
                 <svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 2l1.7 5.1L19 9l-5.3 1.9L12 16l-1.7-5.1L5 9l5.3-1.9z"></path><path d="M19 15l.8 2.4L22 18l-2.2.6L19 21l-.8-2.4L16 18l2.2-.6z"></path></svg>
                 AI Insights
               </button>
+              <button id="meetingNotesBtn" class="btn btn-secondary" type="button" onclick="openMeetingNotes()" style="display:none;">
+                <svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 3l1.9 5.8H20l-4.9 3.6L17 18l-5-3.6L7 18l1.9-5.6L4 8.8h6.1z"></path><path d="M20 16l.7 2.1 2.3.6-2.3.6L20 21.4l-.7-2.1-2.3-.6 2.3-.6z"></path></svg>
+                Meeting Notes
+              </button>
             </div>
           </div>
 
@@ -1050,6 +1054,36 @@
       <div class="form-row" style="margin-top:var(--sp-2);">
         <button id="aiInsightsRegen" class="btn btn-secondary" type="button" onclick="aiInsights()">Regenerate</button>
         <button class="btn btn-secondary" type="button" onclick="closeAiInsights()">Close</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- ============================ MEETING NOTES ============================ -->
+  <div id="meetingNotesModal" class="modal-backdrop hidden" role="dialog" aria-modal="true" aria-labelledby="meetingNotesTitle">
+    <div class="modal-card modal-card-lg">
+      <div class="modal-header">
+        <h3 class="text-subheading" id="meetingNotesTitle">AI Meeting Notes</h3>
+        <button class="icon-btn" type="button" onclick="closeMeetingNotes()" aria-label="Close dialog">
+          <svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><line x1="18" y1="6" x2="6" y2="18"></line><line x1="6" y1="6" x2="18" y2="18"></line></svg>
+        </button>
+      </div>
+      <div id="meetingNotesBody">
+        <p class="meeting-notes-hint">Upload an audio recording of a review meeting (m4a / mp3 / webm / wav, up to 25 MB). It will be transcribed with Whisper and turned into minutes with action items. Audio is sent to Groq for transcription.</p>
+        <div class="form-row">
+          <input id="meetingNotesTitleInput" class="input" type="text" placeholder="Meeting title (optional)" autocomplete="off">
+        </div>
+        <div class="form-row">
+          <input id="meetingNotesFile" class="input" type="file" accept="audio/*,.m4a,.mp3,.mp4,.webm,.ogg,.wav,.flac,.opus">
+        </div>
+        <div class="form-row">
+          <button id="meetingNotesGo" class="btn btn-secondary" type="button" onclick="processMeetingNotes()">Transcribe &amp; summarize</button>
+          <button class="btn btn-secondary" type="button" onclick="closeMeetingNotes()">Close</button>
+        </div>
+        <div id="meetingNotesLoading" style="display:none;align-items:center;gap:10px;padding:6px 0;">
+          <span aria-hidden="true" style="width:16px;height:16px;border:2px solid var(--border,#e5e7eb);border-top-color:var(--accent,#2563eb);border-radius:50%;animation:spin .8s linear infinite;"></span>
+          <span style="color:var(--muted);font-size:13px;">Transcribing audio &amp; drafting minutes (may take a minute)&#8230;</span>
+        </div>
+        <div id="meetingNotesResult"></div>
       </div>
     </div>
   </div>

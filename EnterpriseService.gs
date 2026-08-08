@@ -16,6 +16,16 @@ var ENTERPRISE_AI_OPENROUTER_ENDPOINT = 'https://openrouter.ai/api/v1/chat/compl
 var ENTERPRISE_AI_GROQ_ENDPOINT = 'https://api.groq.com/openai/v1/chat/completions';
 var ENTERPRISE_AI_HF_ENDPOINT = 'https://router.huggingface.co/v1/chat/completions';
 var ENTERPRISE_AI_KILO_ENDPOINT = 'https://api.kilo.ai/api/gateway/chat/completions';
+var ENTERPRISE_AI_GROQ_TRANSCRIBE_ENDPOINT = 'https://api.groq.com/openai/v1/audio/transcriptions';
+var ENTERPRISE_AI_TRANSCRIBE_MODEL = 'whisper-large-v3';
+var ENTERPRISE_AI_TRANSCRIBE_MAX_BYTES = 25 * 1024 * 1024;
+var ENTERPRISE_AI_TRANSCRIPT_MAX_CHARS = 20000;
+var ENTERPRISE_AI_MEETING_SYSTEM_PROMPT = 'You are a review-meeting minute-taker for the India Post Haryana dashboard team. ' +
+  'From the meeting transcript, produce STRICT JSON only (no markdown, no code fences, no commentary) with exactly these keys: ' +
+  '"summary" (one concise paragraph, string), "decisions" (array of strings), ' +
+  '"actionItems" (array of objects, each with "task" string, "assignee" string or empty, ' +
+  '"priority" string one of LOW/MEDIUM/HIGH/URGENT, "dueDate" string in dd.mm.yyyy format or empty), ' +
+  '"risks" (array of strings). Use empty arrays for anything not present.';
 var ENTERPRISE_AI_SYSTEM_PROMPT = 'You are a concise data-analytics assistant for the India Post Haryana dashboard. ' +
   'The user gives current dashboard summary numbers. Respond ONLY with exactly 3 short bullet ' +
   'points of concrete follow-up actions derived from those numbers. Do not describe India, ' +
@@ -751,6 +761,95 @@ function setKiloApiKey(token, apiKey) {
   }
   PropertiesService.getScriptProperties().setProperty('KILO_API_KEY', apiKey.trim());
   return { ok: true };
+}
+
+/* Groq Whisper transcription (free tier: whisper-large-v3). Sends a multipart
+   upload with {model, file} and returns {ok, text} or {ok: false, reason}. */
+function callGroqTranscribe_(apiKey, blob) {
+  try {
+    var resp = UrlFetchApp.fetch(ENTERPRISE_AI_GROQ_TRANSCRIBE_ENDPOINT, {
+      method: 'post',
+      headers: { Authorization: 'Bearer ' + apiKey },
+      payload: {
+        model: ENTERPRISE_AI_TRANSCRIBE_MODEL,
+        file: blob,
+        response_format: 'json'
+      },
+      muteHttpExceptions: true,
+      timeoutSeconds: 300
+    });
+    var body = JSON.parse(resp.getContentText());
+    var code = resp.getResponseCode();
+    if (code < 200 || code >= 300) {
+      var apiErr = body && body.error && (body.error.message || body.error.code || body.error.type);
+      return { ok: false, reason: apiErr || ('Groq transcription HTTP ' + code) };
+    }
+    return { ok: true, text: String(body.text || '') };
+  } catch (err) {
+    return { ok: false, reason: 'Transcription failed: ' + String(err) };
+  }
+}
+
+/* Strips common LLM wrapper noise and parses a JSON object, or null. */
+function tryParseJsonObject_(text) {
+  var s = String(text || '').trim();
+  if (!s) return null;
+  if (s.charAt(0) === '`') s = s.replace(/^`+/, '').replace(/`+$/, '').trim();
+  s = s.replace(/^```(?:json)?/i, '').replace(/```$/, '').trim();
+  var start = s.indexOf('{');
+  var end = s.lastIndexOf('}');
+  if (start !== -1 && end > start) s = s.substring(start, end + 1);
+  try { return JSON.parse(s); } catch (err) { return null; }
+}
+
+/* Admin-only: transcribes an uploaded meeting recording via Groq Whisper and
+   generates structured minutes (summary, decisions, action items, risks) via
+   the configured AI provider. Returns {success, title, transcript, minutes,
+   minutesText}. Never stores the audio. */
+function processMeetingRecording(token, payload) {
+  var user = requireAdmin_(token);
+  if (!aiEnabled_()) return { success: false, message: 'AI insights are not enabled.' };
+  var props = PropertiesService.getScriptProperties();
+  var groqKey = props.getProperty('GROQ_API_KEY');
+  if (!groqKey) return { success: false, message: 'Groq API key not configured (required for transcription).' };
+  payload = payload || {};
+  var title = String(payload.title || '').trim() || 'Review meeting';
+  var base64 = String(payload.base64 || '');
+  var mimeType = String(payload.mimeType || 'audio/mpeg');
+  var fileName = String(payload.fileName || 'recording.' + (mimeType.indexOf('m4a') !== -1 ? 'm4a' : 'mpeg'));
+  if (!base64) return { success: false, message: 'No audio was provided.' };
+  var bytes;
+  try { bytes = Utilities.base64Decode(base64); } catch (err) {
+    return { success: false, message: 'Audio data could not be decoded.' };
+  }
+  if (!bytes.length) return { success: false, message: 'The audio file appears to be empty.' };
+  if (bytes.length > ENTERPRISE_AI_TRANSCRIBE_MAX_BYTES) {
+    return { success: false, message: 'Audio exceeds the 25 MB transcription limit.' };
+  }
+  var blob = Utilities.newBlob(bytes, mimeType, fileName);
+  var tr = callGroqTranscribe_(groqKey, blob);
+  if (!tr.ok) return { success: false, message: tr.reason };
+  var transcript = String(tr.text || '').trim();
+  if (!transcript) return { success: false, message: 'No speech was detected in the recording.' };
+  var minutesPrompt = 'Meeting title: ' + title + '\n\nTranscript:\n' +
+    transcript.substring(0, ENTERPRISE_AI_TRANSCRIPT_MAX_CHARS);
+  var ai = generateAiText_(minutesPrompt, ENTERPRISE_AI_MEETING_SYSTEM_PROMPT);
+  var minutes = { summary: '', decisions: [], actionItems: [], risks: [] };
+  var minutesText = '';
+  if (ai.success) {
+    minutesText = String(ai.insights || '');
+    var parsed = tryParseJsonObject_(minutesText);
+    if (parsed && typeof parsed === 'object') minutes = parsed;
+  }
+  return {
+    success: true,
+    title: title,
+    transcript: transcript,
+    transcriptChars: transcript.length,
+    minutes: minutes,
+    minutesText: minutesText,
+    fallbackProvider: ai.fallbackProvider || ''
+  };
 }
 
 function aiKeyConfigured_() {

@@ -127,7 +127,8 @@ const ApiService = {
   sendWhatsAppReviewReminders: function () { return apiCall_('sendWhatsAppReviewReminders', getAuthToken()); },
   getAiInsights: function () { return apiCall_('getAiInsights', getAuthToken()); },
   getCardAiInsight: function (row) { return apiCall_('getCardAiInsight', getAuthToken(), row); },
-  getLinkContentAiInsight: function (row) { return apiCall_('getLinkContentAiInsight', getAuthToken(), row); }
+  getLinkContentAiInsight: function (row) { return apiCall_('getLinkContentAiInsight', getAuthToken(), row); },
+  processMeetingRecording: function (payload) { return apiCall_('processMeetingRecording', payload, getAuthToken()); }
 };
 
 const appState = {
@@ -399,6 +400,182 @@ function renderAiInsight(text, isError) {
       '<span style="color:var(--accent,#2563eb);font-weight:700;">&rsaquo;</span>' +
       '<span>' + escapeHtml(line) + '</span></li>';
   }).join('');
+}
+
+/* ---------------------------------- AI Meeting Notes ---------------------------------- */
+/* Admin-only: uploads a review-meeting audio recording, transcribes it via
+   Groq Whisper and renders structured minutes. Action items become "Create
+   task" buttons (never auto-created). */
+
+function openMeetingNotes() {
+  if (!appState.isAdmin) { showToast('Admin access required', 'error'); return; }
+  openDialog('meetingNotesModal');
+  const title = getEl('meetingNotesTitleInput');
+  const file = getEl('meetingNotesFile');
+  const body = getEl('meetingNotesResult');
+  const loading = getEl('meetingNotesLoading');
+  const go = getEl('meetingNotesGo');
+  if (title) title.value = '';
+  if (file) file.value = '';
+  if (body) body.innerHTML = '';
+  if (loading) loading.style.display = 'none';
+  if (go) go.disabled = false;
+}
+
+function closeMeetingNotes() {
+  closeDialog('meetingNotesModal');
+}
+
+function processMeetingNotes() {
+  const fileInput = getEl('meetingNotesFile');
+  const go = getEl('meetingNotesGo');
+  const loading = getEl('meetingNotesLoading');
+  const body = getEl('meetingNotesResult');
+  if (!fileInput || !fileInput.files || !fileInput.files.length) {
+    showToast('Choose an audio recording first.', 'warning');
+    return;
+  }
+  const file = fileInput.files[0];
+  if (file.size > 25 * 1024 * 1024) {
+    showToast('Audio exceeds the 25 MB limit.', 'error');
+    return;
+  }
+  const reader = new FileReader();
+  reader.onload = function () {
+    const base64 = String(reader.result || '').replace(/^data:[^;]*;base64,/, '');
+    const titleEl = getEl('meetingNotesTitleInput');
+    const title = titleEl ? titleEl.value.trim() : '';
+    if (go) go.disabled = true;
+    if (loading) loading.style.display = 'flex';
+    if (body) body.innerHTML = '';
+    ApiService.processMeetingRecording({
+      title: title,
+      base64: base64,
+      mimeType: file.type || 'audio/mpeg',
+      fileName: file.name
+    }).then(function (data) {
+      if (!data || data.success !== true) {
+        const msg = (data && data.message) || 'Could not process the recording.';
+        showToast(msg, 'error');
+        renderMeetingMinutesError(msg);
+        return;
+      }
+      renderMeetingMinutes(data);
+    }).catch(function (err) {
+      if (handleServerFailure(err)) return;
+      const msg = err && err.message ? err.message : String(err || 'Unknown error');
+      showToast(msg, 'error');
+      renderMeetingMinutesError(msg);
+    }).then(function () {
+      if (go) go.disabled = false;
+      if (loading) loading.style.display = 'none';
+    });
+  };
+  reader.onerror = function () {
+    showToast('Could not read the audio file.', 'error');
+    if (go) go.disabled = false;
+  };
+  reader.readAsDataURL(file);
+}
+
+function renderMeetingMinutesError(msg) {
+  const body = getEl('meetingNotesResult');
+  if (!body) return;
+  body.innerHTML = '<div class="meeting-notes-error">' + escapeHtml(msg) + '</div>';
+}
+
+function renderMeetingMinutes(data) {
+  const body = getEl('meetingNotesResult');
+  if (!body) return;
+  const minutes = (data && data.minutes) || {};
+  const summary = String(minutes.summary || '').trim();
+  const decisions = Array.isArray(minutes.decisions) ? minutes.decisions : [];
+  const actions = Array.isArray(minutes.actionItems) ? minutes.actionItems : [];
+  const risks = Array.isArray(minutes.risks) ? minutes.risks : [];
+  const meetingTitle = String((data && data.title) || 'Review meeting');
+  let html = '<div class="meeting-notes-wrap">';
+  if (summary) {
+    html += '<div class="card-ai-head"><span class="card-ai-title">Summary</span></div>' +
+      '<div class="meeting-notes-section"><p>' + escapeHtml(summary) + '</p></div>';
+  }
+  if (actions.length) {
+    html += '<div class="card-ai-head"><span class="card-ai-title">Action items (' + actions.length + ')</span></div>' +
+      '<table class="card-ai-table meeting-notes-table"><thead><tr>' +
+      '<th>Task</th><th>Assignee</th><th>Priority</th><th>Due</th><th></th>' +
+      '</tr></thead><tbody>';
+    actions.forEach(function (a, i) {
+      const task = String((a && a.task) || '').trim() || ('Action item ' + (i + 1));
+      const assignee = String((a && a.assignee) || '').trim();
+      const priority = String((a && a.priority) || 'MEDIUM').toUpperCase();
+      const due = String((a && a.dueDate) || '').trim();
+      html += '<tr>' +
+        '<td>' + escapeHtml(task) + '</td>' +
+        '<td>' + escapeHtml(assignee || '\u2014') + '</td>' +
+        '<td><span class="meeting-priority" data-priority="' + escapeHtml(priority) + '">' + escapeHtml(priority) + '</span></td>' +
+        '<td>' + escapeHtml(due || '\u2014') + '</td>' +
+        '<td><button class="btn btn-small btn-secondary" type="button" onclick="createTaskFromMeetingAction(this)" data-title="' + escapeHtml(task) + '" data-assignee="' + escapeHtml(assignee) + '" data-priority="' + escapeHtml(priority) + '" data-due="' + escapeHtml(due) + '">Create task</button></td>' +
+        '</tr>';
+    });
+    html += '</tbody></table>';
+  }
+  if (decisions.length) {
+    html += '<div class="card-ai-head"><span class="card-ai-title">Decisions</span></div>' +
+      '<ul class="meeting-notes-list">' + decisions.map(function (d) {
+        return '<li>' + escapeHtml(String(d)) + '</li>';
+      }).join('') + '</ul>';
+  }
+  if (risks.length) {
+    html += '<div class="card-ai-head"><span class="card-ai-title">Risks</span></div>' +
+      '<ul class="meeting-notes-list">' + risks.map(function (r) {
+        return '<li>' + escapeHtml(String(r)) + '</li>';
+      }).join('') + '</ul>';
+  }
+  if (data && data.minutesText && !summary && !decisions.length && !actions.length && !risks.length) {
+    html += '<div class="card-ai-head"><span class="card-ai-title">Minutes</span></div>' +
+      '<div class="meeting-notes-section"><p>' + escapeHtml(data.minutesText) + '</p></div>';
+  }
+  if (data && data.transcript) {
+    const chars = data.transcriptChars || data.transcript.length;
+    html += '<div class="card-ai-head"><span class="card-ai-title">Full transcript (' + chars + ' chars)</span>' +
+      '<button class="btn btn-small btn-ghost" type="button" onclick="toggleMeetingTranscript()">Show</button></div>' +
+      '<div id="meetingTranscript" class="meeting-notes-transcript hidden"><pre>' + escapeHtml(data.transcript) + '</pre></div>';
+  }
+  if (html === '<div class="meeting-notes-wrap">') {
+    html += '<p style="color:var(--muted);font-size:14px;">Transcription succeeded (' + escapeHtml(meetingTitle) +
+      '), but no minutes were generated. Try again.</p>';
+  }
+  html += '</div>';
+  body.innerHTML = html;
+}
+
+function toggleMeetingTranscript() {
+  const pre = getEl('meetingTranscript');
+  if (!pre) return;
+  pre.classList.toggle('hidden');
+  const head = pre.previousElementSibling;
+  const btn = head ? head.querySelector('button') : null;
+  if (btn) btn.textContent = pre.classList.contains('hidden') ? 'Show' : 'Hide';
+}
+
+function createTaskFromMeetingAction(btn) {
+  const params = {
+    title: btn.getAttribute('data-title') || '',
+    description: 'Created from meeting notes: ' + (btn.getAttribute('data-title') || ''),
+    assignee: btn.getAttribute('data-assignee') || '',
+    priority: btn.getAttribute('data-priority') || 'MEDIUM',
+    dueDate: btn.getAttribute('data-due') || ''
+  };
+  showOverlay('Creating task\u2026');
+  ApiService.createTask(params).then(function () {
+    hideOverlay();
+    btn.disabled = true;
+    btn.textContent = 'Created';
+    showToast('Task created.', 'success');
+  }).catch(function (err) {
+    hideOverlay();
+    if (handleServerFailure(err)) return;
+    showToast('Could not create task: ' + (err.message || err), 'error');
+  });
 }
 
 /* ---------------------------------- Per-record AI insight (cards + table rows) ---------------------------------- */
@@ -824,6 +1001,8 @@ function renderProfile() {
   if (addButton) addButton.style.display = appState.isEditor ? 'inline-flex' : 'none';
   const aiBtn = getEl('aiInsightsBtn');
   if (aiBtn) aiBtn.style.display = appState.isAdmin ? 'inline-flex' : 'none';
+  const meetingBtn = getEl('meetingNotesBtn');
+  if (meetingBtn) meetingBtn.style.display = appState.isAdmin ? 'inline-flex' : 'none';
 }
 
 /* ---------------------------------- Notifications ---------------------------------- */
@@ -3906,7 +4085,7 @@ function wireGlobalEvents() {
         cancelConfirmDialog();
         return;
       }
-      ['editModal', 'aboutModal', 'submissionsModal', 'recordDetailModal', 'editUserModal', 'reviewModal', 'taskModal', 'columnModal', 'commandPalette', 'previewModal', 'linkModal', 'aiInsightsModal'].forEach(function (id) {
+      ['editModal', 'aboutModal', 'submissionsModal', 'recordDetailModal', 'editUserModal', 'reviewModal', 'taskModal', 'columnModal', 'commandPalette', 'previewModal', 'linkModal', 'aiInsightsModal', 'meetingNotesModal'].forEach(function (id) {
         const el = getEl(id);
         if (el && !el.classList.contains('hidden')) closeDialog(id);
       });
@@ -3948,6 +4127,7 @@ function wireGlobalEvents() {
         else if (backdrop.id === 'previewModal') closeLinkPreview();
         else if (backdrop.id === 'linkModal') closeLinkModal();
         else if (backdrop.id === 'aiInsightsModal') closeAiInsights();
+        else if (backdrop.id === 'meetingNotesModal') closeMeetingNotes();
       }
     });
   });
