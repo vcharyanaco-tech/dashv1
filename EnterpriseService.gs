@@ -821,20 +821,33 @@ function meetingFileExt_(fileName, mimeType) {
   return 'webm';
 }
 
-/* Finds (or creates) a folder named `name` inside the spreadsheet's parent
-   folder, so meeting artifacts live next to the dashboard workbook. */
+/* Finds (or creates) a folder named `name`. Prefers the spreadsheet's parent
+   folder (so meeting artifacts live next to the dashboard workbook), then
+   falls back to the Drive root when the parent folder is not writable under
+   the drive.file scope. Errors are logged, never silently swallowed. */
 function getMeetingDriveFolder_(name) {
   var ss = getSpreadsheet_();
   if (!ss) return null;
-  var parent = null;
+  var candidates = [];
   try {
     var parents = DriveApp.getFileById(ss.getId()).getParents();
-    if (parents.hasNext()) parent = parents.next();
-  } catch (err) { parent = null; }
-  if (!parent) return null;
-  var it = parent.getFoldersByName(name);
-  if (it.hasNext()) return it.next();
-  return parent.createFolder(name);
+    if (parents.hasNext()) candidates.push(parents.next());
+  } catch (err) {
+    console.error('getMeetingDriveFolder_: DriveApp parent lookup failed: ' + err);
+  }
+  candidates.push(DriveApp.getRootFolder());
+  for (var i = 0; i < candidates.length; i++) {
+    var parent = candidates[i];
+    try {
+      var it = parent.getFoldersByName(name);
+      if (it.hasNext()) return it.next();
+      return parent.createFolder(name);
+    } catch (err3) {
+      console.error('getMeetingDriveFolder_: could not create/list folder "' + name +
+        '" under ' + (parent ? parent.getName() : '(null)') + ': ' + err3);
+    }
+  }
+  return null;
 }
 
 /* Admin-only: transcribes an uploaded or browser-recorded meeting via Groq
