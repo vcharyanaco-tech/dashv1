@@ -79,7 +79,7 @@ Fix the user's meeting-recording failures end-to-end:
   logging) and adding the full `https://www.googleapis.com/auth/drive` scope to
   `appsscript.json`, then re-authorizing the deployment. Live-verified:
   `getMeetingDriveFolder_` returns the `IPD Meeting Notes` / `IPD Meeting Recordings`
-  folders. Current deployed GAS version is 174.
+  folders. Current deployed GAS version is 175.
 
 ## Session 2 (2026-08-08): record meeting audio via tab/screen share
 - Problem: mic-only `getUserMedia` recording captured nothing for remote
@@ -103,6 +103,12 @@ Fix the user's meeting-recording failures end-to-end:
   being recorded (tab+mic / tab / mic-only).
 - All three copies (`docs/app.js`, `app.js`, `script.html`) kept identical;
   `node --check` passes on all three.
+- Deployed: commit `b5542bf` pushed to `origin/main` (GitHub Actions deploys
+  Pages from `docs/` + Cloudflare Worker via `deploy-worker-api.js`).
+  Cache-buster `2026.08.08h -> 2026.08.08i` (`docs/app.html`, `docs/sw.js`).
+  GAS: `clasp push --force` (25 files, `script.html` is the GAS client;
+  `app.js` is excluded via `.claspignore`), version **175** created, 3 in-use
+  deployments repointed.
 
 ## Key facts
 - GitHub repo: `https://github.com/vcharyanaco-tech/dashv1.git`
