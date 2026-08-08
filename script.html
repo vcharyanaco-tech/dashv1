@@ -430,6 +430,11 @@ function processMeetingNotes() {
     }).catch(function (err) {
       if (handleServerFailure(err)) return;
       const msg = err && err.message ? err.message : String(err || 'Unknown error');
+      // Timeouts (e.g. Cloudflare 524 while Groq churns through a long file)
+      // and transient failures retry through the local re-encode path.
+      if (/^HTTP \d{3}/.test(msg)) {
+        return processMeetingNotesSegmented(file, title, go, loading);
+      }
       showToast(msg, 'error');
       renderMeetingMinutesError(msg);
     }).then(function () {
