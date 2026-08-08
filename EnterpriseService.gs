@@ -835,7 +835,11 @@ function getMeetingDriveFolder_(name) {
   } catch (err) {
     console.error('getMeetingDriveFolder_: DriveApp parent lookup failed: ' + err);
   }
-  candidates.push(DriveApp.getRootFolder());
+  try {
+    candidates.push(DriveApp.getRootFolder());
+  } catch (err) {
+    console.error('getMeetingDriveFolder_: root folder lookup failed: ' + err);
+  }
   for (var i = 0; i < candidates.length; i++) {
     var parent = candidates[i];
     try {
