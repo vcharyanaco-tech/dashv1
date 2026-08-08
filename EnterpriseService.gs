@@ -802,10 +802,47 @@ function tryParseJsonObject_(text) {
   try { return JSON.parse(s); } catch (err) { return null; }
 }
 
-/* Admin-only: transcribes an uploaded meeting recording via Groq Whisper and
-   generates structured minutes (summary, decisions, action items, risks) via
-   the configured AI provider. Returns {success, title, transcript, minutes,
-   minutesText}. Never stores the audio. */
+/* Sanitizes a string for use as a Drive file name. */
+function sanitizeFileName_(name) {
+  var s = String(name || '').replace(/[\/\\:*?"<>|]/g, '_').trim();
+  return s.length ? s : 'Meeting';
+}
+
+/* Derives a file extension from the client file name, else from mimeType. */
+function meetingFileExt_(fileName, mimeType) {
+  var m = String(fileName || '').match(/\.([a-z0-9]{2,5})$/i);
+  if (m) return m[1].toLowerCase();
+  mimeType = String(mimeType || '');
+  if (mimeType.indexOf('m4a') !== -1 || mimeType.indexOf('mp4') !== -1) return 'm4a';
+  if (mimeType.indexOf('ogg') !== -1) return 'ogg';
+  if (mimeType.indexOf('wav') !== -1) return 'wav';
+  if (mimeType.indexOf('mpeg') !== -1) return 'mp3';
+  if (mimeType.indexOf('flac') !== -1) return 'flac';
+  return 'webm';
+}
+
+/* Finds (or creates) a folder named `name` inside the spreadsheet's parent
+   folder, so meeting artifacts live next to the dashboard workbook. */
+function getMeetingDriveFolder_(name) {
+  var ss = getSpreadsheet_();
+  if (!ss) return null;
+  var parent = null;
+  try {
+    var parents = DriveApp.getFileById(ss.getId()).getParents();
+    if (parents.hasNext()) parent = parents.next();
+  } catch (err) { parent = null; }
+  if (!parent) return null;
+  var it = parent.getFoldersByName(name);
+  if (it.hasNext()) return it.next();
+  return parent.createFolder(name);
+}
+
+/* Admin-only: transcribes an uploaded or browser-recorded meeting via Groq
+   Whisper and generates structured minutes (summary, decisions, action items,
+   risks) via the configured AI provider. The raw audio and the generated
+   minutes are saved to Drive folders next to the spreadsheet (best effort).
+   Returns {success, title, transcript, minutes, minutesText, driveAudio,
+   driveMinutes}. */
 function processMeetingRecording(token, payload) {
   var user = requireAdmin_(token);
   if (!aiEnabled_()) return { success: false, message: 'AI insights are not enabled.' };
@@ -826,11 +863,23 @@ function processMeetingRecording(token, payload) {
   if (bytes.length > ENTERPRISE_AI_TRANSCRIBE_MAX_BYTES) {
     return { success: false, message: 'Audio exceeds the 25 MB transcription limit.' };
   }
+
+  var driveAudio = null;
+  try {
+    var audioFolder = getMeetingDriveFolder_('IPD Meeting Recordings');
+    if (audioFolder) {
+      var stamp = Utilities.formatDate(new Date(), props.getProperty('TIMEZONE') || 'Asia/Kolkata', 'yyyy-MM-dd_HHmm');
+      var audioName = sanitizeFileName_(title) + '_' + stamp + '.' + meetingFileExt_(fileName, mimeType);
+      var savedFile = audioFolder.createFile(Utilities.newBlob(bytes, mimeType, audioName));
+      driveAudio = { id: savedFile.getId(), url: savedFile.getUrl(), name: audioName, size: bytes.length };
+    }
+  } catch (err) { driveAudio = null; }
+
   var blob = Utilities.newBlob(bytes, mimeType, fileName);
   var tr = callGroqTranscribe_(groqKey, blob);
-  if (!tr.ok) return { success: false, message: tr.reason };
+  if (!tr.ok) return { success: false, message: tr.reason, driveAudio: driveAudio };
   var transcript = String(tr.text || '').trim();
-  if (!transcript) return { success: false, message: 'No speech was detected in the recording.' };
+  if (!transcript) return { success: false, message: 'No speech was detected in the recording.', driveAudio: driveAudio };
   var minutesPrompt = 'Meeting title: ' + title + '\n\nTranscript:\n' +
     transcript.substring(0, ENTERPRISE_AI_TRANSCRIPT_MAX_CHARS);
   var ai = generateAiText_(minutesPrompt, ENTERPRISE_AI_MEETING_SYSTEM_PROMPT);
@@ -841,6 +890,33 @@ function processMeetingRecording(token, payload) {
     var parsed = tryParseJsonObject_(minutesText);
     if (parsed && typeof parsed === 'object') minutes = parsed;
   }
+
+  var driveMinutes = null;
+  try {
+    var notesFolder = getMeetingDriveFolder_('IPD Meeting Notes');
+    if (notesFolder) {
+      var md = '# ' + title + '\n\nGenerated: ' + new Date().toString() + '\n\n';
+      md += '## Summary\n' + (String(minutes.summary || '').trim() || '(no summary)') + '\n\n';
+      if (minutes.decisions && minutes.decisions.length) {
+        md += '## Decisions\n' + minutes.decisions.map(function (d) { return '- ' + String(d); }).join('\n') + '\n\n';
+      }
+      if (minutes.actionItems && minutes.actionItems.length) {
+        md += '## Action items\n' + minutes.actionItems.map(function (a) {
+          return '- [' + String((a && a.priority) || 'MEDIUM') + '] ' + String((a && a.task) || '') +
+            ((a && a.assignee) ? ' (assigned: ' + a.assignee + ')' : '') +
+            ((a && a.dueDate) ? ' (due: ' + a.dueDate + ')' : '');
+        }).join('\n') + '\n\n';
+      }
+      if (minutes.risks && minutes.risks.length) {
+        md += '## Risks\n' + minutes.risks.map(function (r) { return '- ' + String(r); }).join('\n') + '\n\n';
+      }
+      md += '## Transcript\n' + transcript + '\n';
+      var stamp2 = Utilities.formatDate(new Date(), props.getProperty('TIMEZONE') || 'Asia/Kolkata', 'yyyy-MM-dd_HHmm');
+      var mdFile = notesFolder.createFile(sanitizeFileName_(title) + '_' + stamp2 + '.md', md, MimeType.PLAIN_TEXT);
+      driveMinutes = { id: mdFile.getId(), url: mdFile.getUrl(), name: mdFile.getName() };
+    }
+  } catch (err) { driveMinutes = null; }
+
   return {
     success: true,
     title: title,
@@ -848,6 +924,8 @@ function processMeetingRecording(token, payload) {
     transcriptChars: transcript.length,
     minutes: minutes,
     minutesText: minutesText,
+    driveAudio: driveAudio,
+    driveMinutes: driveMinutes,
     fallbackProvider: ai.fallbackProvider || ''
   };
 }

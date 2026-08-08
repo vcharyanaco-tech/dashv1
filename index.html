@@ -187,10 +187,6 @@
                 <svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="3"></circle><path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 0 1 0 2.83 2 2 0 0 1-2.83 0l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-2 2 2 2 0 0 1-2-2v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 0 1-2.83 0 2 2 0 0 1 0-2.83l.06-.06A1.65 1.65 0 0 0 4.6 15a1.65 1.65 0 0 0-1.51-1H2a2 2 0 0 1-2-2 2 2 0 0 1 2-2h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 0 1 0-2.83 2 2 0 0 1 2.83 0l.06.06A1.65 1.65 0 0 0 9 4.6a1.65 1.65 0 0 0 1-1.51V2a2 2 0 0 1 2-2 2 2 0 0 1 2 2v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 0 1 2.83 0 2 2 0 0 1 0 2.83l-.06.06a1.65 1.65 0 0 0-.33 1.82V9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 2 2 2 2 0 0 1-2 2h-.09a1.65 1.65 0 0 0-1.51 1z"></path></svg>
                 Customize
               </button>
-              <button id="aiInsightsBtn" class="btn btn-secondary" type="button" onclick="openAiInsights()" style="display:none;">
-                <svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 2l1.7 5.1L19 9l-5.3 1.9L12 16l-1.7-5.1L5 9l5.3-1.9z"></path><path d="M19 15l.8 2.4L22 18l-2.2.6L19 21l-.8-2.4L16 18l2.2-.6z"></path></svg>
-                AI Insights
-              </button>
               <button id="meetingNotesBtn" class="btn btn-secondary" type="button" onclick="openMeetingNotes()" style="display:none;">
                 <svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 3l1.9 5.8H20l-4.9 3.6L17 18l-5-3.6L7 18l1.9-5.6L4 8.8h6.1z"></path><path d="M20 16l.7 2.1 2.3.6-2.3.6L20 21.4l-.7-2.1-2.3-.6 2.3-.6z"></path></svg>
                 Meeting Notes
@@ -1037,27 +1033,6 @@
     </div>
   </div>
 
-  <!-- ============================ AI INSIGHTS ============================ -->
-  <div id="aiInsightsModal" class="modal-backdrop hidden" role="dialog" aria-modal="true" aria-labelledby="aiInsightsTitle">
-    <div class="modal-card">
-      <div class="modal-header">
-        <h3 class="text-subheading" id="aiInsightsTitle">AI Insights</h3>
-        <button class="icon-btn" type="button" onclick="closeAiInsights()" aria-label="Close dialog">
-          <svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><line x1="18" y1="6" x2="6" y2="18"></line><line x1="6" y1="6" x2="18" y2="18"></line></svg>
-        </button>
-      </div>
-      <div id="aiInsightsLoading" style="display:flex;align-items:center;gap:10px;padding:6px 0;">
-        <span aria-hidden="true" style="width:16px;height:16px;border:2px solid var(--border,#e5e7eb);border-top-color:var(--accent,#2563eb);border-radius:50%;animation:spin .8s linear infinite;"></span>
-        <span style="color:var(--muted);font-size:13px;">Analyzing live dashboard data...</span>
-      </div>
-      <ul id="aiInsightsList" style="list-style:none;margin:0;padding:0;display:grid;gap:10px;"></ul>
-      <div class="form-row" style="margin-top:var(--sp-2);">
-        <button id="aiInsightsRegen" class="btn btn-secondary" type="button" onclick="aiInsights()">Regenerate</button>
-        <button class="btn btn-secondary" type="button" onclick="closeAiInsights()">Close</button>
-      </div>
-    </div>
-  </div>
-
   <!-- ============================ MEETING NOTES ============================ -->
   <div id="meetingNotesModal" class="modal-backdrop hidden" role="dialog" aria-modal="true" aria-labelledby="meetingNotesTitle">
     <div class="modal-card modal-card-lg">
@@ -1068,10 +1043,24 @@
         </button>
       </div>
       <div id="meetingNotesBody">
-        <p class="meeting-notes-hint">Upload an audio recording of a review meeting (m4a / mp3 / webm / wav, up to 25 MB). It will be transcribed with Whisper and turned into minutes with action items. Audio is sent to Groq for transcription.</p>
+        <p class="meeting-notes-hint">Record a review meeting in your browser, or upload an audio file (m4a / mp3 / webm / wav, up to 25 MB). Audio is transcribed via Whisper, saved to Drive, and turned into minutes with action items. Audio is sent to Groq for transcription.</p>
         <div class="form-row">
           <input id="meetingNotesTitleInput" class="input" type="text" placeholder="Meeting title (optional)" autocomplete="off">
         </div>
+        <div class="meeting-rec-box">
+          <div class="meeting-rec-head">
+            <button id="meetingNotesStartBtn" class="btn btn-primary" type="button" onclick="startMeetingRecording()">
+              <svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 1a3 3 0 0 0-3 3v8a3 3 0 0 0 6 0V4a3 3 0 0 0-3-3z"></path><path d="M19 10v2a7 7 0 0 1-14 0v-2"></path><line x1="12" y1="19" x2="12" y2="23"></line><line x1="8" y1="23" x2="16" y2="23"></line></svg>
+              Start taking meeting notes
+            </button>
+            <button id="meetingNotesEndBtn" class="btn btn-secondary" type="button" onclick="stopMeetingRecording()" style="display:none;">End recording</button>
+            <button id="meetingNotesCancelBtn" class="btn btn-ghost" type="button" onclick="cancelMeetingRecording()" style="display:none;">Cancel</button>
+            <span id="meetingNotesRecTimer" class="meeting-rec-timer" style="display:none;">&#9679; 00:00</span>
+          </div>
+          <audio id="meetingNotesPlayer" controls preload="metadata" style="display:none;width:100%;margin-top:8px;"></audio>
+          <div id="meetingNotesRecStatus" class="meeting-rec-status"></div>
+        </div>
+        <div class="meeting-divider"><span>or upload a file</span></div>
         <div class="form-row">
           <input id="meetingNotesFile" class="input" type="file" accept="audio/*,.m4a,.mp3,.mp4,.webm,.ogg,.wav,.flac,.opus">
         </div>

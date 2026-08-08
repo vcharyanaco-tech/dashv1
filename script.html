@@ -346,66 +346,11 @@ function closeDialog(id) {
   }
 }
 
-/* ---------------------------------- AI Insights ---------------------------------- */
-
-function openAiInsights() {
-  if (!appState.isAdmin) { showToast('Admin access required', 'error'); return; }
-  openDialog('aiInsightsModal');
-  aiInsights();
-}
-
-function closeAiInsights() {
-  closeDialog('aiInsightsModal');
-}
-
-function aiInsights() {
-  const list = getEl('aiInsightsList');
-  const loading = getEl('aiInsightsLoading');
-  const regen = getEl('aiInsightsRegen');
-  if (list) list.innerHTML = '';
-  if (loading) loading.style.display = 'flex';
-  if (regen) regen.disabled = true;
-  ApiService.getAiInsights().then(function (data) {
-    if (!data || data.success !== true) {
-      const msg = (data && data.message) || 'Could not generate AI insights.';
-      showToast(msg, 'error');
-      renderAiInsight(msg, true);
-      return;
-    }
-    renderAiInsight(data.insights || '', false);
-  }).catch(function (err) {
-    if (handleServerFailure(err)) return;
-    const msg = err && err.message ? err.message : String(err || 'Unknown error');
-    showToast(msg, 'error');
-    renderAiInsight(msg, true);
-  }).then(function () {
-    if (loading) loading.style.display = 'none';
-    if (regen) regen.disabled = false;
-  });
-}
-
-function renderAiInsight(text, isError) {
-  const list = getEl('aiInsightsList');
-  if (!list) return;
-  if (isError) {
-    list.innerHTML = '<li style="color:var(--danger,#dc3545);">' + escapeHtml(text) + '</li>';
-    return;
-  }
-  const lines = String(text || '').split(/\r?\n/).map(function (line) {
-    return line.replace(/^[-*\u2022\u25CF\s]+/, '').trim();
-  }).filter(function (line) { return line; });
-  const items = lines.length ? lines : [String(text || '')];
-  list.innerHTML = items.map(function (line) {
-    return '<li style="display:flex;gap:8px;align-items:flex-start;font-size:14px;line-height:1.5;">' +
-      '<span style="color:var(--accent,#2563eb);font-weight:700;">&rsaquo;</span>' +
-      '<span>' + escapeHtml(line) + '</span></li>';
-  }).join('');
-}
-
 /* ---------------------------------- AI Meeting Notes ---------------------------------- */
-/* Admin-only: uploads a review-meeting audio recording, transcribes it via
-   Groq Whisper and renders structured minutes. Action items become "Create
-   task" buttons (never auto-created). */
+/* Admin-only: records or uploads a review-meeting audio, transcribes it via
+   Groq Whisper, saves audio + minutes to Drive and renders structured minutes.
+   Action items become "Create task" buttons plus a bulk "Add all" (never
+   auto-created). */
 
 function openMeetingNotes() {
   if (!appState.isAdmin) { showToast('Admin access required', 'error'); return; }
@@ -420,6 +365,11 @@ function openMeetingNotes() {
   if (body) body.innerHTML = '';
   if (loading) loading.style.display = 'none';
   if (go) go.disabled = false;
+  if (meetingRecorder) cancelMeetingRecording();
+  resetMeetingRecUi_();
+  const player = getEl('meetingNotesPlayer');
+  if (player) { player.removeAttribute('src'); player.style.display = 'none'; }
+  setMeetingRecStatus('');
 }
 
 function closeMeetingNotes() {
@@ -431,11 +381,16 @@ function processMeetingNotes() {
   const go = getEl('meetingNotesGo');
   const loading = getEl('meetingNotesLoading');
   const body = getEl('meetingNotesResult');
-  if (!fileInput || !fileInput.files || !fileInput.files.length) {
-    showToast('Choose an audio recording first.', 'warning');
+  let file = null;
+  if (fileInput && fileInput.files && fileInput.files.length) {
+    file = fileInput.files[0];
+  } else if (meetingRecBlob) {
+    file = new File([meetingRecBlob], meetingRecordingFileName_(), { type: meetingRecMimeType });
+  }
+  if (!file) {
+    showToast('Record or choose an audio file first.', 'warning');
     return;
   }
-  const file = fileInput.files[0];
   if (file.size > 25 * 1024 * 1024) {
     showToast('Audio exceeds the 25 MB limit.', 'error');
     return;
@@ -468,7 +423,9 @@ function processMeetingNotes() {
       renderMeetingMinutesError(msg);
     }).then(function () {
       if (go) go.disabled = false;
+      if (go) go.textContent = 'Transcribe & summarize';
       if (loading) loading.style.display = 'none';
+      resetMeetingRecUi_();
     });
   };
   reader.onerror = function () {
@@ -499,7 +456,8 @@ function renderMeetingMinutes(data) {
       '<div class="meeting-notes-section"><p>' + escapeHtml(summary) + '</p></div>';
   }
   if (actions.length) {
-    html += '<div class="card-ai-head"><span class="card-ai-title">Action items (' + actions.length + ')</span></div>' +
+    html += '<div class="card-ai-head"><span class="card-ai-title">Action items (' + actions.length + ')</span>' +
+      '<button class="btn btn-small btn-secondary" type="button" onclick="addAllMeetingTasks()">Add all as tasks</button></div>' +
       '<table class="card-ai-table meeting-notes-table"><thead><tr>' +
       '<th>Task</th><th>Assignee</th><th>Priority</th><th>Due</th><th></th>' +
       '</tr></thead><tbody>';
@@ -540,6 +498,14 @@ function renderMeetingMinutes(data) {
       '<button class="btn btn-small btn-ghost" type="button" onclick="toggleMeetingTranscript()">Show</button></div>' +
       '<div id="meetingTranscript" class="meeting-notes-transcript hidden"><pre>' + escapeHtml(data.transcript) + '</pre></div>';
   }
+  if (data && (data.driveAudio || data.driveMinutes)) {
+    html += '<div class="card-ai-head"><span class="card-ai-title">Saved to Drive</span></div>' +
+      '<div class="meeting-notes-drive">' +
+      (data.driveAudio ? '<span>&#127911; <a href="' + escapeHtml(data.driveAudio.url) + '" target="_blank" rel="noopener noreferrer">Audio</a></span>' : '') +
+      (data.driveAudio && data.driveMinutes ? '<span class="meeting-drive-sep">&nbsp;&middot;&nbsp;</span>' : '') +
+      (data.driveMinutes ? '<span>&#128196; <a href="' + escapeHtml(data.driveMinutes.url) + '" target="_blank" rel="noopener noreferrer">Minutes</a></span>' : '') +
+      '</div>';
+  }
   if (html === '<div class="meeting-notes-wrap">') {
     html += '<p style="color:var(--muted);font-size:14px;">Transcription succeeded (' + escapeHtml(meetingTitle) +
       '), but no minutes were generated. Try again.</p>';
@@ -576,6 +542,195 @@ function createTaskFromMeetingAction(btn) {
     if (handleServerFailure(err)) return;
     showToast('Could not create task: ' + (err.message || err), 'error');
   });
+}
+
+/* Bulk-creates tasks for every action item currently rendered. */
+function addAllMeetingTasks() {
+  const rows = Array.prototype.slice.call(document.querySelectorAll('#meetingNotesResult .meeting-notes-table tbody tr'));
+  const items = [];
+  rows.forEach(function (tr) {
+    const btn = tr.querySelector('button[data-title]');
+    if (!btn) return;
+    items.push({
+      title: btn.getAttribute('data-title') || '',
+      assignee: btn.getAttribute('data-assignee') || '',
+      priority: btn.getAttribute('data-priority') || 'MEDIUM',
+      dueDate: btn.getAttribute('data-due') || ''
+    });
+  });
+  if (!items.length) { showToast('No action items to add.', 'warning'); return; }
+  showConfirm({
+    title: 'Add ' + items.length + ' task(s)?',
+    message: 'Create ' + items.length + ' task(s) from the meeting action items? They will appear in the Tasks dashboard.',
+    okLabel: 'Add tasks'
+  }).then(function (confirmed) {
+    if (!confirmed) return;
+    showOverlay('Adding tasks\u2026');
+    const calls = items.map(function (it) {
+      return ApiService.createTask({
+        title: it.title,
+        description: 'Created from meeting notes: ' + it.title,
+        assignee: it.assignee,
+        priority: it.priority,
+        dueDate: it.dueDate
+      });
+    });
+    Promise.all(calls).then(function () {
+      hideOverlay();
+      rows.forEach(function (tr) {
+        const btn = tr.querySelector('button[data-title]');
+        if (btn) { btn.disabled = true; btn.textContent = 'Created'; }
+      });
+      const bulkBtn = document.querySelector('#meetingNotesResult .card-ai-head button[onclick="addAllMeetingTasks()"]');
+      if (bulkBtn) { bulkBtn.disabled = true; bulkBtn.textContent = 'Added'; }
+      showToast(items.length + ' task(s) created.', 'success');
+    }).catch(function (err) {
+      hideOverlay();
+      if (handleServerFailure(err)) return;
+      showToast('Could not add tasks: ' + (err && err.message ? err.message : String(err)), 'error');
+    });
+  });
+}
+
+/* ---------------------------------- Live browser recording ---------------------------------- */
+
+let meetingRecorder = null;
+let meetingRecChunks = [];
+let meetingRecStream = null;
+let meetingRecTimerId = null;
+let meetingRecElapsed = 0;
+let meetingRecBlob = null;
+let meetingRecMimeType = 'audio/webm';
+let meetingRecCancelFlag = false;
+
+function meetingRecordingFileName_() {
+  const titleEl = getEl('meetingNotesTitleInput');
+  const raw = titleEl && titleEl.value.trim() ? titleEl.value.trim() : 'Review meeting';
+  const safe = raw.replace(/[\/\\:*?"<>|]/g, '_').replace(/\s+/g, '_');
+  const d = new Date();
+  const pad = function (n) { return String(n).padStart(2, '0'); };
+  return safe + '_' + d.getFullYear() + pad(d.getMonth() + 1) + pad(d.getDate()) + '_' + pad(d.getHours()) + pad(d.getMinutes()) + '.webm';
+}
+
+function startMeetingRecording() {
+  if (!appState.isAdmin) { showToast('Admin access required', 'error'); return; }
+  if (meetingRecorder) { showToast('Recording already in progress.', 'warning'); return; }
+  if (!navigator.mediaDevices || !navigator.mediaDevices.getUserMedia || !window.MediaRecorder) {
+    showToast('Live recording is not supported in this browser. Use Chrome, Edge, Firefox or Safari.', 'error');
+    return;
+  }
+  navigator.mediaDevices.getUserMedia({ audio: true }).then(function (stream) {
+    meetingRecStream = stream;
+    meetingRecChunks = [];
+    meetingRecElapsed = 0;
+    meetingRecMimeType = 'audio/webm';
+    let options = {};
+    if (window.MediaRecorder.isTypeSupported('audio/webm;codecs=opus')) options = { mimeType: 'audio/webm;codecs=opus' };
+    else if (window.MediaRecorder.isTypeSupported('audio/webm')) options = { mimeType: 'audio/webm' };
+    meetingRecorder = new MediaRecorder(stream, options);
+    meetingRecorder.ondataavailable = function (e) { if (e.data && e.data.size) meetingRecChunks.push(e.data); };
+    meetingRecorder.onstop = function () {
+      const type = (meetingRecorder && meetingRecorder.mimeType) || meetingRecMimeType || 'audio/webm';
+      meetingRecBlob = new Blob(meetingRecChunks, { type: type });
+      meetingRecChunks = [];
+      stopMeetingRecTimer();
+      const player = getEl('meetingNotesPlayer');
+      if (player) { player.src = URL.createObjectURL(meetingRecBlob); player.style.display = 'block'; }
+      if (meetingRecStream) { meetingRecStream.getTracks().forEach(function (t) { t.stop(); }); meetingRecStream = null; }
+      const wasCancel = meetingRecCancelFlag;
+      meetingRecCancelFlag = false;
+      if (wasCancel) {
+        meetingRecBlob = null;
+        setMeetingRecStatus('Recording cancelled.');
+        return;
+      }
+      const titleEl = getEl('meetingNotesTitleInput');
+      if (titleEl && !titleEl.value.trim()) {
+        const d = new Date();
+        titleEl.value = 'Review meeting ' + (d.getMonth() + 1) + '/' + d.getDate() + '/' + d.getFullYear();
+      }
+      setMeetingRecStatus('Recording finished \u2014 sending to Groq\u2026');
+      processMeetingNotes();
+    };
+    meetingRecorder.start(1000);
+    const startBtn = getEl('meetingNotesStartBtn');
+    const endBtn = getEl('meetingNotesEndBtn');
+    const cancelBtn = getEl('meetingNotesCancelBtn');
+    const timer = getEl('meetingNotesRecTimer');
+    const go = getEl('meetingNotesGo');
+    const status = getEl('meetingNotesRecStatus');
+    if (startBtn) startBtn.style.display = 'none';
+    if (endBtn) endBtn.style.display = 'inline-flex';
+    if (cancelBtn) cancelBtn.style.display = 'inline-flex';
+    if (timer) timer.style.display = 'inline-flex';
+    if (go) { go.disabled = true; go.textContent = 'Recording\u2026'; }
+    if (status) status.textContent = '';
+    startMeetingRecTimer();
+    showToast('Recording started. Click "End recording" when done.', 'info');
+  }).catch(function (err) {
+    showToast('Microphone access denied or unavailable: ' + (err && err.message ? err.message : 'error'), 'error');
+  });
+}
+
+function startMeetingRecTimer() {
+  stopMeetingRecTimer();
+  const timer = getEl('meetingNotesRecTimer');
+  if (timer) {
+    timer.textContent = '\u25CF 00:00';
+    meetingRecTimerId = setInterval(function () {
+      meetingRecElapsed++;
+      const m = String(Math.floor(meetingRecElapsed / 60)).padStart(2, '0');
+      const s = String(meetingRecElapsed % 60).padStart(2, '0');
+      timer.textContent = '\u25CF ' + m + ':' + s;
+    }, 1000);
+  }
+}
+
+function stopMeetingRecTimer() {
+  if (meetingRecTimerId) { clearInterval(meetingRecTimerId); meetingRecTimerId = null; }
+}
+
+function stopMeetingRecording() {
+  if (!meetingRecorder) return;
+  meetingRecCancelFlag = false;
+  try { meetingRecorder.stop(); } catch (err) {}
+  const endBtn = getEl('meetingNotesEndBtn');
+  const cancelBtn = getEl('meetingNotesCancelBtn');
+  const timer = getEl('meetingNotesRecTimer');
+  if (endBtn) { endBtn.disabled = true; endBtn.textContent = 'Processing\u2026'; }
+  if (cancelBtn) cancelBtn.style.display = 'none';
+  if (timer) timer.textContent = '\u25CF Saving\u2026';
+}
+
+function cancelMeetingRecording() {
+  meetingRecCancelFlag = true;
+  if (meetingRecorder && meetingRecorder.state === 'recording') {
+    try { meetingRecorder.stop(); } catch (err) {}
+  } else {
+    meetingRecBlob = null;
+    meetingRecChunks = [];
+    if (meetingRecStream) { meetingRecStream.getTracks().forEach(function (t) { t.stop(); }); meetingRecStream = null; }
+    meetingRecorder = null;
+    stopMeetingRecTimer();
+    resetMeetingRecUi_();
+    setMeetingRecStatus('Recording cancelled.');
+  }
+}
+
+function resetMeetingRecUi_() {
+  const startBtn = getEl('meetingNotesStartBtn');
+  const endBtn = getEl('meetingNotesEndBtn');
+  const cancelBtn = getEl('meetingNotesCancelBtn');
+  const timer = getEl('meetingNotesRecTimer');
+  if (startBtn) startBtn.style.display = 'inline-flex';
+  if (endBtn) { endBtn.style.display = 'none'; endBtn.disabled = false; endBtn.textContent = 'End recording'; }
+  if (cancelBtn) cancelBtn.style.display = 'none';
+  if (timer) timer.style.display = 'none';
+}
+
+function setMeetingRecStatus(msg) {
+  const status = getEl('meetingNotesRecStatus');
+  if (status) status.textContent = msg || '';
 }
 
 /* ---------------------------------- Per-record AI insight (cards + table rows) ---------------------------------- */
@@ -999,8 +1154,6 @@ function renderProfile() {
 
   const addButton = getEl('addButton');
   if (addButton) addButton.style.display = appState.isEditor ? 'inline-flex' : 'none';
-  const aiBtn = getEl('aiInsightsBtn');
-  if (aiBtn) aiBtn.style.display = appState.isAdmin ? 'inline-flex' : 'none';
   const meetingBtn = getEl('meetingNotesBtn');
   if (meetingBtn) meetingBtn.style.display = appState.isAdmin ? 'inline-flex' : 'none';
 }
@@ -4085,7 +4238,7 @@ function wireGlobalEvents() {
         cancelConfirmDialog();
         return;
       }
-      ['editModal', 'aboutModal', 'submissionsModal', 'recordDetailModal', 'editUserModal', 'reviewModal', 'taskModal', 'columnModal', 'commandPalette', 'previewModal', 'linkModal', 'aiInsightsModal', 'meetingNotesModal'].forEach(function (id) {
+      ['editModal', 'aboutModal', 'submissionsModal', 'recordDetailModal', 'editUserModal', 'reviewModal', 'taskModal', 'columnModal', 'commandPalette', 'previewModal', 'linkModal', 'meetingNotesModal'].forEach(function (id) {
         const el = getEl(id);
         if (el && !el.classList.contains('hidden')) closeDialog(id);
       });
@@ -4126,7 +4279,6 @@ function wireGlobalEvents() {
         else if (backdrop.id === 'confirmModal') cancelConfirmDialog();
         else if (backdrop.id === 'previewModal') closeLinkPreview();
         else if (backdrop.id === 'linkModal') closeLinkModal();
-        else if (backdrop.id === 'aiInsightsModal') closeAiInsights();
         else if (backdrop.id === 'meetingNotesModal') closeMeetingNotes();
       }
     });
