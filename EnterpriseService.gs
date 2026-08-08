@@ -5,7 +5,7 @@
  * Enterprise addons server endpoints: review calendar (.ics),
  * WhatsApp review reminders (Meta WhatsApp Cloud API), and
  * AI dashboard insights (provider-switchable: Groq, Hugging Face,
- * OpenRouter, or Google Gemini).
+ * OpenRouter, Google Gemini, or Kilo Gateway free tier as a keyless fallback).
  * All features are gated by ENTERPRISE_SETTINGS (EnterpriseSettings.js)
  * and optional Script Properties overrides.
  * ============================================================
@@ -15,6 +15,7 @@ var ENTERPRISE_AI_DEFAULT_ENDPOINT = 'https://generativelanguage.googleapis.com/
 var ENTERPRISE_AI_OPENROUTER_ENDPOINT = 'https://openrouter.ai/api/v1/chat/completions';
 var ENTERPRISE_AI_GROQ_ENDPOINT = 'https://api.groq.com/openai/v1/chat/completions';
 var ENTERPRISE_AI_HF_ENDPOINT = 'https://router.huggingface.co/v1/chat/completions';
+var ENTERPRISE_AI_KILO_ENDPOINT = 'https://api.kilo.ai/api/gateway/chat/completions';
 var ENTERPRISE_AI_SYSTEM_PROMPT = 'You are a concise data-analytics assistant for the India Post Haryana dashboard. ' +
   'The user gives current dashboard summary numbers. Respond ONLY with exactly 3 short bullet ' +
   'points of concrete follow-up actions derived from those numbers. Do not describe India, ' +
@@ -235,6 +236,7 @@ function aiKeyPropName_(provider) {
   if (provider === 'gemini') return 'GEMINI_API_KEY';
   if (provider === 'groq') return 'GROQ_API_KEY';
   if (provider === 'huggingface') return 'HUGGINGFACE_API_KEY';
+  if (provider === 'kilo' || provider === 'kilocode') return 'KILO_API_KEY';
   return 'OPENROUTER_API_KEY';
 }
 
@@ -242,6 +244,7 @@ function aiDefaultModel_(provider) {
   if (provider === 'gemini') return 'gemini-2.0-flash';
   if (provider === 'groq') return 'llama-3.3-70b-versatile';
   if (provider === 'huggingface') return 'meta-llama/Llama-3.3-70B-Instruct';
+  if (provider === 'kilo' || provider === 'kilocode') return 'kilo-auto/free';
   return 'openai/gpt-4o-mini';
 }
 
@@ -293,6 +296,39 @@ function callHuggingFace_(props, apiKey, model, prompt, systemPrompt) {
   return callOpenAiChat_(endpoint, apiKey, model, prompt, systemPrompt);
 }
 
+/* Kilo Gateway chat completions (OpenAI-compatible, free tier needs no key;
+   OpenKilo uses the literal 'anonymous' bearer token for free models). */
+function callKilo_(props, apiKey, model, prompt, systemPrompt) {
+  var endpoint = props.getProperty('KILO_ENDPOINT') || ENTERPRISE_AI_KILO_ENDPOINT;
+  var token = apiKey || 'anonymous';
+  var resp = UrlFetchApp.fetch(endpoint, {
+    method: 'post',
+    contentType: 'application/json',
+    headers: { Authorization: 'Bearer ' + token },
+    payload: JSON.stringify({
+      model: model,
+      messages: [
+        {
+          role: 'system',
+          content: systemPrompt || ENTERPRISE_AI_SYSTEM_PROMPT
+        },
+        { role: 'user', content: prompt }
+      ]
+    }),
+    muteHttpExceptions: true
+  });
+  var body = JSON.parse(resp.getContentText());
+  var code = resp.getResponseCode();
+  if (code < 200 || code >= 300) {
+    var apiErr = body && body.error && (body.error.message || body.error.type || body.error.status);
+    return { success: false, message: apiErr || ('Kilo HTTP ' + code) };
+  }
+  var text = body && body.choices && body.choices[0] && body.choices[0].message &&
+    body.choices[0].message.content;
+  if (!text) return { success: false, message: 'No text returned by Kilo.' };
+  return { success: true, insights: text };
+}
+
 /* Google Gemini via generateContent. */
 function callGemini_(props, ai, apiKey, model, prompt, systemPrompt) {
   var endpoint = props.getProperty('GEMINI_ENDPOINT') || ENTERPRISE_AI_DEFAULT_ENDPOINT;
@@ -320,20 +356,52 @@ function callGemini_(props, ai, apiKey, model, prompt, systemPrompt) {
 }
 
 /* Shared provider dispatch: resolves the configured provider/key/model and runs a
-   prompt through it. Returns {success, insights} or {success: false, message}. */
+   prompt through it. Returns {success, insights} or {success: false, message}.
+   When the primary provider fails and Kilo fallback is not disabled, retries once
+   through the Kilo Gateway free tier (keyless), so insights still arrive if the
+   configured provider (e.g. Groq) errors or is rate-limited. */
 function generateAiText_(prompt, systemPrompt) {
   var ai = (ENTERPRISE_SETTINGS || {}).AI_INSIGHTS || {};
   var props = PropertiesService.getScriptProperties();
   var provider = (props.getProperty('AI_PROVIDER') || ai.provider || 'openrouter').toLowerCase();
   var apiKey = props.getProperty(aiKeyPropName_(provider)) || ai.apiKey || '';
-  if (!apiKey) {
-    return { success: false, message: 'AI credentials are not configured.' };
-  }
   var model = props.getProperty('AI_MODEL') || ai.model || aiDefaultModel_(provider);
+
+  var result = runAiProvider_(props, ai, provider, apiKey, model, prompt, systemPrompt);
+  if (result.success) return result;
+
+  var kiloFallback = (props.getProperty('AI_KILO_FALLBACK') || 'true').toLowerCase() !== 'false';
+  var isKilo = provider === 'kilo' || provider === 'kilocode';
+  if (kiloFallback && !isKilo) {
+    var kiloModel = props.getProperty('AI_KILO_MODEL') || 'kilo-auto/free';
+    var kiloResult = runAiProvider_(props, ai, 'kilo', '', kiloModel, prompt, systemPrompt);
+    if (kiloResult.success) {
+      kiloResult.fallbackProvider = 'kilo';
+      return kiloResult;
+    }
+    result.kiloFallbackError = kiloResult.message || '';
+  }
+  return result;
+}
+
+function runAiProvider_(props, ai, provider, apiKey, model, prompt, systemPrompt) {
   try {
-    if (provider === 'gemini') return callGemini_(props, ai, apiKey, model, prompt, systemPrompt);
-    if (provider === 'groq') return callGroq_(props, apiKey, model, prompt, systemPrompt);
-    if (provider === 'huggingface') return callHuggingFace_(props, apiKey, model, prompt, systemPrompt);
+    if (provider === 'gemini') {
+      if (!apiKey) return { success: false, message: 'AI credentials are not configured.' };
+      return callGemini_(props, ai, apiKey, model, prompt, systemPrompt);
+    }
+    if (provider === 'groq') {
+      if (!apiKey) return { success: false, message: 'AI credentials are not configured.' };
+      return callGroq_(props, apiKey, model, prompt, systemPrompt);
+    }
+    if (provider === 'huggingface') {
+      if (!apiKey) return { success: false, message: 'AI credentials are not configured.' };
+      return callHuggingFace_(props, apiKey, model, prompt, systemPrompt);
+    }
+    if (provider === 'kilo' || provider === 'kilocode') {
+      return callKilo_(props, apiKey, model, prompt, systemPrompt);
+    }
+    if (!apiKey) return { success: false, message: 'AI credentials are not configured.' };
     return callOpenRouter_(props, ai, apiKey, model, prompt, systemPrompt);
   } catch (err) {
     return { success: false, message: String(err) };
@@ -674,12 +742,25 @@ function setHuggingFaceApiKey(token, apiKey) {
   return { ok: true };
 }
 
+/* Admin-gated: stores the Kilo Gateway API key in Script Properties (optional —
+   the free tier works with the keyless 'anonymous' fallback). */
+function setKiloApiKey(token, apiKey) {
+  requireAdmin_(token);
+  if (!apiKey || typeof apiKey !== 'string' || !apiKey.trim()) {
+    return { ok: false, message: 'Missing API key.' };
+  }
+  PropertiesService.getScriptProperties().setProperty('KILO_API_KEY', apiKey.trim());
+  return { ok: true };
+}
+
 function aiKeyConfigured_() {
   var ai = (ENTERPRISE_SETTINGS || {}).AI_INSIGHTS || {};
   var props = PropertiesService.getScriptProperties();
   var provider = (props.getProperty('AI_PROVIDER') || ai.provider || 'openrouter').toLowerCase();
   var propName = aiKeyPropName_(provider);
-  return !!props.getProperty(propName) || !!ai.apiKey;
+  if (props.getProperty(propName) || ai.apiKey) return true;
+  var kiloFallback = (props.getProperty('AI_KILO_FALLBACK') || 'true').toLowerCase() !== 'false';
+  return kiloFallback && provider !== 'kilo' && provider !== 'kilocode';
 }
 
 /* ------------------------------------------------------------------ */
