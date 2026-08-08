@@ -26,7 +26,7 @@ const CONFIG = Object.freeze({
   },
   CACHE: {
     ENABLED: true,
-    TTL: 300
+    TTL: 60
   },
   USERS: {
     SHEET_NAME: 'Users',

@@ -930,6 +930,92 @@ function processMeetingRecording(payload, token) {
   };
 }
 
+/* Admin-only: transcribes ONE audio segment (used by the client fallback
+   that re-encodes long or undecodable recordings into ~10-minute chunks). */
+function transcribeMeetingSegment(payload, token) {
+  var user = requireAdmin_(token);
+  var props = PropertiesService.getScriptProperties();
+  var groqKey = props.getProperty('GROQ_API_KEY');
+  if (!groqKey) return { success: false, message: 'Groq API key not configured (required for transcription).' };
+  payload = payload || {};
+  var title = String(payload.title || '').trim() || 'Review meeting';
+  var base64 = String(payload.base64 || '');
+  var mimeType = String(payload.mimeType || 'audio/webm');
+  var fileName = String(payload.fileName || 'segment.webm');
+  if (!base64) return { success: false, message: 'No audio was provided.' };
+  var bytes;
+  try { bytes = Utilities.base64Decode(base64); } catch (err) {
+    return { success: false, message: 'Audio data could not be decoded.' };
+  }
+  if (!bytes.length) return { success: false, message: 'The audio file appears to be empty.' };
+  if (bytes.length > ENTERPRISE_AI_TRANSCRIBE_MAX_BYTES) {
+    return { success: false, message: 'Audio segment exceeds the 25 MB transcription limit.' };
+  }
+  var blob = Utilities.newBlob(bytes, mimeType, fileName);
+  var tr = callGroqTranscribe_(groqKey, blob);
+  if (!tr.ok) return { success: false, message: tr.reason };
+  var transcript = String(tr.text || '').trim();
+  if (!transcript) return { success: false, message: 'No speech was detected in this segment.' };
+  return { success: true, title: title, transcript: transcript };
+}
+
+/* Admin-only: drafts structured minutes from a full transcript (after segment
+   transcription) and saves a .md copy to Drive (best effort). */
+function generateMeetingMinutes(payload, token) {
+  var user = requireAdmin_(token);
+  if (!aiEnabled_()) return { success: false, message: 'AI insights are not enabled.' };
+  payload = payload || {};
+  var title = String(payload.title || '').trim() || 'Review meeting';
+  var transcript = String(payload.transcript || '').trim();
+  if (!transcript) return { success: false, message: 'No transcript was provided.' };
+  var minutesPrompt = 'Meeting title: ' + title + '\n\nTranscript:\n' +
+    transcript.substring(0, ENTERPRISE_AI_TRANSCRIPT_MAX_CHARS);
+  var ai = generateAiText_(minutesPrompt, ENTERPRISE_AI_MEETING_SYSTEM_PROMPT);
+  var minutes = { summary: '', decisions: [], actionItems: [], risks: [] };
+  var minutesText = '';
+  if (ai.success) {
+    minutesText = String(ai.insights || '');
+    var parsed = tryParseJsonObject_(minutesText);
+    if (parsed && typeof parsed === 'object') minutes = parsed;
+  }
+  var driveMinutes = null;
+  try {
+    var notesFolder = getMeetingDriveFolder_('IPD Meeting Notes');
+    if (notesFolder) {
+      var md = '# ' + title + '\n\nGenerated: ' + new Date().toString() + '\n\n';
+      md += '## Summary\n' + (String(minutes.summary || '').trim() || '(no summary)') + '\n\n';
+      if (minutes.decisions && minutes.decisions.length) {
+        md += '## Decisions\n' + minutes.decisions.map(function (d) { return '- ' + String(d); }).join('\n') + '\n\n';
+      }
+      if (minutes.actionItems && minutes.actionItems.length) {
+        md += '## Action items\n' + minutes.actionItems.map(function (a) {
+          return '- [' + String((a && a.priority) || 'MEDIUM') + '] ' + String((a && a.task) || '') +
+            ((a && a.assignee) ? ' (assigned: ' + a.assignee + ')' : '') +
+            ((a && a.dueDate) ? ' (due: ' + a.dueDate + ')' : '');
+        }).join('\n') + '\n\n';
+      }
+      if (minutes.risks && minutes.risks.length) {
+        md += '## Risks\n' + minutes.risks.map(function (r) { return '- ' + String(r); }).join('\n') + '\n\n';
+      }
+      md += '## Transcript\n' + transcript + '\n';
+      var props = PropertiesService.getScriptProperties();
+      var stamp2 = Utilities.formatDate(new Date(), props.getProperty('TIMEZONE') || 'Asia/Kolkata', 'yyyy-MM-dd_HHmm');
+      var mdFile = notesFolder.createFile(sanitizeFileName_(title) + '_' + stamp2 + '.md', md, MimeType.PLAIN_TEXT);
+      driveMinutes = { id: mdFile.getId(), url: mdFile.getUrl(), name: mdFile.getName() };
+    }
+  } catch (err) { driveMinutes = null; }
+  return {
+    success: true,
+    title: title,
+    transcript: transcript,
+    transcriptChars: transcript.length,
+    minutes: minutes,
+    minutesText: minutesText,
+    driveMinutes: driveMinutes,
+    fallbackProvider: ai.fallbackProvider || ''
+  };
+}
+
 function aiKeyConfigured_() {
   var ai = (ENTERPRISE_SETTINGS || {}).AI_INSIGHTS || {};
   var props = PropertiesService.getScriptProperties();

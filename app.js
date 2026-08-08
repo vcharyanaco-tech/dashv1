@@ -128,7 +128,9 @@ const ApiService = {
   getAiInsights: function () { return apiCall_('getAiInsights', getAuthToken()); },
   getCardAiInsight: function (row) { return apiCall_('getCardAiInsight', getAuthToken(), row); },
   getLinkContentAiInsight: function (row) { return apiCall_('getLinkContentAiInsight', getAuthToken(), row); },
-  processMeetingRecording: function (payload) { return apiCall_('processMeetingRecording', payload, getAuthToken()); }
+  processMeetingRecording: function (payload) { return apiCall_('processMeetingRecording', payload, getAuthToken()); },
+  transcribeMeetingSegment: function (payload) { return apiCall_('transcribeMeetingSegment', payload, getAuthToken()); },
+  generateMeetingMinutes: function (payload) { return apiCall_('generateMeetingMinutes', payload, getAuthToken()); }
 };
 
 const appState = {
@@ -391,18 +393,22 @@ function processMeetingNotes() {
     showToast('Record or choose an audio file first.', 'warning');
     return;
   }
+  const titleEl = getEl('meetingNotesTitleInput');
+  const title = titleEl ? titleEl.value.trim() : '';
+  if (go) go.disabled = true;
+  if (loading) loading.style.display = 'flex';
+  if (body) body.innerHTML = '';
+
+  // Files over the 25 MB cap cannot be sent in one request; re-encode locally
+  // into ~8-minute segments so the raw file never crosses the limit.
   if (file.size > 25 * 1024 * 1024) {
-    showToast('Audio exceeds the 25 MB limit.', 'error');
+    processMeetingNotesSegmented(file, title, go, loading);
     return;
   }
+
   const reader = new FileReader();
   reader.onload = function () {
     const base64 = String(reader.result || '').replace(/^data:[^;]*;base64,/, '');
-    const titleEl = getEl('meetingNotesTitleInput');
-    const title = titleEl ? titleEl.value.trim() : '';
-    if (go) go.disabled = true;
-    if (loading) loading.style.display = 'flex';
-    if (body) body.innerHTML = '';
     ApiService.processMeetingRecording({
       title: title,
       base64: base64,
@@ -411,6 +417,11 @@ function processMeetingNotes() {
     }).then(function (data) {
       if (!data || data.success !== true) {
         const msg = (data && data.message) || 'Could not process the recording.';
+        // Groq rejects some encodings (e.g. mixed sample-rate VBR MP3) with a
+        // generic "Internal Server Error". Retry through the local re-encode path.
+        if (msg === 'Internal Server Error') {
+          return processMeetingNotesSegmented(file, title, go, loading);
+        }
         showToast(msg, 'error');
         renderMeetingMinutesError(msg);
         return;
@@ -433,6 +444,142 @@ function processMeetingNotes() {
     if (go) go.disabled = false;
   };
   reader.readAsDataURL(file);
+}
+
+/* Fallback for recordings that exceed the 25 MB single-request cap or that
+   Groq refuses to decode: decode in the browser, split into ~8-minute chunks,
+   re-encode each as a compact 16 kHz mono WAV, then transcribe + draft minutes
+   via sequential API calls (each request stays well under the cap). */
+const MEETING_SEGMENT_SECONDS = 8 * 60;
+const MEETING_SEGMENT_SAMPLE_RATE = 16000;
+
+function processMeetingNotesSegmented(file, title, go, loading) {
+  if (go) go.disabled = true;
+  if (loading) {
+    loading.style.display = 'flex';
+    setMeetingNotesLoadingText(loading, 'Decoding audio in the browser\u2026');
+  }
+  readAudioBuffer_(file).then(function (audioBuffer) {
+    const totalSeconds = audioBuffer.duration;
+    const count = Math.max(1, Math.ceil(totalSeconds / MEETING_SEGMENT_SECONDS));
+    const transcripts = [];
+    let index = 0;
+    const runNext = function () {
+      if (index >= count) {
+        const combined = transcripts.join('\n').trim();
+        if (!combined) {
+          renderMeetingMinutesError('No speech was detected in the recording.');
+          return;
+        }
+        setMeetingNotesLoadingText(loading, 'Drafting minutes\u2026');
+        return ApiService.generateMeetingMinutes({ title: title, transcript: combined }).then(function (data) {
+          if (!data || data.success !== true) {
+            const msg = (data && data.message) || 'Could not draft the minutes.';
+            showToast(msg, 'error');
+            renderMeetingMinutesError(msg);
+            return;
+          }
+          renderMeetingMinutes(data);
+        });
+      }
+      setMeetingNotesLoadingText(loading, 'Re-encoding + transcribing part ' + (index + 1) + ' of ' + count + '\u2026');
+      const start = index * MEETING_SEGMENT_SECONDS;
+      const duration = Math.min(MEETING_SEGMENT_SECONDS, totalSeconds - start);
+      return encodeWavSegment_(audioBuffer, start, duration).then(function (wav) {
+        return ApiService.transcribeMeetingSegment({
+          title: title,
+          base64: wav.base64,
+          mimeType: 'audio/wav',
+          fileName: 'part_' + (index + 1) + '.wav'
+        });
+      }).then(function (data) {
+        if (!data || data.success !== true) {
+          throw new Error((data && data.message) || 'Could not transcribe part ' + (index + 1) + '.');
+        }
+        transcripts.push(String(data.transcript || '').trim());
+        index++;
+        return runNext();
+      });
+    };
+    return runNext();
+  }).catch(function (err) {
+    if (handleServerFailure(err)) return;
+    const msg = err && err.message ? err.message : String(err || 'Unknown error');
+    showToast(msg, 'error');
+    renderMeetingMinutesError(msg);
+  }).then(function () {
+    if (go) go.disabled = false;
+    if (go) go.textContent = 'Transcribe & summarize';
+    if (loading) loading.style.display = 'none';
+    resetMeetingRecUi_();
+  });
+}
+
+function setMeetingNotesLoadingText(loading, msg) {
+  if (!loading) return;
+  const span = loading.querySelector('span:last-child');
+  if (span) span.textContent = msg || '';
+}
+
+function readAudioBuffer_(file) {
+  const Ctx = window.AudioContext || window.webkitAudioContext;
+  if (!Ctx) {
+    return Promise.reject(new Error('Audio decoding is not supported in this browser. Use Chrome, Edge, Firefox or Safari.'));
+  }
+  const ctx = new Ctx();
+  return file.arrayBuffer().then(function (buf) {
+    return ctx.decodeAudioData(buf);
+  }).then(function (buffer) {
+    if (ctx.close) ctx.close();
+    return buffer;
+  });
+}
+
+function encodeWavSegment_(audioBuffer, startSeconds, durationSeconds) {
+  const rate = MEETING_SEGMENT_SAMPLE_RATE;
+  const OffCtx = window.OfflineAudioContext || window.webkitOfflineAudioContext;
+  const frames = Math.max(1, Math.ceil(durationSeconds * rate));
+  const off = new OffCtx(1, frames, rate);
+  const src = off.createBufferSource();
+  src.buffer = audioBuffer;
+  src.connect(off.destination);
+  src.start(0, startSeconds, durationSeconds);
+  return off.startRendering().then(function (rendered) {
+    const samples = rendered.getChannelData(0);
+    const buffer = new ArrayBuffer(44 + samples.length * 2);
+    const view = new DataView(buffer);
+    const writeStr = function (offset, str) {
+      for (let i = 0; i < str.length; i++) view.setUint8(offset + i, str.charCodeAt(i));
+    };
+    writeStr(0, 'RIFF');
+    view.setUint32(4, 36 + samples.length * 2, true);
+    writeStr(8, 'WAVE');
+    writeStr(12, 'fmt ');
+    view.setUint32(16, 16, true);
+    view.setUint16(20, 1, true);
+    view.setUint16(22, 1, true);
+    view.setUint32(24, rate, true);
+    view.setUint32(28, rate * 2, true);
+    view.setUint16(32, 2, true);
+    view.setUint16(34, 16, true);
+    writeStr(36, 'data');
+    view.setUint32(40, samples.length * 2, true);
+    let offset = 44;
+    for (let i = 0; i < samples.length; i++) {
+      const s = Math.max(-1, Math.min(1, samples[i]));
+      view.setInt16(offset, s < 0 ? s * 0x8000 : s * 0x7FFF, true);
+      offset += 2;
+    }
+    const blob = new Blob([buffer], { type: 'audio/wav' });
+    return new Promise(function (resolve, reject) {
+      const reader = new FileReader();
+      reader.onload = function () {
+        resolve({ blob: blob, base64: String(reader.result || '').replace(/^data:[^;]*;base64,/, '') });
+      };
+      reader.onerror = function () { reject(new Error('Could not read the re-encoded audio.')); };
+      reader.readAsDataURL(blob);
+    });
+  });
 }
 
 function renderMeetingMinutesError(msg) {
@@ -1336,6 +1483,7 @@ function loadApp() {
     loadDashboardPreferences();
     EventBus.emit('DataRefreshed');
     EventBus.emit('UserLoggedIn');
+    startAutoRefresh();
 
     if (appState.mustChange) {
       getEl('mustChangeBanner').classList.remove('hidden');
@@ -1410,6 +1558,7 @@ function handleForgotPassword(e) {
 }
 
 function logout() {
+  stopAutoRefresh();
   ApiService.logout().then(function () {
     setAuthToken('');
     window.location.href = window.location.href.split('?')[0];
@@ -3552,6 +3701,48 @@ function renderClock(d) {
   const mm = String(d.getMinutes()).padStart(2, '0');
   const ss = String(d.getSeconds()).padStart(2, '0');
   el.textContent = h + ':' + mm + ':' + ss + ' ' + ampm;
+}
+
+/* ---------------------------------- Auto refresh ---------------------------------- */
+/* Periodically re-fetches dashboard data in the background (silently) so edits
+   made directly in the spreadsheet appear without a manual refresh. Skips when
+   the tab is hidden, a modal is open, or a request is already in flight. */
+
+var autoRefreshTimerId = null;
+var autoRefreshInFlight = false;
+
+function startAutoRefresh(intervalMs) {
+  stopAutoRefresh();
+  autoRefreshTimerId = setInterval(function () { autoRefreshTick(); }, intervalMs || 60000);
+}
+
+function stopAutoRefresh() {
+  if (autoRefreshTimerId) { clearInterval(autoRefreshTimerId); autoRefreshTimerId = null; }
+}
+
+function autoRefreshTick() {
+  if (autoRefreshInFlight) return;
+  if (!getAuthToken()) return;
+  if (typeof document !== 'undefined' && document.hidden) return;
+  if (document.body.classList.contains('modal-open')) return;
+  autoRefreshInFlight = true;
+  ApiService.getAppData().then(function (data) {
+    autoRefreshInFlight = false;
+    if (!data || !data.user || !data.user.loggedIn) {
+      setAuthToken('');
+      return;
+    }
+    applyAppData(data);
+    populateFilters();
+    populateResponsibilitySelect();
+    renderReviewReminders();
+    renderDashboard();
+    loadNotifications(true);
+    EventBus.emit('DataRefreshed');
+  }).catch(function (err) {
+    autoRefreshInFlight = false;
+    if (handleServerFailure(err)) return;
+  });
 }
 
 /* ---------------------------------- Dashboard Studio ---------------------------------- */
