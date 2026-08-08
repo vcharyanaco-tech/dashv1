@@ -1113,13 +1113,13 @@ body.sidebar-collapsed .nav-item.active { box-shadow: inset 0 0 0 2px var(--seco
 }
 .card-ai-table-title {
   margin-top: 6px;
-  padding: 8px 10px;
-  border: 1px solid var(--border);
+  padding: 8px 12px;
+  border-left: 3px solid var(--accent);
   border-radius: var(--radius-xs);
-  background: var(--surface-3);
+  background: color-mix(in srgb, var(--accent) 8%, var(--surface));
   font-size: 12px;
   font-weight: 700;
-  color: var(--text-strong);
+  color: var(--accent);
   white-space: nowrap;
   overflow: hidden;
   text-overflow: ellipsis;
@@ -1130,19 +1130,20 @@ body.sidebar-collapsed .nav-item.active { box-shadow: inset 0 0 0 2px var(--seco
   max-width: 100%;
   overflow: auto;
   border: 1px solid var(--border);
-  border-radius: var(--radius-xs);
-  background: var(--surface-2);
+  border-radius: var(--radius-md);
+  background: var(--surface);
+  box-shadow: 0 1px 2px rgba(15, 23, 42, .05), 0 6px 16px rgba(15, 23, 42, .06);
 }
 .card-ai-table {
-  border-collapse: collapse;
+  border-collapse: separate;
+  border-spacing: 0 4px;
   font-size: 12px;
   min-width: 100%;
   color: var(--text);
 }
 .card-ai-table th,
 .card-ai-table td {
-  border: 1px solid var(--border);
-  padding: 6px 8px;
+  padding: 8px 12px;
   text-align: left;
   white-space: nowrap;
   max-width: 280px;
@@ -1153,12 +1154,40 @@ body.sidebar-collapsed .nav-item.active { box-shadow: inset 0 0 0 2px var(--seco
 .card-ai-table thead th {
   position: sticky;
   top: 0;
-  background: var(--surface-3);
-  font-weight: 700;
-  color: var(--text-strong);
   z-index: 1;
+  background: color-mix(in srgb, var(--accent) 12%, var(--surface));
+  color: var(--accent);
+  font-size: 11px;
+  font-weight: 700;
+  letter-spacing: .6px;
+  text-transform: uppercase;
+  border-bottom: 1px solid color-mix(in srgb, var(--accent) 35%, var(--border));
 }
-.card-ai-table-note { margin-top: 6px; font-size: 11px; color: var(--muted); }
+.card-ai-table thead th:first-child { border-radius: var(--radius-sm) 0 0 var(--radius-sm); }
+.card-ai-table thead th:last-child { border-radius: 0 var(--radius-sm) var(--radius-sm) 0; }
+.card-ai-table tbody td { background: var(--surface); }
+.card-ai-table tbody tr:nth-child(even) td {
+  background: color-mix(in srgb, var(--accent) 4%, var(--surface));
+}
+.card-ai-table tbody tr:hover td {
+  background: color-mix(in srgb, var(--accent) 10%, var(--surface));
+}
+.card-ai-table tbody td:first-child {
+  font-weight: 600;
+  color: var(--accent);
+  border-radius: var(--radius-sm) 0 0 var(--radius-sm);
+  box-shadow: inset 3px 0 0 var(--accent);
+}
+.card-ai-table tbody td:last-child { border-radius: 0 var(--radius-sm) var(--radius-sm) 0; }
+.card-ai-table-note {
+  margin-top: 8px;
+  padding: 6px 10px;
+  font-size: 11px;
+  color: var(--muted);
+  background: var(--surface-3);
+  border-radius: var(--radius-xs);
+  display: inline-block;
+}
 .ai-insight-tr > td,
 .ai-link-tr > td { border: none; padding: var(--sp-1) var(--sp-2) var(--sp-2); }
 
