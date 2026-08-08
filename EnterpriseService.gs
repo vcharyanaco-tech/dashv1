@@ -843,7 +843,7 @@ function getMeetingDriveFolder_(name) {
    minutes are saved to Drive folders next to the spreadsheet (best effort).
    Returns {success, title, transcript, minutes, minutesText, driveAudio,
    driveMinutes}. */
-function processMeetingRecording(token, payload) {
+function processMeetingRecording(payload, token) {
   var user = requireAdmin_(token);
   if (!aiEnabled_()) return { success: false, message: 'AI insights are not enabled.' };
   var props = PropertiesService.getScriptProperties();
