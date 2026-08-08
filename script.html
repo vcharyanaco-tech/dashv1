@@ -819,6 +819,8 @@ let meetingRecElapsed = 0;
 let meetingRecBlob = null;
 let meetingRecMimeType = 'audio/webm';
 let meetingRecCancelFlag = false;
+let meetingRecSourceTracks = null;
+let meetingRecAudioCtx = null;
 
 function meetingRecordingFileName_() {
   const titleEl = getEl('meetingNotesTitleInput');
@@ -829,6 +831,68 @@ function meetingRecordingFileName_() {
   return safe + '_' + d.getFullYear() + pad(d.getMonth() + 1) + pad(d.getDate()) + '_' + pad(d.getHours()) + pad(d.getMinutes()) + '.webm';
 }
 
+function getMeetingRecStream_(useDisplay) {
+  var displayTracks = null;
+  function fallbackToMic_() {
+    if (displayTracks) { displayTracks.forEach(function (t) { try { t.stop(); } catch (e) {} }); displayTracks = null; }
+    return navigator.mediaDevices.getUserMedia({ audio: true }).then(function (mic) {
+      return { stream: mic, sourceTracks: mic.getTracks(), sourceType: 'mic', audioCtx: null };
+    });
+  }
+  if (!useDisplay) return fallbackToMic_();
+  return navigator.mediaDevices.getDisplayMedia({ video: true, audio: true }).then(function (displayStream) {
+    displayTracks = displayStream.getTracks();
+    displayStream.getVideoTracks().forEach(function (t) { try { t.stop(); } catch (e) {} });
+    var audio = displayStream.getAudioTracks();
+    if (!audio.length) throw new Error('The shared tab has no audio to record.');
+    return navigator.mediaDevices.getUserMedia({ audio: true }).then(function (mic) {
+      return mixAudioStreams_([audio, mic.getTracks()]).then(function (mixed) {
+        return { stream: mixed.stream, sourceTracks: displayTracks.concat(mic.getTracks()), sourceType: 'tab+mic', audioCtx: mixed.audioCtx };
+      }).catch(function () {
+        return { stream: displayStream, sourceTracks: displayTracks, sourceType: 'tab', audioCtx: null };
+      });
+    }).catch(function () {
+      return { stream: displayStream, sourceTracks: displayTracks, sourceType: 'tab', audioCtx: null };
+    });
+  }).catch(function (err) {
+    return fallbackToMic_();
+  });
+}
+
+function mixAudioStreams_(trackGroups) {
+  return new Promise(function (resolve, reject) {
+    try {
+      var Ctx = window.AudioContext || window.webkitAudioContext;
+      if (!Ctx) { reject(new Error('AudioContext unsupported')); return; }
+      var ctx = new Ctx();
+      var dest = ctx.createMediaStreamDestination();
+      trackGroups.forEach(function (group) {
+        group.forEach(function (track) {
+          var src = ctx.createMediaStreamSource(new MediaStream([track]));
+          src.connect(dest);
+        });
+      });
+      if (ctx.state === 'suspended') {
+        ctx.resume().then(function () { resolve({ stream: dest.stream, audioCtx: ctx }); }, function () { resolve({ stream: dest.stream, audioCtx: ctx }); });
+      } else {
+        resolve({ stream: dest.stream, audioCtx: ctx });
+      }
+    } catch (e) { reject(e); }
+  });
+}
+
+function meetingRecCleanup_() {
+  if (meetingRecSourceTracks) {
+    meetingRecSourceTracks.forEach(function (t) { try { t.stop(); } catch (e) {} });
+    meetingRecSourceTracks = null;
+  }
+  if (meetingRecAudioCtx) { try { meetingRecAudioCtx.close(); } catch (e) {} meetingRecAudioCtx = null; }
+  if (meetingRecStream) {
+    try { meetingRecStream.getTracks().forEach(function (t) { t.stop(); }); } catch (e) {}
+    meetingRecStream = null;
+  }
+}
+
 function startMeetingRecording() {
   if (!appState.isAdmin) { showToast('Admin access required', 'error'); return; }
   if (meetingRecorder) { showToast('Recording already in progress.', 'warning'); return; }
@@ -836,15 +900,21 @@ function startMeetingRecording() {
     showToast('Live recording is not supported in this browser. Use Chrome, Edge, Firefox or Safari.', 'error');
     return;
   }
-  navigator.mediaDevices.getUserMedia({ audio: true }).then(function (stream) {
-    meetingRecStream = stream;
+  var useDisplay = !!(navigator.mediaDevices.getDisplayMedia);
+  if (useDisplay) {
+    showToast('Select the meeting tab and tick "Share tab audio" (or your screen) to record meeting audio.', 'info');
+  }
+  getMeetingRecStream_(useDisplay).then(function (result) {
+    meetingRecStream = result.stream;
+    meetingRecSourceTracks = result.sourceTracks;
+    meetingRecAudioCtx = result.audioCtx || null;
     meetingRecChunks = [];
     meetingRecElapsed = 0;
     meetingRecMimeType = 'audio/webm';
     let options = {};
     if (window.MediaRecorder.isTypeSupported('audio/webm;codecs=opus')) options = { mimeType: 'audio/webm;codecs=opus' };
     else if (window.MediaRecorder.isTypeSupported('audio/webm')) options = { mimeType: 'audio/webm' };
-    meetingRecorder = new MediaRecorder(stream, options);
+    meetingRecorder = new MediaRecorder(result.stream, options);
     meetingRecorder.ondataavailable = function (e) { if (e.data && e.data.size) meetingRecChunks.push(e.data); };
     meetingRecorder.onstop = function () {
       const type = (meetingRecorder && meetingRecorder.mimeType) || meetingRecMimeType || 'audio/webm';
@@ -853,7 +923,7 @@ function startMeetingRecording() {
       stopMeetingRecTimer();
       const player = getEl('meetingNotesPlayer');
       if (player) { player.src = URL.createObjectURL(meetingRecBlob); player.style.display = 'block'; }
-      if (meetingRecStream) { meetingRecStream.getTracks().forEach(function (t) { t.stop(); }); meetingRecStream = null; }
+      meetingRecCleanup_();
       const wasCancel = meetingRecCancelFlag;
       meetingRecCancelFlag = false;
       if (wasCancel) {
@@ -884,9 +954,12 @@ function startMeetingRecording() {
     if (status) status.textContent = '';
     startMeetingRecTimer();
     syncMeetingRecFloat_();
-    showToast('Recording started. Click "End recording" when done.', 'info');
+    const note = result.sourceType === 'tab+mic'
+      ? 'Recording meeting tab audio + microphone.'
+      : (result.sourceType === 'tab' ? 'Recording meeting tab audio. Your voice may not be included.' : 'Recording microphone only.');
+    showToast('Recording started. ' + note + ' Click "End recording" when done.', 'info');
   }).catch(function (err) {
-    showToast('Microphone access denied or unavailable: ' + (err && err.message ? err.message : 'error'), 'error');
+    showToast('Could not start recording: ' + (err && err.message ? err.message : String(err || 'error')), 'error');
   });
 }
 
@@ -952,7 +1025,7 @@ function cancelMeetingRecording() {
   } else {
     meetingRecBlob = null;
     meetingRecChunks = [];
-    if (meetingRecStream) { meetingRecStream.getTracks().forEach(function (t) { t.stop(); }); meetingRecStream = null; }
+    meetingRecCleanup_();
     meetingRecorder = null;
     stopMeetingRecTimer();
     resetMeetingRecUi_();

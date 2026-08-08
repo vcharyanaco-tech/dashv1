@@ -69,9 +69,40 @@ Fix the user's meeting-recording failures end-to-end:
   still needs a valid session token (mint via login; not available in the CLI).
   Run `node C:\Users\vikph\AppData\Local\Temp\opencode\test-segments.mjs <token>`
   against `dashboardharyana.site/macros/s/AKfycbxPwIN…/exec`.
-- Drive saves remain disabled (Apps Script project not bound to a spreadsheet,
-  so `getSpreadsheet_()` returns null and "Saved to Drive" links never render).
-  Non-fatal — transcription/minutes work without it.
+- ~~Drive saves remain disabled (Apps Script project not bound to a spreadsheet,
+  so `getSpreadsheet_()` returns null and "Saved to Drive" links never render).~~
+  **RESOLVED**: the earlier diagnosis was wrong — `getSpreadsheet_()` works fine
+  (the project is standalone but reads `SOURCE_SPREADSHEET_ID` via
+  `SpreadsheetApp.openById`). The real cause was the web app's `drive.file` scope,
+  which denies all `DriveApp` folder operations. Fixed by hardening
+  `getMeetingDriveFolder_()` (parent-folder lookup with Drive-root fallback +
+  logging) and adding the full `https://www.googleapis.com/auth/drive` scope to
+  `appsscript.json`, then re-authorizing the deployment. Live-verified:
+  `getMeetingDriveFolder_` returns the `IPD Meeting Notes` / `IPD Meeting Recordings`
+  folders. Current deployed GAS version is 174.
+
+## Session 2 (2026-08-08): record meeting audio via tab/screen share
+- Problem: mic-only `getUserMedia` recording captured nothing for remote
+  meetings (audio is played by the browser, not picked up by the mic).
+- `startMeetingRecording()` now prefers `getDisplayMedia({ video, audio })` so
+  the user picks the meeting tab and ticks "Share tab audio". New helpers
+  (identical in `docs/app.js`, `app.js`, `script.html`):
+  - `getMeetingRecStream_(useDisplay)` — getDisplayMedia, then mixes the shared
+    tab audio with the microphone via a WebAudio `AudioContext`
+    (`mixAudioStreams_`) so the user's voice is recorded too; gracefully falls
+    back to tab-only if mic is unavailable, and to mic-only if screen share is
+    denied/unsupported.
+  - `mixAudioStreams_(trackGroups)` — connects each group's tracks to a
+    `MediaStreamAudioDestinationNode`.
+  - `meetingRecCleanup_()` — central teardown (stops `meetingRecSourceTracks`
+    including display/mic tracks, closes `meetingRecAudioCtx`, nulls
+    `meetingRecStream`). Used by both `onstop` and `cancelMeetingRecording`.
+- New globals: `meetingRecSourceTracks`, `meetingRecAudioCtx`.
+- Toast flow: on start with display support, tells the user to select the
+  meeting tab and tick "Share tab audio"; success toast notes which sources are
+  being recorded (tab+mic / tab / mic-only).
+- All three copies (`docs/app.js`, `app.js`, `script.html`) kept identical;
+  `node --check` passes on all three.
 
 ## Key facts
 - GitHub repo: `https://github.com/vcharyanaco-tech/dashv1.git`
