@@ -6,20 +6,36 @@
  * ============================================================
  */
 
-/* Point 7: the bootstrap admin password is read from Script Properties
- * (ADMIN_BOOTSTRAP_PASSWORD) so no credential ships in source. The constant
- * below is only a development fallback — set the property in production and
- * remove the literal from this file. */
-const DEFAULT_ADMIN_PASSWORD = 'Admin@123';
-
-/* Reads the configured bootstrap admin password, falling back to the legacy
- * constant so fresh deployments keep working until the property is set. */
+/* Point 7: the bootstrap admin password lives ONLY in Script Properties
+ * (ADMIN_BOOTSTRAP_PASSWORD) — no credential ships in source. Set it with
+ * setAdminBootstrapPassword (admin-gated) or in the Apps Script editor:
+ *   PropertiesService.getScriptProperties()
+ *     .setProperty('ADMIN_BOOTSTRAP_PASSWORD', '<min 8 chars>');
+ * If the property is unset when the bootstrap admin account is first
+ * created, a random password is generated, persisted, and emailed to the
+ * admin (with a console note) so a fresh deployment still works — the
+ * credential is never a hardcoded literal. */
 function bootstrapAdminPassword_() {
   try {
     const p = PropertiesService.getScriptProperties().getProperty('ADMIN_BOOTSTRAP_PASSWORD');
     if (p && String(p).length >= 8) return String(p);
   } catch (err) {}
-  return DEFAULT_ADMIN_PASSWORD;
+  const generated = 'Bp' + Utilities.getUuid().replace(/-/g, '').slice(0, 16);
+  try { PropertiesService.getScriptProperties().setProperty('ADMIN_BOOTSTRAP_PASSWORD', generated); } catch (err) {}
+  console.warn('ADMIN_BOOTSTRAP_PASSWORD was not set; a random bootstrap password was generated and stored in Script Properties. Read it there or from the emailed credentials.');
+  return generated;
+}
+
+/** Admin-gated: stores the bootstrap admin password in Script Properties so
+ *  it never needs to ship in source. Never echoes the value back. Matches the
+ *  codebase convention of token-as-last-argument. */
+function setAdminBootstrapPassword(password, token) {
+  requireAdmin_(token);
+  const pw = String(password || '').trim();
+  const pwError = validatePassword_(pw);
+  if (pwError) return { ok: false, message: pwError };
+  PropertiesService.getScriptProperties().setProperty('ADMIN_BOOTSTRAP_PASSWORD', pw);
+  return { ok: true, message: 'Bootstrap admin password stored in Script Properties.' };
 }
 
 const ADMIN_USERS = [
@@ -518,8 +534,16 @@ function ensureUserRecord_(email) {
     let rec = findUserRecord_(email);
     if (!rec) {
       const salt = generateSalt_();
-      addUserRecord_(email, ROLES.ADMIN, salt, hashPasswordV2_(bootstrapAdminPassword_(), salt), 'system');
+      const pw = bootstrapAdminPassword_();
+      addUserRecord_(email, ROLES.ADMIN, salt, hashPasswordV2_(pw, salt), 'system');
       setUserField_(email, 'mustChange', true);
+      try {
+        sendMail_(email, 'Your India Post Dashboard admin account',
+          'Your dashboard administrator account was created.\n\n' +
+          '  Email: ' + email + '\n' +
+          '  Password: ' + pw + '\n\n' +
+          'You will be asked to choose a new password on first login.');
+      } catch (err) {}
       rec = findUserRecord_(email);
     }
     if (rec && !String(rec.username || '').trim()) {

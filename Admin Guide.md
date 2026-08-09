@@ -21,7 +21,10 @@ Roles and capabilities:
 
 1. Open the dashboard URL (see the [Deployment Guide](Deployment%20Guide.md)).
 2. Sign in with `vcharyanaco@gmail.com` and the initial password supplied during
-   setup (`Admin@123` by default).
+   setup. The bootstrap password is stored in **Script Properties** under
+   `ADMIN_BOOTSTRAP_PASSWORD` (set it with `setAdminBootstrapPassword` or in the
+   Apps Script editor). If it was never set, a random password is generated on
+   first run, persisted to Script Properties, and emailed to the admin.
 3. You will be forced to choose a new password before the dashboard loads.
    Change it again any time under **Settings → Change password**.
 

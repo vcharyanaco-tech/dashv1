@@ -104,6 +104,7 @@ const ApiService = {
   getDashboardCounts: function () { return apiCall_('getDashboardCounts', getAuthToken()); },
   getTaskCounts: function () { return apiCall_('getTaskCounts', getAuthToken()); },
   getUnreadCount: function () { return apiCall_('getUnreadNotificationCount', getAuthToken()); },
+  setAdminBootstrapPassword: function (password) { return apiCall_('setAdminBootstrapPassword', password, getAuthToken()); },
   deleteTask: function (id) { return apiCall_('deleteTask', id, getAuthToken()); },
   getDashboardPreferences: function () { return apiCall_('getDashboardPreferences', getAuthToken()); },
   saveDashboardPreferences: function (prefs) { return apiCall_('saveDashboardPreferences', prefs, getAuthToken()); },

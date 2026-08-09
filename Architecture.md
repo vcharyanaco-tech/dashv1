@@ -76,12 +76,18 @@ Both call the same backend API via `fetch(API_URL, { method: 'POST', body:
 ### `Auth.js` — users, sessions, roles
 - Users live in the hidden `Users` sheet with headers
   `Email | Role | Salt | PasswordHash | MustChange | CreatedBy | CreatedAt |
-  ResetToken | ResetExpires`.
-- The bootstrap admin (`ADMIN_USERS[0]`) is created on first login with
-  `DEFAULT_ADMIN_PASSWORD` and `mustChange = true`. Static `EDITOR_USERS` /
+  ResetToken | ResetExpires | …` (v2 adds `Group | Department | Office |
+  Preferences | Username | Id`).
+- The bootstrap admin (`ADMIN_USERS[0]`) is created on first login with the
+  password from Script Properties (`ADMIN_BOOTSTRAP_PASSWORD`) and
+  `mustChange = true`. No credential ships in source: set the property via the
+  admin-gated `setAdminBootstrapPassword`, or let first-run generate and
+  persist a random one (emailed + logged). Static `EDITOR_USERS` /
   `VIEWER_USERS` arrays are empty — all other users are created through the
   admin UI.
-- `hashPassword_(password, salt)` — `sha256(salt | password)` iterated 500 times.
+- `hashPasswordV2_(password, salt)` — PBKDF2-HMAC-SHA256 (10 k iterations,
+  iteration count stored in the hash string); legacy salted SHA-256 (500×)
+  hashes are verified then transparently upgraded on the next successful login.
 - Sessions are random tokens stored in `CacheService` (`session_<token>`) with
   `SESSION_TTL_SECONDS = 21600` (6 hours).
 - Login throttling: failed attempts counted in cache (`loginfail_<key>`); after
@@ -302,9 +308,13 @@ pruned to the newest 50 per user.
 
 ## 6. Key security notes
 
-- Passwords are never stored in plain text (salted, 500× SHA-256).
-- Sessions expire after 6 hours; logout destroys the token.
-- Failed logins are rate-limited per email address.
+- Passwords are never stored in plain text (PBKDF2-HMAC-SHA256, 10 k
+  iterations; legacy hashes are upgraded on login).
+- Sessions expire after 6 hours; logout destroys the token, and session
+  epochs invalidate all sessions after a password/role/email change.
+- Failed logins are rate-limited per email address; sensitive endpoints
+  (password reset/change, task/submission/user/document mutations) use
+  CacheService sliding-window rate limits.
 - The bootstrap admin is a fixed address in `ADMIN_USERS` and cannot be deleted
   from the admin UI; change its password on first login.
 - Audit `ERROR` entries record exceptions; all destructive actions are audited.

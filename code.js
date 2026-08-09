@@ -762,6 +762,7 @@ var API_ROUTES = {
   getDashboardCounts: getDashboardCounts,
   getTaskCounts: getTaskCounts,
   adminMigrateStableIds: adminMigrateStableIds,
+  setAdminBootstrapPassword: setAdminBootstrapPassword,
   getTasks: getTasks,
   getMyTasks: getMyTasks,
   createTask: createTask,

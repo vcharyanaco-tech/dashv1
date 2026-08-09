@@ -19,11 +19,13 @@
  * Backfills missing stable-ID / RowVersion columns for Tasks, Submissions,
  * Notifications, Documents and Users.
  * @param {string} mode 'run' applies changes; anything else dry-runs.
- * @param {string} token Session token (admin required).
+ * @param {string=} token Session token (admin required). When omitted (e.g.
+ *   invoked directly from the Apps Script editor), the active user's identity
+ *   is used instead — same admin gate, no token plumbing needed.
  * @returns {Object} Migration report.
  */
 function adminMigrateStableIds(mode, token) {
-  const admin = requireAdmin_(token);
+  const admin = resolveAdminIdentity_(token);
   const dryRun = String(mode || '').toLowerCase() !== 'run';
   const report = {
     dryRun: dryRun,
@@ -50,6 +52,23 @@ function adminMigrateStableIds(mode, token) {
   report.summary = totals;
   report.finishedAt = new Date();
   return report;
+}
+
+/** Admin gate that works with a session token OR the active user when run
+ *  directly from the Apps Script editor (no token available).
+ *
+ *  SECURITY: only Session.getActiveUser() is trusted here. The web app is
+ *  deployed ANYONE_ANONYMOUS + USER_DEPLOYING, so Session.getEffectiveUser()
+ *  always returns the deploying user (the bootstrap admin) even for anonymous
+ *  callers — using it would let anyone POST this route with an empty token and
+ *  escalate to admin. getActiveUser() returns "" for anonymous web-app calls
+ *  and the real editor account when run from the editor, so the admin gate
+ *  holds in both contexts. */
+function resolveAdminIdentity_(token) {
+  if (token) return requireAdmin_(token);
+  const email = String(getCurrentUser() || '').toLowerCase().trim();
+  if (!email || !isAdmin(email)) throw new Error('Admin permission required.');
+  return { email: email };
 }
 
 /** Backfills RowVersion for the Tasks sheet (headers ensured by

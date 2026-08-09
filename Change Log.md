@@ -275,6 +275,14 @@
   max retries, sync-status banner (pending/syncing/conflict/failed), legacy v1
   queue migration, and queue clearing on logout. Worker `/api/*` routes gained
   per-IP rate limiting.
+- **Follow-ups** — `adminMigrateStableIds` now runs directly from the Apps
+  Script editor (falls back to the active user's identity when no token is
+  passed); the `Admin@123` literal was removed from `Auth.js` — the bootstrap
+  admin password now comes exclusively from the `ADMIN_BOOTSTRAP_PASSWORD`
+  Script Property (settable via the admin-gated `setAdminBootstrapPassword`;
+  first-run auto-generates, persists, and emails a random one); new
+  `tests/sanitizer-idempotency.test.js` (11 tests) covers `sanitizeHtml_` XSS
+  cases and `withIdempotency_` replay semantics.
 
 ---
 
@@ -283,8 +291,8 @@
 ### Auth, roles & users
 - Optimized login and app-load performance.
 - Editors get full edit/delete access (previously admin-only).
-- Bootstrap admin (`vcharyanaco@gmail.com`, initial password `Admin@123`) with forced
-  change on first login.
+- Bootstrap admin (`vcharyanaco@gmail.com`, initial password supplied at
+  setup) with forced change on first login.
 - Admin user management: add/delete users, reset passwords, assign `VIEWER` /
   `EDITOR` / `ADMIN` roles.
 - Password reset by email (30-minute expiry), 5-attempt login lockout (15 minutes),
