@@ -2148,7 +2148,7 @@ function buildCardHtml(item) {
   const showId = dashboardColumnVisible_('id');
   const showActions = dashboardColumnVisible_('actions');
   return `
-    <article class="card ${item.reviewStatus === 'due' ? 'review-due' : ''}">
+    <article class="card ${item.reviewStatus === 'due' ? 'review-due' : ''}" data-row="${escAttr(item.row)}">
       ${reviewBadgeHtml}
       ${showId ? '<div class="card-title preserve-whitespace"><span class="id-badge">#' + escapeHtml(item.id) + '</span></div>' : ''}
       <div class="card-fields">${fieldsHtml || '<div class="card-field"><span class="field-label">Details</span><div class="field-value preserve-whitespace">No details available</div></div>'}${updateFieldsHtml}</div>
@@ -3717,26 +3717,20 @@ function saveTask() {
   
   // Check if we're editing or creating
   if (appState.editingTaskId) {
-    showOverlay('Updating task…');
     ApiService.updateTask(appState.editingTaskId, params).then(function () {
-      hideOverlay();
       closeTaskModal();
       showToast('Task updated.', 'success');
       renderTasks();
     }).catch(function (err) {
-      hideOverlay();
       if (handleServerFailure(err)) return;
       showToast('Could not update task: ' + (err.message || err), 'error');
     });
   } else {
-    showOverlay('Creating task…');
     ApiService.createTask(params).then(function () {
-      hideOverlay();
       closeTaskModal();
       showToast('Task created.', 'success');
       renderTasks();
     }).catch(function (err) {
-      hideOverlay();
       if (handleServerFailure(err)) return;
       showToast('Could not create task: ' + (err.message || err), 'error');
     });
@@ -3836,13 +3830,10 @@ function deleteTaskConfirm(id) {
     danger: true
   }).then(function (confirmed) {
     if (!confirmed) return;
-    showOverlay('Deleting task…');
     ApiService.deleteTask(id).then(function () {
-      hideOverlay();
       showToast('Task deleted.', 'success');
       renderTasks();
     }).catch(function (err) {
-      hideOverlay();
       if (handleServerFailure(err)) return;
       showToast('Could not delete task: ' + (err.message || err), 'error');
     });
@@ -4137,15 +4128,13 @@ function saveDashboardPreferences() {
   const modeRadio = document.querySelector('input[name="viewMode"]:checked');
   const viewMode = modeRadio ? modeRadio.value : 'cards';
   const prefs = { viewMode: viewMode, columns: columns };
-  showOverlay('Saving preferences…');
+  showToast('Saving preferences…', 'info');
   ApiService.saveDashboardPreferences(prefs).then(function () {
-    hideOverlay();
     showToast('Dashboard preferences saved.', 'success');
     appState.dashboardPrefs = prefs;
     applyDashboardPreferences();
     closeColumnDialog();
   }).catch(function (err) {
-    hideOverlay();
     if (handleServerFailure(err)) return;
     showToast('Could not save preferences.', 'error');
   });
@@ -4449,35 +4438,103 @@ function saveEditModal(e) {
 }
 
 function submitNewItem(item) {
-  showOverlay('Adding record…');
+  closeEditModal();
+  showToast('Adding record…', 'info');
   ApiService.addItem(item).then(function (data) {
-    hideOverlay();
-    closeEditModal();
     appState.items = data.items || [];
     appState.summary = data.summary || {};
-    appState.analytics = data.analytics || {};
+    if (data.analytics) appState.analytics = data.analytics;
     populateFilters();
     renderDashboard();
     showToast('New item created', 'success');
   }).catch(function (err) {
-    hideOverlay();
     if (handleServerFailure(err)) return;
     showToast('Add failed: ' + (err.message || err), 'error');
   });
 }
 
+/* ---------------------------------- Optimistic helpers ---------------------------------- */
+/* Client-side mirror of the server summary so KPIs repaint instantly after a
+   local (optimistic) change. Corrected when authoritative data returns. */
+function optimisticSummary_() {
+  const items = appState.items || [];
+  const summary = { total: items.length, flagged: 0, normal: 0, sectors: {} };
+  items.forEach(function (it) {
+    if (it.flagged) summary.flagged++;
+    else summary.normal++;
+    const sector = String(it.sector || '').trim() || 'Unspecified';
+    summary.sectors[sector] = (summary.sectors[sector] || 0) + 1;
+  });
+  return summary;
+}
+
+/* Merges an edited item's raw values into the in-memory item and refreshes its
+   displayFields so cards/table rows repaint with the new values immediately. */
+function applyItemLocal_(item) {
+  const list = appState.items || [];
+  for (let i = 0; i < list.length; i++) {
+    if (String(list[i].row) === String(item.row)) {
+      const prev = list[i];
+      ['sector', 'description', 'entryDate', 'action', 'responsibility', 'reviewDate'].forEach(function (k) {
+        if (item[k] !== undefined) prev[k] = item[k];
+      });
+      prev.flagged = !!item.flagged;
+      if (item.links) prev.links = item.links;
+      (prev.displayFields || []).forEach(function (df) {
+        const key = String(df.label || '').toLowerCase();
+        let val;
+        if (key === 'sector') val = prev.sector;
+        else if (key === 'description') val = prev.description;
+        else if (key.indexOf('entry') !== -1) val = prev.entryDate;
+        else if (key === 'action') val = prev.action;
+        else if (key === 'responsibility') val = prev.responsibility;
+        else if (key.indexOf('review') !== -1) val = prev.reviewDate;
+        if (val !== undefined) { df.value = val; df.html = ''; }
+      });
+      if (prev.reviewStatus !== 'done') prev.reviewStatus = prev.flagged ? 'due' : '';
+      return prev;
+    }
+  }
+  return null;
+}
+
+/* Replaces the card/table-row DOM node for one item. Returns true when the item
+   was visible and repainted; false when the caller should fall back to a full render. */
+function paintItem_(item) {
+  if (!item) return false;
+  const rowId = String(item.row);
+  const isTable = appState.dashboardView === 'table';
+  const sel = isTable ? 'tr[data-row="' + rowId + '"]' : 'article.card[data-row="' + rowId + '"]';
+  const el = document.querySelector(sel);
+  if (!el || !el.parentNode) return false;
+  const html = isTable ? buildTableRowHtml(item) : buildCardHtml(item);
+  let node;
+  try { node = htmlToNode_(html); } catch (err) { return false; }
+  el.parentNode.replaceChild(node, el);
+  return true;
+}
+
 function saveItem(item) {
-  showOverlay('Saving record…');
+  const snapshotItems = (appState.items || []).slice();
+  const snapshotSummary = appState.summary;
+  const patched = applyItemLocal_(item);
+  if (patched) {
+    appState.summary = optimisticSummary_();
+    renderKpiCards();
+    if (!paintItem_(patched)) renderDashboard();
+  }
+  closeEditModal();
   ApiService.updateItem(item).then(function (data) {
-    hideOverlay();
-    closeEditModal();
     appState.items = data.items || [];
     appState.summary = data.summary || {};
-    appState.analytics = data.analytics || {};
-    renderDashboard();
+    if (data.analytics) appState.analytics = data.analytics;
+    const fresh = (appState.items || []).find(function (it) { return String(it.row) === String(item.row); });
+    if (fresh && !paintItem_(fresh)) renderDashboard();
     showToast('Record saved', 'success');
   }).catch(function (err) {
-    hideOverlay();
+    appState.items = snapshotItems;
+    appState.summary = snapshotSummary;
+    renderDashboard();
     if (handleServerFailure(err)) return;
     showToast('Save failed: ' + (err.message || err), 'error');
   });
@@ -4492,16 +4549,23 @@ function deleteItem(row) {
     danger: true
   }).then(function (ok) {
     if (!ok) return;
-    showOverlay('Deleting record…');
+    const snapshotItems = (appState.items || []).slice();
+    const snapshotSummary = appState.summary;
+    appState.items = (appState.items || []).filter(function (it) { return String(it.row) !== String(row); });
+    appState.summary = optimisticSummary_();
+    renderKpiCards();
+    renderPagination();
+    renderDashboard();
     ApiService.deleteItem(row).then(function (data) {
-      hideOverlay();
       appState.items = data.items || [];
       appState.summary = data.summary || {};
-      appState.analytics = data.analytics || {};
+      if (data.analytics) appState.analytics = data.analytics;
       renderDashboard();
       showToast('Record deleted', 'success');
     }).catch(function (err) {
-      hideOverlay();
+      appState.items = snapshotItems;
+      appState.summary = snapshotSummary;
+      renderDashboard();
       if (handleServerFailure(err)) return;
       showToast('Delete failed: ' + (err.message || err), 'error');
     });
@@ -4546,15 +4610,30 @@ function markReviewDone(row) {
     okLabel: 'Mark done'
   }).then(function (ok) {
     if (!ok) return;
-    showOverlay('Marking review as done…');
+    const snapshotItems = (appState.items || []).slice();
+    const snapshotSummary = appState.summary;
+    let patched = null;
+    (appState.items || []).forEach(function (it) {
+      if (String(it.row) === String(row)) {
+        it.reviewStatus = 'done';
+        it.flagged = false;
+        patched = it;
+      }
+    });
+    appState.summary = optimisticSummary_();
+    renderKpiCards();
+    if (!patched || !paintItem_(patched)) renderDashboard();
     ApiService.markReviewDone(row).then(function (data) {
-      hideOverlay();
       appState.items = data.items || [];
       appState.summary = data.summary || {};
-      renderDashboard();
+      if (data.analytics) appState.analytics = data.analytics;
+      const fresh = (appState.items || []).find(function (it) { return String(it.row) === String(row); });
+      if (!fresh || !paintItem_(fresh)) renderDashboard();
       showToast('Marked review as done', 'success');
     }).catch(function (err) {
-      hideOverlay();
+      appState.items = snapshotItems;
+      appState.summary = snapshotSummary;
+      renderDashboard();
       if (handleServerFailure(err)) return;
       showToast('Failed: ' + (err.message || err), 'error');
     });
@@ -4569,15 +4648,30 @@ function markReviewNotDone(row) {
     okLabel: 'Mark not done'
   }).then(function (ok) {
     if (!ok) return;
-    showOverlay('Reopening review…');
+    const snapshotItems = (appState.items || []).slice();
+    const snapshotSummary = appState.summary;
+    let patched = null;
+    (appState.items || []).forEach(function (it) {
+      if (String(it.row) === String(row)) {
+        it.reviewStatus = 'due';
+        it.flagged = true;
+        patched = it;
+      }
+    });
+    appState.summary = optimisticSummary_();
+    renderKpiCards();
+    if (!patched || !paintItem_(patched)) renderDashboard();
     ApiService.markReviewNotDone(row).then(function (data) {
-      hideOverlay();
       appState.items = data.items || [];
       appState.summary = data.summary || {};
-      renderDashboard();
+      if (data.analytics) appState.analytics = data.analytics;
+      const fresh = (appState.items || []).find(function (it) { return String(it.row) === String(row); });
+      if (!fresh || !paintItem_(fresh)) renderDashboard();
       showToast('Review reopened — record is review due', 'success');
     }).catch(function (err) {
-      hideOverlay();
+      appState.items = snapshotItems;
+      appState.summary = snapshotSummary;
+      renderDashboard();
       if (handleServerFailure(err)) return;
       showToast('Failed: ' + (err.message || err), 'error');
     });
@@ -4687,9 +4781,7 @@ function submitSubmission() {
   }
   const editingId = appState.submissionEditingId;
   if (editingId) {
-    showOverlay('Saving submission…');
     ApiService.updateSubmission(editingId, text).then(function (list) {
-      hideOverlay();
       appState.submissions = list || [];
       appState.submissionEditingId = '';
       getEl('submissionText').value = '';
@@ -4698,14 +4790,11 @@ function submitSubmission() {
       renderSubmissionList();
       showToast('Submission updated', 'success');
     }).catch(function (err) {
-      hideOverlay();
       if (handleServerFailure(err)) return;
       getEl('submissionStatus').textContent = err.message || 'Could not save submission';
     });
   } else {
-    showOverlay('Submitting update…');
     ApiService.addSubmission(Number(appState.submissionCardRow), appState.submissionCardId, text).then(function (list) {
-      hideOverlay();
       appState.submissions = list || [];
       appState.submissionCounts[Number(appState.submissionCardRow)] = (list || []).length;
       appState.submissionFlash[Number(appState.submissionCardRow)] = true;
@@ -4716,7 +4805,6 @@ function submitSubmission() {
       renderDashboard();
       showToast('Update submitted', 'success');
     }).catch(function (err) {
-      hideOverlay();
       if (handleServerFailure(err)) return;
       getEl('submissionStatus').textContent = err.message || 'Could not submit update';
     });
@@ -4725,14 +4813,11 @@ function submitSubmission() {
 
 function lockSubmission(id) {
   if (!appState.isEditor) { showToast('Editor access required', 'warning'); return; }
-  showOverlay('Locking submission…');
   ApiService.lockSubmission(id).then(function (list) {
-    hideOverlay();
     appState.submissions = list || [];
     renderSubmissionList();
     showToast('Submission locked', 'success');
   }).catch(function (err) {
-    hideOverlay();
     if (handleServerFailure(err)) return;
     showToast('Could not lock submission: ' + (err.message || err), 'error');
   });
@@ -4740,14 +4825,11 @@ function lockSubmission(id) {
 
 function unlockSubmission(id) {
   if (!appState.isEditor) { showToast('Editor access required', 'warning'); return; }
-  showOverlay('Unlocking submission…');
   ApiService.unlockSubmission(id).then(function (list) {
-    hideOverlay();
     appState.submissions = list || [];
     renderSubmissionList();
     showToast('Submission unlocked', 'success');
   }).catch(function (err) {
-    hideOverlay();
     if (handleServerFailure(err)) return;
     showToast('Could not unlock submission: ' + (err.message || err), 'error');
   });
@@ -4762,15 +4844,12 @@ function deleteSubmission(id) {
     danger: true
   }).then(function (ok) {
     if (!ok) return;
-    showOverlay('Deleting submission…');
     ApiService.deleteSubmission(id).then(function (list) {
-      hideOverlay();
       appState.submissions = list || [];
       renderSubmissionList();
       showToast('Submission deleted', 'success');
       refreshData();
     }).catch(function (err) {
-      hideOverlay();
       if (handleServerFailure(err)) return;
       showToast('Could not delete submission: ' + (err.message || err), 'error');
     });
@@ -4779,18 +4858,15 @@ function deleteSubmission(id) {
 
 function toggleDisplaySubmission(id) {
   if (!appState.isAdmin) { showToast('Admin access required', 'warning'); return; }
-  showOverlay('Updating display…');
   ApiService.toggleSubmissionDisplay(id).then(function (list) {
-    hideOverlay();
     appState.submissions = list || [];
     renderSubmissionList();
     showToast('Display updated', 'success');
     refreshData();
-  }).catch(function (err) {
-    hideOverlay();
-    if (handleServerFailure(err)) return;
-    showToast('Could not update display: ' + (err.message || err), 'error');
-  });
+    }).catch(function (err) {
+      if (handleServerFailure(err)) return;
+      showToast('Could not update display: ' + (err.message || err), 'error');
+    });
 }
 
 /* ---------------------------------- About ---------------------------------- */
