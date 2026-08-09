@@ -2028,20 +2028,6 @@ function trendPill() {
   return `<span class="kpi-trend ${cls}">${label}</span>`;
 }
 
-function sparklineSvg() {
-  const points = monthlyTrendArray().slice(-12).map(function (p) { return p.value; });
-  if (points.length < 2) return '';
-  const max = Math.max.apply(null, points);
-  const min = Math.min.apply(null, points);
-  const span = (max - min) || 1;
-  const coords = points.map(function (v, i) {
-    const x = points.length === 1 ? 0 : (i / (points.length - 1)) * 100;
-    const y = 40 - 4 - ((v - min) / span) * 32;
-    return x.toFixed(1) + ',' + y.toFixed(1);
-  }).join(' ');
-  return `<div class="kpi-sparkline"><svg viewBox="0 0 100 40" preserveAspectRatio="none" aria-hidden="true"><polyline fill="none" stroke="var(--secondary)" stroke-width="2" points="${coords}"></polyline></svg></div>`;
-}
-
 function renderKpiCards() {
   const grid = getEl('summaryCards');
   if (!grid) return;
@@ -2050,7 +2036,6 @@ function renderKpiCards() {
   const total = summary.total || 0;
   const flagged = summary.flagged || 0;
   const trend = trendPill();
-  const spark = sparklineSvg();
 
   grid.innerHTML =
     `<div class="kpi-card">
@@ -2061,7 +2046,6 @@ function renderKpiCards() {
       <div class="kpi-label">Total records</div>
       <div class="kpi-value">${total}</div>
       <div class="kpi-subtitle">Across ${sectorCount} sector${sectorCount === 1 ? '' : 's'}</div>
-      ${spark}
     </div>
     <div class="kpi-card">
       <div class="kpi-top">
