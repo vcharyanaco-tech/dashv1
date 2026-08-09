@@ -1479,6 +1479,40 @@ function adminResetPassword(email, newPassword, token) {
 }
 
 /**
+ * Invalidates ALL sessions for a user without changing their password
+ * (admin only). Bumps the user's session epoch so every epoch-format token
+ * minted before the call fails the epoch check in sessionEmail_ — the user is
+ * logged out on their next request and must sign in again. Their password is
+ * untouched.
+ *
+ * The acting admin may target their own account (forces a re-login; the
+ * response sets reAuth=true so the client can prompt for sign-in). Legacy
+ * pre-epoch tokens (minted before the session-epoch feature shipped) carry no
+ * epoch and are accepted until their 6 h TTL — they are NOT killed by this
+ * endpoint. Not reversible except by signing the user back in.
+ * @param {string} email Email of the target user.
+ * @param {string} token Session token (admin required).
+ * @returns {{success: boolean, message: string, email: string, reAuth: boolean}}
+ */
+function adminKillUserSessions(email, token) {
+  const admin = requireAdmin_(token);
+  // Normalize BEFORE the rate-limit key so casing/whitespace permutations of
+  // the same address share one bucket (no per-variant bypass).
+  email = String(email || '').toLowerCase().trim();
+  checkRateLimit_('killses_' + safeCacheKey_(email), CONFIG.RATE_LIMIT.ADMIN_USER_MAX, CONFIG.RATE_LIMIT.ADMIN_USER_WINDOW);
+
+  return runWithLock_(function () {
+    if (!findUserRecord_(email)) throw new Error('User not found.');
+
+    bumpSessionEpoch_(email); // invalidate every session minted before now
+
+    try { logAudit_(ACTIONS.USER_KILL_SESSIONS, '', 'All sessions invalidated for ' + email, admin.email); } catch (err) {}
+    try { notify_(email, NOTIFICATION_TYPES.USER, 'Signed out everywhere', 'An administrator signed you out of all devices. Please log in again.', ''); } catch (err) {}
+    return { success: true, message: 'All sessions for ' + email + ' have been invalidated.', email: email, reAuth: email === admin.email };
+  });
+}
+
+/**
  * Emails every registered dashboard user (admin only). Used for broadcast
  * announcements (e.g. maintenance windows, holidays).
  * @param {string} subject Email subject.

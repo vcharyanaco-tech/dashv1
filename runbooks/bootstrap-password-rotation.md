@@ -107,12 +107,30 @@ Sessions also self-expire after 6 hours (`SESSION_TTL_SECONDS: 21600`). After
 Part A the epoch bump already invalidates them; to be certain nothing lingers:
 
 - Ask the user to sign out (destroys the token), or
-- (Optional, admin) trigger any role/email touch via `adminUpdateUser` — it
-  also bumps the epoch, or
+- Use the dedicated **kill-all-sessions** endpoint below, or
 - Wait for the 6h TTL.
 
-There is no "kill all sessions for user X" endpoint by design — the epoch bump
-on password change is the mechanism, and it is already done in Part A.
+### Kill all sessions for a user (without changing their password)
+
+Admin-only endpoint `adminKillUserSessions(email, token)` bumps the target
+user's session epoch so every epoch-format token minted before the call fails
+the epoch check — the user is logged out on their next request but their
+password is untouched. It is rate-limited per target user and writes a
+`USER_KILL_SESSIONS` audit entry plus a notification to the target.
+
+From the browser console (while logged in as admin):
+```js
+ApiService.adminKillUserSessions('someuser@example.com')
+```
+
+The acting admin may target their own account — the response sets `reAuth:
+true` so the client can prompt for sign-in; this is allowed by design. There is
+no undo — the user simply signs in again.
+
+> **Legacy-session caveat:** tokens minted *before* the session-epoch feature
+> shipped carry no epoch and are accepted until their 6-hour TTL — this
+> endpoint does not kill them. If you need to guarantee logout for such a
+> token, wait for the TTL or ask the user to sign out explicitly.
 
 ---
 
@@ -143,3 +161,4 @@ on password change is the mechanism, and it is already done in Part A.
 | Session epoch check | `sessionEmail_` / `bumpSessionEpoch_` | 610 / 597 |
 | Self password change (+epoch bump) | `changePassword` | 992 |
 | Admin reset (+epoch bump) | `adminResetPassword` | 1455 |
+| Kill all sessions (no password change) | `adminKillUserSessions` | ~1455 |

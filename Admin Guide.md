@@ -38,6 +38,10 @@ sessions), follow the [bootstrap password rotation runbook](runbooks/bootstrap-p
   characters). The user is created immediately.
 - **Reset a password** — click **Reset password** next to a user and provide a new
   one; the user can then sign in with it.
+- **Sign a user out everywhere** — `ApiService.adminKillUserSessions(email)`
+  (admin only, e.g. from the browser console) invalidates all of that user's
+  sessions without changing their password; they must sign in again on every
+  device.
 - **Delete a user** — click **Delete** and confirm. You cannot delete your own
   account or the primary admin account.
 - Users can always reset their own password from the sign-in screen via

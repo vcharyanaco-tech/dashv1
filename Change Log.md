@@ -287,6 +287,11 @@
   full bootstrap-admin password rotation (self-change vs admin reset, session
   epoch invalidation, optional `ADMIN_BOOTSTRAP_PASSWORD` refresh, and login
   verification); linked from the Admin Guide's First login section.
+- **Kill-all-sessions endpoint** — new admin-only `adminKillUserSessions(email,
+  token)` bumps a user's session epoch to invalidate every active session
+  without changing their password (rate-limited, audited, notifies the target);
+  wrapped as `ApiService.adminKillUserSessions(email)` in both clients and
+  covered by new `tests/admin-session-kill.test.js` (6 tests).
 
 ---
 

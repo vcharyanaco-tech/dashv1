@@ -744,6 +744,7 @@ var API_ROUTES = {
   adminUpdateUser: adminUpdateUser,
   adminDeleteUser: adminDeleteUser,
   adminResetPassword: adminResetPassword,
+  adminKillUserSessions: adminKillUserSessions,
   adminExportUsers: adminExportUsers,
   adminImportUsers: adminImportUsers,
   adminGetUserActivity: adminGetUserActivity,
