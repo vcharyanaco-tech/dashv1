@@ -130,7 +130,11 @@ const ApiService = {
   getLinkContentAiInsight: function (row) { return apiCall_('getLinkContentAiInsight', getAuthToken(), row); },
   processMeetingRecording: function (payload) { return apiCall_('processMeetingRecording', payload, getAuthToken()); },
   transcribeMeetingSegment: function (payload) { return apiCall_('transcribeMeetingSegment', payload, getAuthToken()); },
-  generateMeetingMinutes: function (payload) { return apiCall_('generateMeetingMinutes', payload, getAuthToken()); }
+  generateMeetingMinutes: function (payload) { return apiCall_('generateMeetingMinutes', payload, getAuthToken()); },
+  getFathomStatus: function () { return apiCall_('getFathomStatus', getAuthToken()); },
+  setFathomApiKey: function (apiKey) { return apiCall_('setFathomApiKey', getAuthToken(), apiKey); },
+  listFathomMeetings: function (opts) { return apiCall_('listFathomMeetings', getAuthToken(), opts || {}); },
+  getFathomMeetingContent: function (recordingId) { return apiCall_('getFathomMeetingContent', getAuthToken(), recordingId); }
 };
 
 const appState = {
@@ -388,6 +392,7 @@ function openMeetingNotes() {
     setMeetingRecStatus('');
   }
   syncMeetingRecFloat_();
+  initFathomPanel();
 }
 
 function closeMeetingNotes() {
@@ -668,6 +673,11 @@ function renderMeetingMinutes(data) {
   const risks = Array.isArray(minutes.risks) ? minutes.risks : [];
   const meetingTitle = String((data && data.title) || 'Review meeting');
   let html = '<div class="meeting-notes-wrap">';
+  if (data && data.fathomUrl) {
+    html += '<div class="meeting-notes-drive">' +
+      '<span>&#128279; Fathom recording: <a href="' + escapeHtml(data.fathomUrl) + '" target="_blank" rel="noopener noreferrer">Open in Fathom</a></span>' +
+      '</div>';
+  }
   if (summary) {
     html += '<div class="card-ai-head"><span class="card-ai-title">Summary</span></div>' +
       '<div class="meeting-notes-section"><p>' + escapeHtml(summary) + '</p></div>';
@@ -806,6 +816,149 @@ function addAllMeetingTasks() {
       if (handleServerFailure(err)) return;
       showToast('Could not add tasks: ' + (err && err.message ? err.message : String(err)), 'error');
     });
+  });
+}
+
+/* ---------------------------------- Fathom AI meeting notes ---------------------------------- */
+/* Admin-only: pulls summaries/transcripts/action items recorded by Fathom into
+   the AI Meeting Notes modal. API key is stored server-side via setFathomApiKey
+   (Script Properties) and never committed to the repo. */
+
+let fathomMeetingsCache = [];
+
+function initFathomPanel() {
+  const list = getEl('fathomList');
+  const keyRow = getEl('fathomKeyRow');
+  const loadBtn = getEl('fathomLoadBtn');
+  const status = getEl('fathomStatus');
+  if (list) list.innerHTML = '';
+  if (keyRow) keyRow.classList.add('hidden');
+  if (loadBtn) loadBtn.disabled = false;
+  if (status) status.textContent = '';
+  ApiService.getFathomStatus().then(function (data) {
+    const f = data && data.fathom;
+    if (!f) return;
+    if (!f.enabled) {
+      if (status) status.textContent = 'Fathom integration is not enabled on the server.';
+      if (loadBtn) loadBtn.style.display = 'none';
+      return;
+    }
+    if (!f.configured) {
+      if (status) status.textContent = 'Enter a Fathom API key to pull notes (Settings \u2192 API Access).';
+      if (keyRow) keyRow.classList.remove('hidden');
+      if (loadBtn) loadBtn.style.display = 'none';
+      return;
+    }
+    if (loadBtn) loadBtn.style.display = 'inline-flex';
+  }).catch(function (err) {
+    if (handleServerFailure(err)) return;
+    if (status) status.textContent = err && err.message ? err.message : String(err);
+  });
+}
+
+function saveFathomApiKey() {
+  const input = getEl('fathomApiKeyInput');
+  const key = input ? input.value.trim() : '';
+  if (!key) { showToast('Paste your Fathom API key first.', 'warning'); return; }
+  showOverlay('Saving key\u2026');
+  ApiService.setFathomApiKey(key).then(function (res) {
+    hideOverlay();
+    if (res && res.ok) {
+      if (input) input.value = '';
+      showToast('Fathom API key saved.', 'success');
+      initFathomPanel();
+    } else {
+      showToast((res && res.message) || 'Could not save the key.', 'error');
+    }
+  }).catch(function (err) {
+    hideOverlay();
+    if (handleServerFailure(err)) return;
+    showToast('Could not save the key: ' + (err && err.message ? err.message : String(err)), 'error');
+  });
+}
+
+function loadFathomMeetings() {
+  const list = getEl('fathomList');
+  const status = getEl('fathomStatus');
+  const loadBtn = getEl('fathomLoadBtn');
+  if (loadBtn) loadBtn.disabled = true;
+  if (status) status.textContent = 'Loading recent Fathom meetings\u2026';
+  if (list) list.innerHTML = '';
+  ApiService.listFathomMeetings({}).then(function (data) {
+    if (loadBtn) loadBtn.disabled = false;
+    if (status) status.textContent = '';
+    if (!data || data.success !== true) {
+      if (status) status.textContent = (data && data.message) || 'Could not load Fathom meetings.';
+      return;
+    }
+    fathomMeetingsCache = data.items || [];
+    renderFathomMeetingList(fathomMeetingsCache);
+  }).catch(function (err) {
+    if (loadBtn) loadBtn.disabled = false;
+    if (handleServerFailure(err)) return;
+    if (status) status.textContent = err && err.message ? err.message : String(err);
+  });
+}
+
+function renderFathomMeetingList(items) {
+  const list = getEl('fathomList');
+  const status = getEl('fathomStatus');
+  if (!list) return;
+  if (!items.length) {
+    if (status) status.textContent = 'No Fathom meetings found yet.';
+    return;
+  }
+  if (status) status.textContent = items.length + ' meeting(s) found \u2014 pick one to pull its notes.';
+  let html = '<div class="fathom-meeting-list">';
+  items.forEach(function (m, i) {
+    const date = m.createdAt ? new Date(m.createdAt).toLocaleString() : '';
+    const actionCount = (m.actionItems && m.actionItems.length) || 0;
+    html += '<div class="fathom-meeting-item" role="button" tabindex="0" onclick="viewFathomMeeting(' + i + ')">' +
+      '<div class="fathom-meeting-title">' + escapeHtml(m.title) + '</div>' +
+      '<div class="fathom-meeting-meta">' + escapeHtml(date) +
+      (m.recordedBy ? ' &middot; ' + escapeHtml(m.recordedBy) : '') +
+      (actionCount ? ' &middot; ' + actionCount + ' action item(s)' : '') + '</div>' +
+      (m.summary ? '<div class="fathom-meeting-summary">' + escapeHtml(m.summary.substring(0, 220)) + '</div>' : '') +
+      '<span class="btn btn-small btn-secondary" style="pointer-events:none;">View notes</span>' +
+      '</div>';
+  });
+  html += '</div>';
+  list.innerHTML = html;
+}
+
+function viewFathomMeeting(index) {
+  const m = fathomMeetingsCache[index];
+  if (!m) return;
+  const body = getEl('meetingNotesResult');
+  if (body) body.innerHTML = '<p class="meeting-notes-hint">Loading Fathom notes\u2026</p>';
+  ApiService.getFathomMeetingContent(m.recordingId).then(function (data) {
+    if (!data || data.success !== true) {
+      renderMeetingMinutesError((data && data.message) || 'Could not load this meeting\u2019s content.');
+      return;
+    }
+    const actionItems = (m.actionItems || []).map(function (a) {
+      return {
+        task: a.task || '',
+        assignee: a.assignee || '',
+        priority: 'MEDIUM',
+        dueDate: ''
+      };
+    });
+    renderMeetingMinutes({
+      title: m.title,
+      minutes: {
+        summary: m.summary || '',
+        decisions: [],
+        actionItems: actionItems,
+        risks: []
+      },
+      transcript: data.transcript || '',
+      transcriptChars: data.transcriptChars || 0,
+      fathomUrl: m.shareUrl || m.url || ''
+    });
+  }).catch(function (err) {
+    if (handleServerFailure(err)) return;
+    renderMeetingMinutesError(err && err.message ? err.message : String(err));
   });
 }
 

@@ -17,6 +17,8 @@ function getEnterpriseConfig_() {
     whatsappEnabled: props.WHATSAPP_ENABLED === 'true' || ((s.WHATSAPP || {}).enabled === true),
     pwaEnabled: props.PWA_ENABLED === 'true' || ((s.PWA || {}).enabled === true),
     calendarEnabled: props.CALENDAR_ENABLED === 'true' || ((s.CALENDAR || {}).enabled === true),
+    fathomEnabled: props.FATHOM_ENABLED === 'true' || ((s.FATHOM || {}).enabled === true),
+    fathomConfigured: !!(props.FATHOM_API_KEY || ((s.FATHOM || {}).apiKey)),
     offlineStrictAuth: props.OFFLINE_STRICT_AUTH === 'true',
     timezone: props.TIMEZONE || 'Asia/Kolkata',
     aiModel: props.AI_MODEL || props.GEMINI_MODEL || ((s.AI_INSIGHTS || {}).model) || 'llama-3.3-70b-versatile'

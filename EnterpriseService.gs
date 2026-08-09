@@ -1033,6 +1033,150 @@ function generateMeetingMinutes(payload, token) {
   };
 }
 
+/* ------------------------------------------------------------------ */
+/* Fathom AI meeting notes — pull summaries, transcripts, and action   */
+/* items recorded by Fathom into the dashboard.                        */
+/* ------------------------------------------------------------------ */
+
+/* Admin-gated: stores the Fathom API key in Script Properties so the
+   real credential is never committed to the repo. Never echoes the value. */
+function setFathomApiKey(token, apiKey) {
+  requireAdmin_(token);
+  if (!apiKey || typeof apiKey !== 'string' || !apiKey.trim()) {
+    return { ok: false, message: 'Missing API key.' };
+  }
+  PropertiesService.getScriptProperties().setProperty('FATHOM_API_KEY', apiKey.trim());
+  return { ok: true };
+}
+
+function fathomEnabled_() {
+  var props = PropertiesService.getScriptProperties();
+  var f = (ENTERPRISE_SETTINGS || {}).FATHOM || {};
+  return props.getProperty('FATHOM_ENABLED') === 'true' || f.enabled === true;
+}
+
+function fathomApiKey_() {
+  var props = PropertiesService.getScriptProperties();
+  var f = (ENTERPRISE_SETTINGS || {}).FATHOM || {};
+  return props.getProperty('FATHOM_API_KEY') || f.apiKey || '';
+}
+
+function fathomBaseUrl_() {
+  var f = (ENTERPRISE_SETTINGS || {}).FATHOM || {};
+  return f.apiBaseUrl || 'https://api.fathom.ai/external/v1';
+}
+
+/* Tokenless (trigger-safe) config probe used by admin-gated endpoints. */
+function fathomConfig_() {
+  return {
+    enabled: fathomEnabled_(),
+    configured: !!fathomApiKey_(),
+    baseUrl: fathomBaseUrl_()
+  };
+}
+
+/* Admin-gated: Fathom connection status for the client. */
+function getFathomStatus(token) {
+  requireAdmin_(token);
+  return { success: true, fathom: fathomConfig_() };
+}
+
+/* Admin-gated: lists recent Fathom meetings (summary + action items) so the
+   UI can pick one to pull notes from. Heavier content (transcript) is fetched
+   on demand via getFathomMeetingContent. */
+function listFathomMeetings(token, opts) {
+  requireAdmin_(token);
+  opts = opts || {};
+  var cfg = fathomConfig_();
+  if (!cfg.enabled) return { success: false, message: 'Fathom integration is not enabled.' };
+  if (!cfg.configured) return { success: false, message: 'Fathom API key is not configured.' };
+  var key = fathomApiKey_();
+  var max = parseInt(opts.max, 10) || ((ENTERPRISE_SETTINGS || {}).FATHOM || {}).maxMeetings || 20;
+  if (max < 1) max = 20;
+  if (max > 100) max = 100;
+
+  var qs = [
+    'include_summary=true',
+    'include_action_items=true',
+    'limit=' + max
+  ];
+  if (opts.createdAfter) qs.push('created_after=' + encodeURIComponent(String(opts.createdAfter)));
+
+  try {
+    var resp = UrlFetchApp.fetch(cfg.baseUrl + '/meetings?' + qs.join('&'), {
+      method: 'get',
+      headers: { 'X-Api-Key': key },
+      muteHttpExceptions: true
+    });
+    var code = resp.getResponseCode();
+    var body = JSON.parse(resp.getContentText());
+    if (code < 200 || code >= 300) {
+      var apiErr = body && body.error && (body.error.message || body.error.code || body.error.type);
+      return { success: false, message: apiErr || ('Fathom HTTP ' + code), code: code };
+    }
+    var items = (body.items || []).map(fathomMeetingToCard_);
+    return { success: true, items: items, nextCursor: body.next_cursor || '' };
+  } catch (err) {
+    return { success: false, message: String(err) };
+  }
+}
+
+/* Maps one Fathom meeting payload to the record-card shape the client renders. */
+function fathomMeetingToCard_(m) {
+  var summary = (m.default_summary && m.default_summary.markdown_formatted) ||
+    (m.summary && m.summary.markdown_formatted) || '';
+  var actions = (m.action_items || []).map(function (a) {
+    return {
+      task: String(a.description || '').trim(),
+      assignee: (a.assignee && (a.assignee.name || a.assignee.email)) || '',
+      completed: !!a.completed,
+      timestamp: a.recording_timestamp || ''
+    };
+  });
+  return {
+    recordingId: m.recording_id,
+    title: m.title || m.meeting_title || 'Untitled meeting',
+    meetingTitle: m.meeting_title || '',
+    url: m.url || '',
+    shareUrl: m.share_url || '',
+    createdAt: m.created_at || '',
+    recordedBy: m.recorded_by ? (m.recorded_by.name || m.recorded_by.email) : '',
+    summary: String(summary || '').trim(),
+    actionItems: actions
+  };
+}
+
+/* Admin-gated: fetches the full transcript for one recording and combines it
+   with the already-known summary/action items. */
+function getFathomMeetingContent(token, recordingId) {
+  requireAdmin_(token);
+  var cfg = fathomConfig_();
+  if (!cfg.enabled) return { success: false, message: 'Fathom integration is not enabled.' };
+  if (!cfg.configured) return { success: false, message: 'Fathom API key is not configured.' };
+  if (!recordingId) return { success: false, message: 'Missing recording id.' };
+  var key = fathomApiKey_();
+  try {
+    var resp = UrlFetchApp.fetch(cfg.baseUrl + '/recordings/' + encodeURIComponent(String(recordingId)) + '/transcript', {
+      method: 'get',
+      headers: { 'X-Api-Key': key },
+      muteHttpExceptions: true
+    });
+    var code = resp.getResponseCode();
+    var body = JSON.parse(resp.getContentText());
+    if (code < 200 || code >= 300) {
+      var apiErr = body && body.error && (body.error.message || body.error.code || body.error.type);
+      return { success: false, message: apiErr || ('Fathom HTTP ' + code), code: code };
+    }
+    var transcript = (body.transcript || []).map(function (t) {
+      var speaker = (t.speaker && t.speaker.display_name) || 'Speaker';
+      return '[' + (t.timestamp || '') + '] ' + speaker + ': ' + String(t.text || '');
+    }).join('\n');
+    return { success: true, recordingId: recordingId, transcript: transcript, transcriptChars: transcript.length };
+  } catch (err) {
+    return { success: false, message: String(err) };
+  }
+}
+
 function aiKeyConfigured_() {
   var ai = (ENTERPRISE_SETTINGS || {}).AI_INSIGHTS || {};
   var props = PropertiesService.getScriptProperties();
@@ -1103,6 +1247,8 @@ function getEnterpriseFrontendConfig(token) {
     whatsappEnabled: cfg.whatsappEnabled,
     pwaEnabled: cfg.pwaEnabled,
     calendarEnabled: cfg.calendarEnabled,
+    fathomEnabled: cfg.fathomEnabled,
+    fathomConfigured: cfg.fathomConfigured,
     offlineStrictAuth: cfg.offlineStrictAuth,
     timezone: cfg.timezone
   };

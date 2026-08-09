@@ -1068,6 +1068,16 @@
           <button id="meetingNotesGo" class="btn btn-secondary" type="button" onclick="processMeetingNotes()">Transcribe &amp; summarize</button>
           <button class="btn btn-secondary" type="button" onclick="closeMeetingNotes()">Close</button>
         </div>
+        <div class="meeting-divider"><span>or pull notes recorded by Fathom</span></div>
+        <div class="form-row">
+          <button id="fathomLoadBtn" class="btn btn-secondary" type="button" onclick="loadFathomMeetings()" style="display:none;">Load recent Fathom meetings</button>
+          <span id="fathomStatus" style="color:var(--muted);font-size:13px;"></span>
+        </div>
+        <div id="fathomKeyRow" class="form-row hidden">
+          <input id="fathomApiKeyInput" class="input" type="password" placeholder="Fathom API key (Settings &rarr; API Access)" autocomplete="off">
+          <button class="btn btn-secondary" type="button" onclick="saveFathomApiKey()">Save key</button>
+        </div>
+        <div id="fathomList"></div>
         <div id="meetingNotesLoading" style="display:none;align-items:center;gap:10px;padding:6px 0;">
           <span aria-hidden="true" style="width:16px;height:16px;border:2px solid var(--border,#e5e7eb);border-top-color:var(--accent,#2563eb);border-radius:50%;animation:spin .8s linear infinite;"></span>
           <span style="color:var(--muted);font-size:13px;">Transcribing audio &amp; drafting minutes (may take a minute)&#8230;</span>
