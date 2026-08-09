@@ -13,6 +13,8 @@ app.js
 docs/**
 sw.js
 manifest.json
+src/**
+sync-frontend.js
 Apply-EnterpriseAddons.ps1
 Build-EnterpriseAddons-Part1.ps1
 Build-EnterpriseAddons-Part2.ps1

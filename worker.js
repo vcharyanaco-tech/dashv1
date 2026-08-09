@@ -21,13 +21,43 @@ import { isEnterprisePath, enterpriseHeadersForPath } from './worker-enterprise-
 
 const GITHUB_RAW = 'https://raw.githubusercontent.com/vcharyanaco-tech/dashv1/main/docs';
 
-const COMMON_HEADERS = {
-  'X-Frame-Options': 'ALLOWALL',
-  'Access-Control-Allow-Origin': '*',
+// ── Trusted origins for CORS ────────────────────────────────────────────────
+// The Access-Control-Allow-Origin header is echoed back ONLY when the request's
+// Origin matches one of these. Same-origin requests (dashboardharyana.site)
+// send no Origin header and are unaffected. Anything else gets no ACAO header,
+// so a foreign page can never read our responses (CSRF / data-theft hardening).
+const TRUSTED_ORIGINS = new Set([
+  'https://dashboardharyana.site',
+  'https://www.dashboardharyana.site',
+  'https://vcharyanaco-tech.github.io',
+]);
+
+const BASE_HEADERS = {
+  // Clickjacking defence: refuse to render inside any cross-origin frame.
+  // SAMEORIGIN (not ALLOWALL) lets the page frame itself when needed while
+  // blocking third-party embedding.
+  'X-Frame-Options': 'SAMEORIGIN',
   'Access-Control-Allow-Methods': 'GET, POST, OPTIONS',
   'Access-Control-Allow-Headers': 'Content-Type, Authorization',
   'Referrer-Policy': 'no-referrer-when-downgrade',
 };
+
+/**
+ * Builds response headers for a given request, echoing the Origin header only
+ * when it matches a trusted domain. Returns a fresh object per call so a
+ * single request never mutates a shared constant.
+ * @param {Request} request Incoming request (used for its Origin header).
+ * @returns {Object<string,string>}
+ */
+function headersFor(request) {
+  const headers = { ...BASE_HEADERS };
+  const origin = request && request.headers ? request.headers.get('Origin') : null;
+  if (origin && TRUSTED_ORIGINS.has(origin)) {
+    headers['Access-Control-Allow-Origin'] = origin;
+    headers['Vary'] = 'Origin';
+  }
+  return headers;
+}
 
 export default {
   async fetch(request, env, ctx) {
@@ -36,7 +66,7 @@ export default {
     if (request.method === 'OPTIONS') {
       return new Response(null, {
         status: 204,
-        headers: { ...COMMON_HEADERS, 'Access-Control-Max-Age': '86400' },
+        headers: { ...headersFor(request), 'Access-Control-Max-Age': '86400' },
       });
     }
 
@@ -45,7 +75,7 @@ export default {
     // live only in Worker secrets/environment and are read from `env` here.
     if (url.pathname.startsWith('/api/')) {
       if (isRateLimited(request)) {
-        return jsonResponse({ error: 'rate limited' }, 429, { 'Retry-After': '60' });
+        return jsonResponse({ error: 'rate limited' }, 429, { 'Retry-After': '60' }, request);
       }
       return handleEnterpriseRoute(request, env, url, ctx);
     }
@@ -53,7 +83,7 @@ export default {
     const GAS_SCRIPT_URL = env.GAS_SCRIPT_URL;
 
     if (!GAS_SCRIPT_URL) {
-      return new Response('Worker not configured', { status: 500, headers: COMMON_HEADERS });
+      return new Response('Worker not configured', { status: 500, headers: headersFor(request) });
     }
 
     const path = url.pathname;
@@ -79,7 +109,13 @@ export default {
         redirect: 'follow',
       });
       const newHeaders = new Headers(resp.headers);
-      Object.entries(COMMON_HEADERS).forEach(([k, v]) => newHeaders.set(k, v));
+      // Strip any upstream CORS header first: raw.githubusercontent.com sends
+      // `Access-Control-Allow-Origin: *`, which must never survive for
+      // non-trusted origins — otherwise the origin restriction below is
+      // defeated on proxied routes.
+      newHeaders.delete('Access-Control-Allow-Origin');
+      newHeaders.delete('Vary');
+      Object.entries(headersFor(request)).forEach(([k, v]) => newHeaders.set(k, v));
       const respBody = await resp.arrayBuffer();
       return new Response(respBody, { status: resp.status, headers: newHeaders });
     }
@@ -94,19 +130,21 @@ export default {
     if (isEnterprisePath(path)) {
       const headers = enterpriseHeadersForPath(path);
       if (headers) {
-        const resp = await fetchFromPages(path, url.search);
+        // Pass `request` so fetchFromPages applies the same trusted-origin
+        // CORS logic here as everywhere else.
+        const resp = await fetchFromPages(path, url.search, request);
         const newHeaders = new Headers(resp.headers);
         Object.entries(headers).forEach(([k, v]) => newHeaders.set(k, v));
         return new Response(resp.body, { status: resp.status, headers: newHeaders });
       }
     }
 
-    return fetchFromPages(path, url.search);
+    return fetchFromPages(path, url.search, request);
   },
 };
 
 // ── GitHub Pages static bundle fetcher ──────────────────────────────────────
-async function fetchFromPages(path, search) {
+async function fetchFromPages(path, search, request) {
   // Map request path to a docs/ file on the raw GitHub CDN.
   // / and /index.html → docs/index.html (the landing page)
   let filePath = path;
@@ -124,7 +162,7 @@ async function fetchFromPages(path, search) {
     return new Response(html, {
       status: 200,
       headers: {
-        ...COMMON_HEADERS,
+        ...headersFor(request),
         'Content-Type': 'text/html; charset=utf-8',
         'Cache-Control': 'public, max-age=300',
       },
@@ -136,7 +174,7 @@ async function fetchFromPages(path, search) {
   const body = await resp.arrayBuffer();
 
   const headers = {
-    ...COMMON_HEADERS,
+    ...headersFor(request),
     'Content-Type': ct,
     'Cache-Control': filePath.match(/\.(js|css|png|ico|jpg|svg|woff2?)(\?|$)/)
       ? 'public, max-age=3600'
@@ -202,10 +240,10 @@ function isRateLimited(request) {
 
 const AI_INSIGHTS_TTL = 3600; // seconds; 1h keeps insights fresh-ish
 
-function jsonResponse(obj, status, extraHeaders) {
+function jsonResponse(obj, status, extraHeaders, request) {
   return new Response(JSON.stringify(obj), {
     status: status || 200,
-    headers: { ...COMMON_HEADERS, 'Content-Type': 'application/json', ...(extraHeaders || {}) },
+    headers: { ...headersFor(request), 'Content-Type': 'application/json', ...(extraHeaders || {}) },
   });
 }
 
@@ -217,12 +255,12 @@ function bearerToken(request) {
 
 async function handleEnterpriseRoute(request, env, url, ctx) {
   if (url.pathname === '/api/health') {
-    return jsonResponse({ ok: true, service: 'dashv1-proxy' });
+    return jsonResponse({ ok: true, service: 'dashv1-proxy' }, 200, null, request);
   }
 
   const token = bearerToken(request);
   if (!token || token !== (env.WORKER_API_TOKEN || '')) {
-    return jsonResponse({ error: 'unauthorized' }, 401);
+    return jsonResponse({ error: 'unauthorized' }, 401, null, request);
   }
 
   if (url.pathname === '/api/ai-insights' && request.method === 'POST') {
@@ -231,12 +269,12 @@ async function handleEnterpriseRoute(request, env, url, ctx) {
   if (url.pathname === '/api/notify-whatsapp' && request.method === 'POST') {
     return handleWhatsApp(request, env);
   }
-  return jsonResponse({ error: 'not found' }, 404);
+  return jsonResponse({ error: 'not found' }, 404, null, request);
 }
 
 async function handleAiInsights(request, env, ctx) {
   if (!env.GEMINI_API_KEY) {
-    return jsonResponse({ error: 'AI not configured' }, 500);
+    return jsonResponse({ error: 'AI not configured' }, 500, null, request);
   }
   let body = {};
   try { body = await request.json(); } catch (e) { body = {}; }
@@ -259,7 +297,7 @@ async function handleAiInsights(request, env, ctx) {
         return jsonResponse({
           success: true, insights: hit.insights,
           cachedAt: hit.cachedAt, stale: false
-        }, 200, { 'X-AI-Cache': 'HIT' });
+        }, 200, { 'X-AI-Cache': 'HIT' }, request);
       }
     } catch (e) { /* cache error = bypass, still call Gemini */ }
   }
@@ -278,9 +316,9 @@ async function handleAiInsights(request, env, ctx) {
     text = gem && gem.candidates && gem.candidates[0] && gem.candidates[0].content &&
       gem.candidates[0].content.parts && gem.candidates[0].content.parts[0] &&
       gem.candidates[0].content.parts[0].text || '';
-    if (!text) return jsonResponse({ error: 'AI returned no content' }, 502);
+    if (!text) return jsonResponse({ error: 'AI returned no content' }, 502, null, request);
   } catch (err) {
-    return jsonResponse({ error: 'AI request failed' }, 502);
+    return jsonResponse({ error: 'AI request failed' }, 502, null, request);
   }
 
   // 3) Persist asynchronously so the response is not blocked by the KV write.
@@ -290,7 +328,7 @@ async function handleAiInsights(request, env, ctx) {
     }), { expirationTtl: AI_INSIGHTS_TTL }));
   }
 
-  return jsonResponse({ success: true, insights: text }, 200, { 'X-AI-Cache': 'MISS' });
+  return jsonResponse({ success: true, insights: text }, 200, { 'X-AI-Cache': 'MISS' }, request);
 }
 
 /** FNV-1a 64-bit → hex (fast, dependency-free, fine for cache keys). */
@@ -306,10 +344,10 @@ function hashText(str) {
 
 async function handleWhatsApp(request, env) {
   if (!env.WHATSAPP_TOKEN || !env.WHATSAPP_PHONE_NUMBER_ID) {
-    return jsonResponse({ error: 'WhatsApp not configured' }, 500);
+    return jsonResponse({ error: 'WhatsApp not configured' }, 500, null, request);
   }
   let payload;
-  try { payload = await request.json(); } catch (e) { return jsonResponse({ error: 'invalid json' }, 400); }
+  try { payload = await request.json(); } catch (e) { return jsonResponse({ error: 'invalid json' }, 400, null, request); }
   try {
     const resp = await fetch(
       'https://graph.facebook.com/v20.0/' + env.WHATSAPP_PHONE_NUMBER_ID + '/messages', {
@@ -317,8 +355,8 @@ async function handleWhatsApp(request, env) {
         headers: { 'Authorization': 'Bearer ' + env.WHATSAPP_TOKEN, 'Content-Type': 'application/json' },
         body: JSON.stringify(payload),
       });
-    return jsonResponse(await resp.json(), resp.status);
+    return jsonResponse(await resp.json(), resp.status, null, request);
   } catch (err) {
-    return jsonResponse({ error: 'WhatsApp request failed' }, 502);
+    return jsonResponse({ error: 'WhatsApp request failed' }, 502, null, request);
   }
 }

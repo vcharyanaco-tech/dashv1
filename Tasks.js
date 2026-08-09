@@ -99,18 +99,18 @@ function createTask(params, token) {
   const user = requireEditor_(token);
   params = params || {};
   const title = String(params.title || '').trim();
-  if (!title) throw new Error('Task title required.');
+  if (!title) throw clientError_('Task title required.');
   const recordRow = Number(params.recordRow) || 0;
   const assignee = String(params.assignee || '').toLowerCase().trim();
   const priority = String(params.priority || TASK_PRIORITY.MEDIUM).toUpperCase();
   const dueDate = params.dueDate ? new Date(params.dueDate) : null;
   if (![TASK_PRIORITY.LOW, TASK_PRIORITY.MEDIUM, TASK_PRIORITY.HIGH, TASK_PRIORITY.URGENT].includes(priority)) {
-    throw new Error('Invalid priority.');
+    throw clientError_('Invalid priority.');
   }
 
   return runWithLock_(function () {
     const sh = tasksSheet_();
-    if (!sh) throw new Error('Tasks sheet unavailable.');
+    if (!sh) throw clientError_('Tasks sheet unavailable.');
     const id = Utilities.getUuid().replace(/-/g, '');
     const now = now_();
     sh.appendRow([
@@ -173,40 +173,40 @@ function createTask(params, token) {
 function updateTask(id, fields, token) {
   const user = requireLogin_(token);
   id = String(id || '').trim();
-  if (!id) throw new Error('Task id required.');
+  if (!id) throw clientError_('Task id required.');
 
   return runWithLock_(function () {
     const sh = tasksSheet_();
     const lastRow = sh.getLastRow();
-    if (lastRow < 2) throw new Error('Task not found.');
+    if (lastRow < 2) throw clientError_('Task not found.');
     const values = sh.getRange(2, 1, lastRow - 1, TASK_SHEET_HEADERS.length).getValues();
     let rowIdx = -1;
     for (let i = 0; i < values.length; i++) {
       if (String(values[i][0]) === id) { rowIdx = i + 2; break; }
     }
-    if (rowIdx === -1) throw new Error('Task not found.');
+    if (rowIdx === -1) throw clientError_('Task not found.');
 
     const existing = taskRecordFromRow_(values[rowIdx - 2]);
     const isAssignee = existing.assignee === user.email;
     const isEditorRole = isEditor(user.email);
 
-    if (!isEditorRole && !isAssignee) throw new Error('Permission denied.');
+    if (!isEditorRole && !isAssignee) throw clientError_('Permission denied.');
 
     const updates = {};
     if ('title' in fields) updates.title = String(fields.title || '').trim();
     if ('description' in fields) updates.description = String(fields.description || '');
     if ('assignee' in fields) {
-      if (!isEditorRole) throw new Error('Only editors can reassign tasks.');
+      if (!isEditorRole) throw clientError_('Only editors can reassign tasks.');
       updates.assignee = String(fields.assignee || '').toLowerCase().trim();
     }
     if ('status' in fields) {
       const status = String(fields.status).toUpperCase();
-      if (!Object.values(TASK_STATUS).includes(status)) throw new Error('Invalid status.');
+      if (!Object.values(TASK_STATUS).includes(status)) throw clientError_('Invalid status.');
       updates.status = status;
     }
     if ('priority' in fields) {
       const priority = String(fields.priority).toUpperCase();
-      if (!Object.values(TASK_PRIORITY).includes(priority)) throw new Error('Invalid priority.');
+      if (!Object.values(TASK_PRIORITY).includes(priority)) throw clientError_('Invalid priority.');
       updates.priority = priority;
     }
     if ('dueDate' in fields) {
@@ -337,7 +337,7 @@ function computeTaskCounts_() {
 function deleteTask(id, token) {
   requireEditor_(token);
   id = String(id || '').trim();
-  if (!id) throw new Error('Task id required.');
+  if (!id) throw clientError_('Task id required.');
 
   return runWithLock_(function () {
     const sh = tasksSheet_();
@@ -406,33 +406,33 @@ function updateTaskField(id, field, value, rowVersion, idempotencyKey, token) {
   const user = requireLogin_(token);
   id = String(id || '').trim();
   field = String(field || '').trim();
-  if (!id) throw new Error('Task id required.');
-  if (!field) throw new Error('Field name required.');
-  if (!idempotencyKey) throw new Error('Idempotency key required for partial task updates.');
+  if (!id) throw clientError_('Task id required.');
+  if (!field) throw clientError_('Field name required.');
+  if (!idempotencyKey) throw clientError_('Idempotency key required for partial task updates.');
 
   // Whitelist of allowed fields
   const allowedFields = ['status', 'priority', 'assignee', 'dueDate', 'title', 'description'];
   if (allowedFields.indexOf(field) === -1) {
-    throw new Error('Field not allowed for partial update: ' + field);
+    throw clientError_('Field not allowed for partial update: ' + field);
   }
 
   // Validate status value if updating status
   if (field === 'status') {
     const status = String(value || '').toUpperCase();
     if (!Object.values(TASK_STATUS).includes(status)) {
-      throw new Error('Invalid status value.');
+      throw clientError_('Invalid status value.');
     }
   }
   if (field === 'priority') {
     const priority = String(value || '').toUpperCase();
     if (!Object.values(TASK_PRIORITY).includes(priority)) {
-      throw new Error('Invalid priority value.');
+      throw clientError_('Invalid priority value.');
     }
   }
   if (field === 'assignee') {
     // Only editors can reassign
     if (!isEditor(user.email)) {
-      throw new Error('Only editors can reassign tasks.');
+      throw clientError_('Only editors can reassign tasks.');
     }
   }
 
@@ -441,11 +441,11 @@ function updateTaskField(id, field, value, rowVersion, idempotencyKey, token) {
     // stored result. Conflict responses are NOT cached (they are transient).
     const res = withIdempotency_('task:' + idempotencyKey, 300, function () {
       const sh = tasksSheet_();
-      if (!sh) throw new Error('Tasks sheet unavailable.');
+      if (!sh) throw clientError_('Tasks sheet unavailable.');
 
       // Find task by stable ID (never by row number)
       const found = findTaskById_(id);
-      if (!found) throw new Error('Task not found.');
+      if (!found) throw clientError_('Task not found.');
 
       const rowIdx = found.rowIdx;
       const existing = found.task;
@@ -466,13 +466,13 @@ function updateTaskField(id, field, value, rowVersion, idempotencyKey, token) {
       // Permission: editors may update any task; other users only the tasks
       // assigned to them (matches updateTask semantics).
       const isAssignee = existing.assignee === user.email;
-      if (!isEditor(user.email) && !isAssignee) throw new Error('Permission denied.');
+      if (!isEditor(user.email) && !isAssignee) throw clientError_('Permission denied.');
 
       // Validate status transition
       if (field === 'status') {
         const newStatus = String(value || '').toUpperCase();
         if (!isValidTaskStatusTransition_(existing.status, newStatus)) {
-          throw new Error('Invalid status transition from ' + existing.status + ' to ' + newStatus);
+          throw clientError_('Invalid status transition from ' + existing.status + ' to ' + newStatus);
         }
       }
 

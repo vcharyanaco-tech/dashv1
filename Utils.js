@@ -8,6 +8,64 @@
 
 
 /* ============================================================
+ * AppUtils — single global namespace for shared utility functions
+ * ============================================================
+ *
+ * Google Apps Script flattens every .js/.gs file into ONE global scope, so
+ * bare function names risk collisions (two files defining `getData_` would
+ * silently clobber each other). This object is the migration target for
+ * utility helpers. Public API functions (login, getAppData, updateItem …)
+ * MUST stay top-level: doPost resolves them BY NAME through API_ROUTES and
+ * google.script.run calls them by name — a namespaced API function would no
+ * longer be reachable. Private helpers (suffixed `_`) are free to live here.
+ *
+ * Migration guide (incremental):
+ *   1. Add the helper as a member of AppUtils below.
+ *   2. Keep a thin top-level alias `function x_(){ return AppUtils.x(); }`
+ *      ONLY while existing callers still reference the bare name.
+ *   3. Update callers to `AppUtils.x()` in small batches, then delete the
+ *      alias. Do not migrate all 47 helpers in one change.
+ */
+const AppUtils = {
+  /** Creates a client-safe Error (see clientError_ below). */
+  clientError: function (message) {
+    const err = new Error(String(message));
+    err.clientSafe = true;
+    return err;
+  },
+
+  /** Hash-safe cache key (avoids hitting CacheService key-length limits). */
+  safeCacheKey: function (value) { return safeCacheKey_(value); },
+
+  /** Validates an email address. */
+  isValidEmail: function (email) { return isValidEmail_(email); },
+
+  /** Days until a date, or null when unparseable. */
+  daysUntilDate: function (value) { return daysUntilDate_(value); },
+
+  /** Whitelist HTML sanitizer for rich-text fields. */
+  sanitizeHtml: function (html) { return sanitizeHtml_(html); },
+};
+
+
+/* ============================================================
+ * Client-safe error marker
+ * ============================================================ */
+
+/**
+ * Creates an Error that is safe to send back to the client. doPost passes
+ * errors marked `clientSafe` through as-is (validation / auth / rate-limit
+ * messages) and sanitizes everything else, so internal details (sheet names,
+ * variable state, stack traces) never reach anonymous web-app callers.
+ * @param {string} message User-facing message.
+ * @returns {Error} An Error with `clientSafe === true`.
+ */
+function clientError_(message) {
+  return AppUtils.clientError(message);
+}
+
+
+/* ============================================================
  * Spreadsheet Helpers
  * ============================================================ */
 

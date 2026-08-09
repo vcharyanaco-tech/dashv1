@@ -805,7 +805,16 @@ function doPost(e) {
     const result = fnRef.apply(null, args);
     return JsonResponse_({ result: result });
   } catch (err) {
-    return JsonResponse_({ error: err.message || String(err) });
+    // Security: never leak internal error details (sheet names, variable
+    // state, stack traces) to anonymous web-app callers. Intentional,
+    // client-safe validation/auth errors (marked with clientError_) keep
+    // their message so the UI can show meaningful feedback; everything else
+    // is logged in full server-side and replaced with a generic message.
+    if (err && err.clientSafe === true) {
+      return JsonResponse_({ success: false, error: err.message || 'Request failed.' });
+    }
+    console.error('[doPost] ' + String(body && body.function) + ' failed: ' + (err && err.stack ? err.stack : String(err)));
+    return JsonResponse_({ success: false, error: 'An internal server error occurred.' });
   }
 }
 

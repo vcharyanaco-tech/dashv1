@@ -50,7 +50,11 @@ const CONFIG = Object.freeze({
     SUBMISSION_MAX: 30,        SUBMISSION_WINDOW: 60,
     ADMIN_USER_MAX: 20,        ADMIN_USER_WINDOW: 60,
     DOCUMENT_MAX: 30,          DOCUMENT_WINDOW: 60,
-    AI_MAX: 30,                AI_WINDOW: 60
+    AI_MAX: 30,                AI_WINDOW: 60,
+    // Brute-force guard on the login endpoint itself (sliding window, per
+    // identifier). GAS web apps do not expose the client IP, so the key is
+    // the lower-cased email/username — see checkRateLimit_ in Auth.js.
+    LOGIN_MAX: 5,              LOGIN_WINDOW: 60
   },
   SUBMISSIONS: {
     SHEET_NAME: 'Submissions',
@@ -104,6 +108,7 @@ const ACTIONS = Object.freeze({
   ERROR: 'ERROR',
   AUDIT_DELETE: 'AUDIT_DELETE',
   AUDIT_CLEAR: 'AUDIT_CLEAR',
+  AUDIT_ARCHIVE: 'AUDIT_ARCHIVE',
   LOGIN: 'LOGIN',
   PASSWORD_RESET_REQUESTED: 'PASSWORD_RESET_REQUESTED',
   PASSWORD_RESET: 'PASSWORD_RESET',

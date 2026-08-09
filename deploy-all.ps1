@@ -45,9 +45,35 @@ Write-Host "===================================================" -ForegroundColo
 Write-Host ""
 
 # ============================================================
+# 0. FRONTEND SYNC  (single source of truth -> both clients)
+#    Runs BEFORE git so any reconciliation is committed with the change.
+# ============================================================
+Write-Host "[0/5] Syncing frontend clients (src/frontend-logic.js)..." -ForegroundColor Yellow
+
+$syncOk = $false
+try {
+    $syncOut = node sync-frontend.js 2>&1
+    if ($LASTEXITCODE -eq 0) {
+        $syncOk = $true
+        $syncOut | ForEach-Object { Write-Host "  $_" -ForegroundColor Gray }
+        Write-Host "  OK  Frontend clients in sync" -ForegroundColor Green
+    } else {
+        Write-Host "  FAIL  node sync-frontend.js exited $LASTEXITCODE" -ForegroundColor Red
+        $syncOut | ForEach-Object { Write-Host "  $_" -ForegroundColor DarkGray }
+    }
+} catch {
+    Write-Host "  WARN  sync-frontend.js failed: $($_.Exception.Message)" -ForegroundColor Red
+}
+if (-not $syncOk) {
+    throw "Frontend sync failed - aborting deploy. Fix the drift or markers, then re-run."
+}
+
+Write-Host ""
+
+# ============================================================
 # 1. GIT COMMIT + PUSH  (triggers GitHub Pages for docs/)
 # ============================================================
-Write-Host "[1/4] Git commit + push..." -ForegroundColor Yellow
+Write-Host "[1/5] Git commit + push..." -ForegroundColor Yellow
 
 $code = Invoke-Git @("add", "-A")
 if ($code -ne 0) { throw "git add failed (exit $code)" }
@@ -78,7 +104,7 @@ Write-Host ""
 # ============================================================
 # 2. GOOGLE APPS SCRIPT  (clasp push)
 # ============================================================
-Write-Host "[2/4] Pushing to Google Apps Script (clasp)..." -ForegroundColor Yellow
+Write-Host "[2/5] Pushing to Google Apps Script (clasp)..." -ForegroundColor Yellow
 
 $claspOk = $false
 try {
@@ -105,7 +131,7 @@ try {
 # ============================================================
 $gasDeployOk = $false
 if ($claspOk) {
-    Write-Host "[3/4] Redeploying live Apps Script deployment..." -ForegroundColor Yellow
+    Write-Host "[3/5] Redeploying live Apps Script deployment..." -ForegroundColor Yellow
     $appJsPath = Join-Path $PSScriptRoot "docs\app.js"
     $gasDeployId = $null
     if (Test-Path $appJsPath) {
@@ -136,7 +162,7 @@ if ($claspOk) {
 # ============================================================
 # 4. CLOUDFLARE WORKER  (REST API via deploy-worker-api.js)
 # ============================================================
-Write-Host "[4/4] Deploying Cloudflare Worker..." -ForegroundColor Yellow
+Write-Host "[4/5] Deploying Cloudflare Worker..." -ForegroundColor Yellow
 
 # Check for token in User or Machine env vars
 $cfToken = [System.Environment]::GetEnvironmentVariable("CLOUDFLARE_API_TOKEN", "User")

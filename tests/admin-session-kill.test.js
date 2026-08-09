@@ -100,6 +100,7 @@ test('server: adminKillUserSessions rejects unknown users', () => {
     CONFIG: { RATE_LIMIT: { ADMIN_USER_MAX: 20, ADMIN_USER_WINDOW: 60 } },
     runWithLock_(cb) { return cb(); },
     findUserRecord_() { return null; },
+    clientError_(m) { const e = new Error(m); e.clientSafe = true; return e; },
   });
   assert.throws(() => fn('ghost@x.com', 'tok'), /User not found/);
 });

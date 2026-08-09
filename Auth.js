@@ -629,7 +629,7 @@ function checkRateLimit_(key, maxAttempts, windowSeconds) {
   const k = 'rl_' + key;
   const count = Number(cache.get(k) || 0);
   if (count >= maxAttempts) {
-    throw new Error('Too many requests. Please try again later.');
+    throw clientError_('Too many requests. Please try again later.');
   }
   cache.put(k, String(count + 1), windowSeconds || 60);
 }
@@ -802,7 +802,7 @@ function getUserContext(email) {
 
 function authenticate_(token) {
   const email = sessionEmail_(token);
-  if (!email) throw new Error('Login required. Please log in again.');
+  if (!email) throw clientError_('Login required. Please log in again.');
   return { email: email, role: getUserRole(email) };
 }
 
@@ -812,17 +812,17 @@ function requireLogin_(token) {
 
 function requireEditor_(token) {
   const user = requireLogin_(token);
-  if (!isEditor(user.email)) throw new Error('Editor permission required.');
+  if (!isEditor(user.email)) throw clientError_('Editor permission required.');
   return user;
 }
 
 function requireAdmin_(token) {
   const user = requireLogin_(token);
-  if (!isAdmin(user.email)) throw new Error('Admin permission required.');
+  if (!isAdmin(user.email)) throw clientError_('Admin permission required.');
   return user;
 }
 function requireEditor() {
-  if (!isEditor()) throw new Error('Editor permission required.');
+  if (!isEditor()) throw clientError_('Editor permission required.');
 }
 
 function requireViewer() {
@@ -850,6 +850,16 @@ function login(identifier, password) {
   }
   if (!password) {
     return { success: false, message: 'Enter your password.' };
+  }
+  // Sliding-window brute-force guard (Point 7). GAS web apps cannot see the
+  // client IP, so the key is the lower-cased identifier — an attacker needs a
+  // fresh email/username per 5 attempts within a minute. This runs BEFORE the
+  // per-email lockout below, and a hit here returns a clean object (not a
+  // thrown error) so doPost's generic-error sanitisation never masks it.
+  try {
+    checkRateLimit_('login_' + safeCacheKey_(identifier), CONFIG.RATE_LIMIT.LOGIN_MAX, CONFIG.RATE_LIMIT.LOGIN_WINDOW);
+  } catch (err) {
+    return { success: false, message: 'Too many login attempts. Please try again in a minute.' };
   }
   if (isAttemptBlocked_(identifier)) {
     return {
@@ -1068,15 +1078,15 @@ function adminAddUser(email, username, role, password, group, department, office
     username = String(username || '').trim();
     role = String(role || '').toUpperCase().trim();
 
-    if (!isValidEmailList_(email)) throw new Error('Invalid email address(es).');
-    if (username && !isValidUsername_(username)) throw new Error('Username must be 3-30 characters (letters, digits, dot, underscore, hyphen).');
-    if ([ROLES.VIEWER, ROLES.EDITOR, ROLES.ADMIN].indexOf(role) === -1) throw new Error('Role must be VIEWER, EDITOR or ADMIN.');
+    if (!isValidEmailList_(email)) throw clientError_('Invalid email address(es).');
+    if (username && !isValidUsername_(username)) throw clientError_('Username must be 3-30 characters (letters, digits, dot, underscore, hyphen).');
+    if ([ROLES.VIEWER, ROLES.EDITOR, ROLES.ADMIN].indexOf(role) === -1) throw clientError_('Role must be VIEWER, EDITOR or ADMIN.');
 
-    if (findUserRecord_(email)) throw new Error('A user with that email already exists.');
-    if (username && findUserByUsername_(username)) throw new Error('Username already taken.');
+    if (findUserRecord_(email)) throw clientError_('A user with that email already exists.');
+    if (username && findUserByUsername_(username)) throw clientError_('Username already taken.');
 
     const pwError = validatePassword_(password);
-    if (pwError) throw new Error(pwError);
+    if (pwError) throw clientError_(pwError);
 
     const salt = generateSalt_();
     addUserRecord_(email, role, salt, hashPasswordV2_(password, salt, CONFIG.USERS.PBKDF2_ITERATIONS), admin.email, group, department, office, username);
@@ -1118,7 +1128,7 @@ function adminUpdateUser(email, fields, token) {
 
   return runWithLock_(function () {
     email = String(email || '').toLowerCase().trim();
-    if (!findUserRecord_(email)) throw new Error('User not found.');
+    if (!findUserRecord_(email)) throw clientError_('User not found.');
 
     const f = fields || {};
     const changes = [];
@@ -1131,13 +1141,13 @@ function adminUpdateUser(email, fields, token) {
       const oldPrimary = primaryEmail_(oldRaw);
       const changed = (emailList_(newEmail).join(',') !== emailList_(oldRaw).join(','));
       if (changed) {
-        if (!isValidEmailList_(newEmail)) throw new Error('Invalid email address(es).');
+        if (!isValidEmailList_(newEmail)) throw clientError_('Invalid email address(es).');
         if (isBootstrapAdmin_(oldPrimary) && primaryEmail_(newEmail) !== oldPrimary) {
-          throw new Error('The primary admin account email cannot be changed.');
+          throw clientError_('The primary admin account email cannot be changed.');
         }
         const collides = findUserRecord_(newEmail);
         if (collides && (!currentRec || collides.row !== currentRec.row)) {
-          throw new Error('A user with that email already exists.');
+          throw clientError_('A user with that email already exists.');
         }
 
         renameUserEmail_(oldRaw, newEmail);
@@ -1154,12 +1164,12 @@ function adminUpdateUser(email, fields, token) {
 
     if (f.role !== undefined) {
       const role = String(f.role || '').toUpperCase().trim();
-      if ([ROLES.VIEWER, ROLES.EDITOR, ROLES.ADMIN].indexOf(role) === -1) throw new Error('Role must be VIEWER, EDITOR or ADMIN.');
-      if (isBootstrapAdmin_(email)) throw new Error('The primary admin account role cannot be changed.');
-      if (primaryEmail_(email) === admin.email && role !== ROLES.ADMIN) throw new Error('You cannot change your own role.');
+      if ([ROLES.VIEWER, ROLES.EDITOR, ROLES.ADMIN].indexOf(role) === -1) throw clientError_('Role must be VIEWER, EDITOR or ADMIN.');
+      if (isBootstrapAdmin_(email)) throw clientError_('The primary admin account role cannot be changed.');
+      if (primaryEmail_(email) === admin.email && role !== ROLES.ADMIN) throw clientError_('You cannot change your own role.');
       if (role !== ROLES.ADMIN && getUserRole(email) === ROLES.ADMIN) {
         const adminCount = listUserRecords_().filter(function (u) { return u.role === ROLES.ADMIN; }).length;
-        if (adminCount <= 1) throw new Error('Cannot demote the last admin.');
+        if (adminCount <= 1) throw clientError_('Cannot demote the last admin.');
       }
       if (getUserRole(email) !== role) {
         setUserField_(email, 'role', role);
@@ -1171,9 +1181,9 @@ function adminUpdateUser(email, fields, token) {
 
     if (f.username !== undefined) {
       const uname = String(f.username || '').trim();
-      if (uname && !isValidUsername_(uname)) throw new Error('Username must be 3-30 characters (letters, digits, dot, underscore, hyphen).');
+      if (uname && !isValidUsername_(uname)) throw clientError_('Username must be 3-30 characters (letters, digits, dot, underscore, hyphen).');
       const holder = uname ? findUserByUsername_(uname) : null;
-      if (holder && primaryEmail_(holder.email) !== primaryEmail_(email)) throw new Error('Username already taken.');
+      if (holder && primaryEmail_(holder.email) !== primaryEmail_(email)) throw clientError_('Username already taken.');
       setUserField_(email, 'username', uname);
       changes.push('username updated');
     }
@@ -1261,7 +1271,7 @@ function adminImportUsers(csv, token) {
   checkRateLimit_('adminuser_' + safeCacheKey_(admin.email), CONFIG.RATE_LIMIT.ADMIN_USER_MAX, CONFIG.RATE_LIMIT.ADMIN_USER_WINDOW);
 
   const result = { users: listUserRecords_(), added: 0, updated: 0, errors: [] };
-  if (!csv || !String(csv).trim()) throw new Error('Paste CSV content to import.');
+  if (!csv || !String(csv).trim()) throw clientError_('Paste CSV content to import.');
 
   return runWithLock_(function () {
     const lines = String(csv)
@@ -1269,7 +1279,7 @@ function adminImportUsers(csv, token) {
       .split('\n')
       .filter(function (l) { return String(l).trim() !== ''; });
 
-    if (!lines.length) throw new Error('No rows to import.');
+    if (!lines.length) throw clientError_('No rows to import.');
 
     const rows = lines.map(parseCsvLine_);
 
@@ -1436,9 +1446,9 @@ function adminDeleteUser(email, token) {
   return runWithLock_(function () {
     email = String(email || '').toLowerCase().trim();
 
-    if (primaryEmail_(email) === admin.email) throw new Error('You cannot delete your own account.');
-    if (isBootstrapAdmin_(email)) throw new Error('The primary admin account cannot be deleted.');
-    if (!deleteUserRecord_(email)) throw new Error('User not found.');
+    if (primaryEmail_(email) === admin.email) throw clientError_('You cannot delete your own account.');
+    if (isBootstrapAdmin_(email)) throw clientError_('The primary admin account cannot be deleted.');
+    if (!deleteUserRecord_(email)) throw clientError_('User not found.');
 
     try { logAudit_(ACTIONS.USER_DELETE, '', email, admin.email); } catch (err) {}
     return listUserRecords_();
@@ -1458,10 +1468,10 @@ function adminResetPassword(email, newPassword, token) {
   return runWithLock_(function () {
     email = String(email || '').toLowerCase().trim();
 
-    if (!findUserRecord_(email)) throw new Error('User not found.');
+    if (!findUserRecord_(email)) throw clientError_('User not found.');
 
     const pwError = validatePassword_(newPassword);
-    if (pwError) throw new Error(pwError);
+    if (pwError) throw clientError_(pwError);
 
     const salt = generateSalt_();
     setUserField_(email, 'salt', salt);
@@ -1502,7 +1512,7 @@ function adminKillUserSessions(email, token) {
   checkRateLimit_('killses_' + safeCacheKey_(email), CONFIG.RATE_LIMIT.ADMIN_USER_MAX, CONFIG.RATE_LIMIT.ADMIN_USER_WINDOW);
 
   return runWithLock_(function () {
-    if (!findUserRecord_(email)) throw new Error('User not found.');
+    if (!findUserRecord_(email)) throw clientError_('User not found.');
 
     bumpSessionEpoch_(email); // invalidate every session minted before now
 
@@ -1525,8 +1535,8 @@ function adminEmailAllUsers(subject, body, token) {
   subject = String(subject || '').trim();
   body = String(body || '').trim();
 
-  if (!subject) throw new Error('A subject is required.');
-  if (!body) throw new Error('A message body is required.');
+  if (!subject) throw clientError_('A subject is required.');
+  if (!body) throw clientError_('A message body is required.');
 
   const users = listUserRecords_();
   const recipients = [];

@@ -69,6 +69,7 @@ function apiCall_(fn) {
   });
 }
 
+/* ===== SYNCED-FRONTEND:BEGIN ===== */
 const ApiService = {
   getServerTime: function () { return apiCall_('getServerTime'); },
   getAppData: function () { return apiCall_('getAppData', getAuthToken()); },
@@ -77,6 +78,7 @@ const ApiService = {
   updateItem: function (item) { return apiCall_('updateItem', item, getAuthToken()); },
   deleteItem: function (row) { return apiCall_('deleteItem', row, getAuthToken()); },
   markReviewDone: function (row) { return apiCall_('markReviewDone', row, getAuthToken()); },
+  markReviewNotDone: function (row) { return apiCall_('markReviewNotDone', row, getAuthToken()); },
   login: function (email, password) { return apiCall_('login', email, password); },
   logout: function () { return apiCall_('logout', getAuthToken()); },
   validateSession: function () { return apiCall_('validateSession', getAuthToken()); },
@@ -92,10 +94,12 @@ const ApiService = {
   adminResetPassword: function (email, newPassword) { return apiCall_('adminResetPassword', email, newPassword, getAuthToken()); },
   adminEmailAllUsers: function (subject, body) { return apiCall_('adminEmailAllUsers', subject, body, getAuthToken()); },
   getMyNotifications: function () { return apiCall_('getMyNotifications', getAuthToken()); },
+  generateReviewNotifications: function () { return apiCall_('generateReviewNotifications', getAuthToken()); },
   markNotificationsRead: function (ids) { return apiCall_('markNotificationsRead', ids, getAuthToken()); },
   clearMyNotifications: function () { return apiCall_('clearMyNotifications', getAuthToken()); },
   createTask: function (params) { return apiCall_('createTask', params, getAuthToken()); },
   getTasks: function (filters) { return apiCall_('getTasks', filters || {}, getAuthToken()); },
+  getAssignableUsers: function () { return apiCall_('getAssignableUsers', getAuthToken()); },
   getMyTasks: function () { return apiCall_('getMyTasks', getAuthToken()); },
   updateTask: function (id, fields) { return apiCall_('updateTask', id, fields, getAuthToken()); },
   updateTaskField: function (id, field, value, rowVersion, idempotencyKey) { return apiCall_('updateTaskField', id, field, value, rowVersion, idempotencyKey, getAuthToken()); },
@@ -1828,6 +1832,7 @@ function loadApp() {
 
     populateFilters();
     populateResponsibilitySelect();
+/* ===== SYNCED-FRONTEND:END ===== */
     renderReviewReminders();
     renderProfile();
     applyTheme();

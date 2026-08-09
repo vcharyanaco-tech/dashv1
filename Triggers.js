@@ -31,6 +31,15 @@ function installTriggers() {
     .atHour(9)
     .create();
 
+  // Daily audit-log archival (runs after the review reminders so it has a
+  // quiet window; moves entries older than 90 days to the Audit Archive sheet
+  // in bounded batches — see archiveAuditLog in Audit.js).
+  ScriptApp.newTrigger("archiveAuditLog")
+    .timeBased()
+    .everyDays(1)
+    .atHour(10)
+    .create();
+
 }
 
 
@@ -46,7 +55,7 @@ function removeTriggers() {
 
   ScriptApp.getProjectTriggers().forEach(function (trigger) {
     const handler = trigger.getHandlerFunction();
-    if (handler === "dailyDateUpdate" || handler === "sendReviewReminders") {
+    if (handler === "dailyDateUpdate" || handler === "sendReviewReminders" || handler === "archiveAuditLog") {
       ScriptApp.deleteTrigger(trigger);
     }
   });

@@ -68,6 +68,7 @@ function apiCall_(fn) {
   });
 }
 
+/* ===== SYNCED-FRONTEND:BEGIN ===== */
 const ApiService = {
   getServerTime: function () { return apiCall_('getServerTime'); },
   getAppData: function () { return apiCall_('getAppData', getAuthToken()); },
@@ -1830,6 +1831,7 @@ function loadApp() {
 
     populateFilters();
     populateResponsibilitySelect();
+/* ===== SYNCED-FRONTEND:END ===== */
   renderProfile();
     applyTheme();
     applySidebarPref();

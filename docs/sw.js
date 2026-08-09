@@ -1,4 +1,4 @@
-const SW_VERSION = '2026.08.09g';
+const SW_VERSION = '2026.08.09h';
 const CACHE_NAME = 'ipd-dashboard-' + SW_VERSION;
 const PRECACHE_URLS = [
   '/app.html',

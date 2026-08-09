@@ -301,6 +301,58 @@
   routing, and a behavioral handler test that executes the real handler from
   both clients).
 
+### Phase 10 — Security hardening, drift sync & ops hygiene
+- **Worker clickjacking + CORS (Task 1.1)** — `worker.js` `X-Frame-Options`
+  changed `ALLOWALL` → `SAMEORIGIN`; the blanket `Access-Control-Allow-Origin:
+  *` was replaced by a request-aware `headersFor()` that echoes the Origin only
+  when it matches the trusted domains (dashboardharyana.site + www +
+  vcharyanaco-tech.github.io) and adds `Vary: Origin`. Every response path
+  (OPTIONS preflight, GAS proxy, GitHub Pages fetch, enterprise PWA assets)
+  now threads the request through; proxied responses also strip any upstream
+  ACAO/Vary from the raw GitHub CDN so a foreign page can never read data.
+- **Sanitized error responses (Task 1.2)** — `doPost` catch no longer returns
+  raw `err.message` (which could leak sheet names/state). New `clientError_`
+  marker: 79 intentional validation/auth throws across Auth, Tasks,
+  Submissions, Audit, Documents, Reports, Migration, DashboardStudio are
+  passed through; everything else logs server-side and returns a generic
+  "An internal server error occurred." (client `data.error` flow unchanged).
+- **Login brute-force guard (Task 1.3)** — sliding-window rate limit on the
+  `login` endpoint itself (5 attempts / 60 s per lower-cased identifier,
+  `CONFIG.RATE_LIMIT.LOGIN_*`) layered before the existing per-email lockout;
+  returns a clean error object so sanitization never masks it. Reset-password
+  limits were already in place.
+- **Audit log archiving (Task 3.1)** — new `archiveAuditLog` moves entries
+  older than 90 days to an auto-created "Audit Archive" sheet in batches of
+  400 (contiguous runs deleted via `deleteRows`, appended with one `setValues`,
+  runs inside the sheet lock, logs an `AUDIT_ARCHIVE` audit action); registered
+  as a daily 10:00 time-driven trigger in `installTriggers` (and removed by
+  `removeTriggers`).
+- **Cache invalidation (Task 3.2)** — verified: every write path already calls
+  `patchCachedDataRow_`/`bumpDataGeneration_`; TTL stays 60 s per user.
+- **AppUtils namespace (Task 4.1)** — new `AppUtils` object in `Utils.js`
+  (clientError, safeCacheKey, isValidEmail, daysUntilDate, sanitizeHtml) as the
+  collision-safe migration target; thin top-level aliases keep existing callers
+  working. GAS quirk documented: public API functions must stay top-level
+  because `doPost`/`google.script.run` resolve them BY NAME.
+- **Frontend drift sync (Task 2)** — new `sync-frontend.js` build step:
+  `src/frontend-logic.js` is the single source of truth for the 1 762-line
+  shared core; both clients wrap it with `SYNCED-FRONTEND:BEGIN/END` markers
+  and platform-specific islands (GAS reminder banner, PWA OfflineQueue /
+  EnterpriseAddons) stay outside. `sync-frontend.js --check` exits 1 on drift;
+  wired as step 0 of `deploy-all.ps1` so every deploy reconciles before
+  commit/clasp. `src/` + `sync-frontend.js` added to `.claspignore`. Also
+  fixed a real GAS-client drift: `markReviewNotDone`,
+  `generateReviewNotifications`, `getAssignableUsers` ApiService wrappers were
+  missing from `script.html` (server routes existed).
+- **CRUD contract tests (Task 4.2)** — new `tests/crud-api-contract.test.js`
+  (6 tests) validates the client→`apiCall_`→`API_ROUTES`→server-signature
+  chain for `addItem`/`updateItem`/`deleteItem` against BOTH clients and the
+  same server file, plus client-to-client wrapper parity.
+- Validation: 35/35 tests pass, `node --check` on all server/client files,
+  worker ESM syntax check, inline `script.html` extraction check, sync
+  round-trip (drift → sync → restore) verified; PWA cache-bust bumped to
+  `2026.08.09h`.
+
 ---
 
 ## 1.0.0 (early release) — 2026-08-02
