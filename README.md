@@ -33,8 +33,7 @@ management, user submissions, an audit trail, analytics, and report exports.
 - **India Post branding** — official Dak Sewa Jan Sewa logo in the sidebar, splash
   screen, About dialog, and favicon; India Post red/blue palette; dark mode.
 - **Review workflow** — "Review due" / "Review done" badges derived from the
-  review-date cell background colour in the sheet; formal approval workflow with
-  submit-for-review and approver actions.
+  review-date cell background colour in the sheet.
 - **Submissions** — per-record update threads with a 24-hour "new" flash badge,
   a lock system (admin locks block editor edits), and an admin "display" toggle
   that shows selected submissions directly on the cards.
@@ -80,7 +79,6 @@ Backend (Google Apps Script):
 | `Settings.js`       | Central `CONFIG` constants, column map, property keys      |
 | `Triggers.js`       | Daily `dailyDateUpdate` time trigger (`setupProject`)      |
 | `Notifications.js`  | `Notifications` sheet store, per-user notification CRUD, event hooks |
-| `Workflow.js`       | `Approvals` sheet store, approval workflow engine          |
 | `Tasks.js`          | `Tasks` sheet store, task CRUD, status/priority tracking   |
 | `Analytics.js`      | Analytics builder: trends, sector/office breakdowns        |
 | `DashboardStudio.js`| User dashboard preferences (view mode, column visibility)  |

@@ -17,7 +17,6 @@
     adminAddUser: true, adminUpdateUser: true, adminDeleteUser: true,
     adminResetPassword: true, adminImportUsers: true, adminEmailAllUsers: true,
     markNotificationsRead: true, clearMyNotifications: true,
-    submitRecordReview: true, reviewApproval: true,
     createTask: true, updateTask: true, deleteTask: true,
     saveDashboardPreferences: true,
     addSubmission: true, updateSubmission: true, deleteSubmission: true,

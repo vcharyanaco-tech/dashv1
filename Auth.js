@@ -329,8 +329,8 @@ function deleteUserRecord_(email) {
 
 /* Renames a user's login email in the Users sheet and everywhere the login
    email is referenced functionally: Submissions (submitter + editor lock),
-   Tasks (assignee + creator), Notifications (recipient), Approvals workflow
-   (submitter + reviewer) and Users.createdBy. Historical Audit Log rows are
+   Tasks (assignee + creator), Notifications (recipient) and Users.createdBy.
+   Historical Audit Log rows are
    intentionally left unchanged so the audit trail is not rewritten.
    oldEmail may be a single email or a comma-separated list; every alias is
    replaced. newEmail is the full comma-separated list stored in the Users
@@ -373,8 +373,6 @@ function renameUserEmail_(oldEmail, newEmail) {
   replaceColumn(CONFIG.TASKS.SHEET_NAME, TASK_COL.ASSIGNEE);
   replaceColumn(CONFIG.TASKS.SHEET_NAME, TASK_COL.CREATED_BY);
   replaceColumn(CONFIG.NOTIFICATIONS.SHEET_NAME, NOTIFICATION_COL.EMAIL);
-  replaceColumn(CONFIG.WORKFLOW.APPROVALS_SHEET_NAME, WORKFLOW_COL.SUBMITTED_BY);
-  replaceColumn(CONFIG.WORKFLOW.APPROVALS_SHEET_NAME, WORKFLOW_COL.REVIEWED_BY);
 
   const sh = usersSheet_();
   if (!sh) return;
@@ -937,7 +935,7 @@ function adminAddUser(email, username, role, password, group, department, office
 /**
  * Updates a user's email / username / role / group / department / office.
  * Email changes propagate to every sheet that references the login email
- * (Submissions, Tasks, Notifications, Approvals, Users.createdBy); the Audit
+ * (Submissions, Tasks, Notifications, Users.createdBy); the Audit
  * Log keeps the original email for history. Role changes are protected: the
  * bootstrap admin is immutable and the last admin cannot be demoted.
  * @param {string} email Email of the target user (current email unless f.email is set).
