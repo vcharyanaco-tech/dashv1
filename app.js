@@ -2063,7 +2063,9 @@ function renderDashboardCards() {
 }
 
 function ensureDashSentinel_(grid, pageItems) {
+  const rendered = dashScroll.rendered;
   teardownDashScroller_();
+  dashScroll.rendered = rendered;
   if (dashScroll.rendered >= pageItems.length) return; // all rendered
 
   dashScroll.sentinel = document.createElement('div');
