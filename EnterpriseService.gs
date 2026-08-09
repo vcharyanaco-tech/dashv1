@@ -54,7 +54,7 @@ function exportReviewCalendarIcs(token) {
   items.forEach(function (item) {
     if (item.reviewStatus === 'done') return;
     if (!item.reviewDate) return;
-    var d = parseDisplayDate_(item.reviewDate);
+    var d = AppUtils.parseDisplayDate(item.reviewDate);
     if (!d) return;
     events.push({
       uid: 'review-' + item.row + '-' + icsFormatDateOnly_(d),

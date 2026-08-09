@@ -131,7 +131,7 @@ function migrateNotifications_(dryRun) {
   vals.forEach(function (r) {
     if (String(r[0] || '').trim() === '') {
       let nid;
-      do { nid = newEntityId_('NOTIF'); } while (seen[nid]);
+      do { nid = AppUtils.newEntityId('NOTIF'); } while (seen[nid]);
       seen[nid] = true;
       ids.push([nid]);
       need++;
@@ -165,7 +165,7 @@ function migrateDocuments_(dryRun) {
   vals.forEach(function (r) {
     if (String(r[0] || '').trim() === '') {
       let nid;
-      do { nid = newEntityId_('DOC'); } while (seen[nid]);
+      do { nid = AppUtils.newEntityId('DOC'); } while (seen[nid]);
       seen[nid] = true;
       ids.push([nid]);
       need++;
@@ -199,7 +199,7 @@ function migrateUsers_(dryRun) {
   vals.forEach(function (r) {
     if (String(r[0] || '').trim() === '') {
       let nid;
-      do { nid = newEntityId_('USER'); } while (seen[nid]);
+      do { nid = AppUtils.newEntityId('USER'); } while (seen[nid]);
       seen[nid] = true;
       ids.push([nid]);
       need++;

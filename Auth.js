@@ -406,7 +406,7 @@ function addUserRecord_(email, role, salt, passwordHash, createdBy, group, depar
     '',
     null,
     username || '',
-    newEntityId_('USER')
+    AppUtils.newEntityId('USER')
   ]]);
 }
 

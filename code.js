@@ -69,7 +69,7 @@ function include(filename) {
 
 function stampTitle_() {
 
-  const today = today_();
+  const today = AppUtils.today();
 
   let heading = APP.NAME;
 

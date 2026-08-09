@@ -25,6 +25,13 @@
  *      ONLY while existing callers still reference the bare name.
  *   3. Update callers to `AppUtils.x()` in small batches, then delete the
  *      alias. Do not migrate all 47 helpers in one change.
+ *
+ * GAS quirk: files are concatenated alphabetically into ONE scope, so
+ * `const AppUtils` (in Utils.js, which sorts late) is NOT available during
+ * early load. Only reference AppUtils INSIDE function bodies from files that
+ * load before Utils.js (Auth.js, code.js, DashboardService.js, Migration.js,
+ * …) — a top-level `AppUtils.x()` there would hit the temporal dead zone and
+ * fail at script load.
  */
 const AppUtils = {
   /** Creates a client-safe Error (see clientError_ below). */
@@ -45,6 +52,40 @@ const AppUtils = {
 
   /** Whitelist HTML sanitizer for rich-text fields. */
   sanitizeHtml: function (html) { return sanitizeHtml_(html); },
+
+  /** Formats a value using the sheet's display date format ("dd.MM.yyyy"). */
+  formatDate: function (value) {
+    if (value === null || value === undefined || value === "") return "";
+    if (Object.prototype.toString.call(value) === "[object Date]") {
+      if (isNaN(value.getTime())) return "";
+      return Utilities.formatDate(value, Session.getScriptTimeZone(), DATE_FORMAT.DISPLAY);
+    }
+    return String(value).trim();
+  },
+
+  /** Today's date string in the display format (script timezone). */
+  today: function () {
+    return Utilities.formatDate(new Date(), Session.getScriptTimeZone(), DATE_FORMAT.DISPLAY);
+  },
+
+  /** Parses a display date ("dd.MM.yyyy") or Date into a Date (null if unparseable). */
+  parseDisplayDate: function (value) {
+    if (value === null || value === undefined || value === "") return null;
+    if (Object.prototype.toString.call(value) === "[object Date]") {
+      return isNaN(value.getTime()) ? null : value;
+    }
+    const m = String(value).trim().match(/^(\d{1,2})\.(\d{1,2})\.(\d{4})$/);
+    if (!m) return null;
+    return new Date(Number(m[3]), Number(m[2]) - 1, Number(m[1]));
+  },
+
+  /** Generates a stable entity ID: PREFIX-YYYYMMDD-SHORTUUID. */
+  newEntityId: function (prefix) {
+    const p = String(prefix || '').toUpperCase().trim();
+    const day = Utilities.formatDate(new Date(), Session.getScriptTimeZone(), 'yyyyMMdd');
+    const suffix = Utilities.getUuid().replace(/-/g, '').slice(0, 8).toUpperCase();
+    return (p ? p + '-' : '') + day + '-' + suffix;
+  },
 };
 
 
@@ -840,7 +881,7 @@ const __DATA_CACHE_CHUNK_SIZE__ = 90000;
 const __DATA_CACHE_MAX_CHUNKS__ = 20;
 
 function __dataCacheBaseKey_() {
-  return __DATA_CACHE_PREFIX__ + dataGeneration_() + ":" + today_();
+  return __DATA_CACHE_PREFIX__ + dataGeneration_() + ":" + AppUtils.today();
 }
 
 function __dataCacheChunkKey_(base, index) {
@@ -1057,51 +1098,17 @@ function patchCachedDataRow_(row) {
 
 /* ============================================================
  * Date Helpers
+ *
+ * formatDate / today / parseDisplayDate now live in AppUtils (see top of
+ * file). daysUntilDate_ below is the full implementation and is DELEGATED TO
+ * by AppUtils.daysUntilDate; it stays top-level so existing bare-name callers
+ * keep working during the incremental migration.
  * ============================================================ */
-
-function formatDate_(value) {
-
-  if (value === null || value === undefined || value === "") return "";
-
-  if (Object.prototype.toString.call(value) === "[object Date]") {
-    if (isNaN(value.getTime())) return "";
-    return Utilities.formatDate(
-      value,
-      Session.getScriptTimeZone(),
-      DATE_FORMAT.DISPLAY
-    );
-  }
-
-  return String(value).trim();
-
-}
-
-function today_() {
-
-  return Utilities.formatDate(
-    new Date(),
-    Session.getScriptTimeZone(),
-    DATE_FORMAT.DISPLAY
-  );
-
-}
-
-/* Parses a display date string ("dd.MM.yyyy") or Date into a Date.
-   Returns null when unparseable. */
-function parseDisplayDate_(value) {
-  if (value === null || value === undefined || value === "") return null;
-  if (Object.prototype.toString.call(value) === "[object Date]") {
-    return isNaN(value.getTime()) ? null : value;
-  }
-  const m = String(value).trim().match(/^(\d{1,2})\.(\d{1,2})\.(\d{4})$/);
-  if (!m) return null;
-  return new Date(Number(m[3]), Number(m[2]) - 1, Number(m[1]));
-}
 
 /* Whole days from today (script timezone) to the given display date.
    Returns 1 for tomorrow, 0 for today, -1 for yesterday, null when unparseable. */
 function daysUntilDate_(value) {
-  const d = parseDisplayDate_(value);
+  const d = AppUtils.parseDisplayDate(value);
   if (!d) return null;
   const now = new Date();
   const today = new Date(now.getFullYear(), now.getMonth(), now.getDate());
@@ -1139,24 +1146,9 @@ function now_() {
 
 /* ============================================================
  * ID Generator
+ *
+ * newEntityId now lives in AppUtils (see top of file).
  * ============================================================ */
-
-/* ============================================================
- * ID Generator
- * ============================================================ */
-
-/** Generates a human-readable stable entity ID (TASK-20260809-1A2B3C4D).
- * Prefixes: REC, TASK, SUB, NOTIF, DOC, USER. The 8-hex-char suffix gives
- * 32 bits of randomness — collision risk is negligible even at ~10k rows.
- * @param {string} prefix ID prefix (REC/TASK/SUB/NOTIF/DOC/USER).
- * @returns {string} e.g. "TASK-20260809-1A2B3C4D"
- */
-function newEntityId_(prefix) {
-  const p = String(prefix || '').toUpperCase().trim();
-  const day = Utilities.formatDate(new Date(), Session.getScriptTimeZone(), 'yyyyMMdd');
-  const suffix = Utilities.getUuid().replace(/-/g, '').slice(0, 8).toUpperCase();
-  return (p ? p + '-' : '') + day + '-' + suffix;
-}
 
 /* ============================================================
  * Idempotency helper

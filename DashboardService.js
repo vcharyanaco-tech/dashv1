@@ -128,7 +128,7 @@ function buildDashboardItems_(rows, sheet) {
       let formattedValue = value;
 
       if (normalizedLabel.indexOf("date") !== -1 && value !== "") {
-        formattedValue = formatDate_(value);
+        formattedValue = AppUtils.formatDate(value);
       }
 
       let fieldHtml = "";
@@ -160,11 +160,11 @@ function buildDashboardItems_(rows, sheet) {
       id: rowSpec.id,
       sector: rowSpec.sector,
       description: rowSpec.description,
-      entryDate: formatDate_(rowSpec.entryDate),
+      entryDate: AppUtils.formatDate(rowSpec.entryDate),
       action: rowSpec.action,
       actionHtml: sanitizeHtml_(actionHtml),
       responsibility: rowSpec.responsibility,
-      reviewDate: formatDate_(rowSpec.reviewDate),
+      reviewDate: AppUtils.formatDate(rowSpec.reviewDate),
       flagged: flagged,
       reviewStatus: reviewStatus,
       displayFields: displayFields,
