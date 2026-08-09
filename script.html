@@ -3362,9 +3362,10 @@ function renderUsersTable(users) {
         <td class="preserve-whitespace">${escapeHtml(u.createdAt || '')}</td>
         <td><button class="btn btn-secondary btn-small" type="button" data-action="reset" data-index="${i}">Reset password</button></td>
         <td><button class="btn btn-secondary btn-small" type="button" data-action="edit" data-index="${i}">Edit</button></td>
+        <td><button class="btn btn-ghost btn-small" type="button" data-action="killSessions" data-index="${i}" title="Sign this user out of all devices">Sign out everywhere</button></td>
         <td><button class="btn btn-danger btn-small" type="button" data-action="delete" data-index="${i}">Delete</button></td>
       </tr>`;
-  }).join('') : '<tr><td colspan="8">No users found.</td></tr>';
+  }).join('') : '<tr><td colspan="9">No users found.</td></tr>';
 }
 
 function loadUserActivity() {
@@ -3626,6 +3627,33 @@ function deleteUser(email) {
       hideOverlay();
       if (handleServerFailure(err)) return;
       showToast('Delete failed: ' + (err.message || err), 'error');
+    });
+  });
+}
+
+function killUserSessions(email) {
+  return showConfirm({
+    title: 'Sign out everywhere',
+    message: 'Sign ' + email + ' out of all devices? They will need to sign in again.',
+    okLabel: 'Sign out',
+    danger: true
+  }).then(function (ok) {
+    if (!ok) return;
+    showOverlay('Signing out ' + email + '…');
+    ApiService.adminKillUserSessions(email).then(function (res) {
+      hideOverlay();
+      const result = res || {};
+      showToast(result.message || ('Signed ' + email + ' out everywhere'), 'success');
+      // Self-target: the acting admin's own sessions die too — force re-login.
+      if (result.reAuth) {
+        setAuthToken('');
+        try { window.sessionStorage.setItem(STORAGE_REAUTH_MSG, 'You signed yourself out everywhere. Please sign in again.'); } catch (err) {}
+        window.location.reload();
+      }
+    }).catch(function (err) {
+      hideOverlay();
+      if (handleServerFailure(err)) return;
+      showToast('Sign out failed: ' + (err.message || err), 'error');
     });
   });
 }
@@ -5079,6 +5107,7 @@ function wireGlobalEvents() {
       if (btn.dataset.action === 'delete') deleteUser(user.email);
       else if (btn.dataset.action === 'reset') resetUserPassword(user.email);
       else if (btn.dataset.action === 'edit') openEditUser(user.email);
+      else if (btn.dataset.action === 'killSessions') killUserSessions(user.email);
     });
   }
 

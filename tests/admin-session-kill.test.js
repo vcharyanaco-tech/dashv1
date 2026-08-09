@@ -185,3 +185,70 @@ test('client: wrapper calls apiCall_ with (email, token) in that order', () => {
       'client must send (email, token) with the token LAST');
   });
 });
+
+test('client: users table has a Sign out everywhere button in BOTH copies', () => {
+  const re = /data-action="killSessions"[^>]*>Sign out everywhere<\/button>/;
+  for (const [label, src] of [['script.html (GAS client)', SCRIPT], ['docs/app.js (PWA client)', APP]]) {
+    assert.ok(re.test(src), label + ' missing Sign out everywhere button');
+    assert.ok(src.includes('colspan="9"'), label + ' empty-state colspan not bumped to 9');
+  }
+});
+
+test('client: delegation routes data-action killSessions to killUserSessions', () => {
+  const re = /btn\.dataset\.action === 'killSessions'\) killUserSessions\(user\.email\)/;
+  for (const [label, src] of [['script.html (GAS client)', SCRIPT], ['docs/app.js (PWA client)', APP]]) {
+    assert.ok(re.test(src), label + ' missing killSessions delegation');
+  }
+});
+
+test('client: killUserSessions handler confirms, calls wrapper, toasts, handles reAuth', () => {
+  // Run the REAL handler from BOTH copies so a divergence can't slip through.
+  const runOne = (label, src) => {
+    const fn = extractFunction(src, 'killUserSessions');
+    const events = [];
+    let sessionMsg = null;
+    const sandbox = {
+      console,
+      showConfirm(opts) {
+        events.push('confirm');
+        assert.strictEqual(opts.okLabel, 'Sign out');
+        assert.strictEqual(opts.danger, true);
+        return Promise.resolve(true);
+      },
+      showOverlay(msg) { events.push('overlay:' + msg); },
+      hideOverlay() { events.push('hideOverlay'); },
+      ApiService: {
+        adminKillUserSessions(email) {
+          events.push('api:' + email);
+          return Promise.resolve({ message: 'All sessions for x@y.z have been invalidated.', reAuth: true });
+        },
+      },
+      showToast(msg, type) { events.push('toast:' + msg + '|' + type); },
+      setAuthToken(t) { events.push('setAuthToken:' + t); },
+      STORAGE_REAUTH_MSG: 'indiaPostReauthMsg',
+      window: {
+        sessionStorage: {
+          setItem(k, v) { sessionMsg = k + '=' + v; },
+        },
+        location: { reload() { events.push('reload'); } },
+      },
+    };
+    vm.createContext(sandbox);
+    vm.runInContext(fn, sandbox, { filename: 'killUserSessions' });
+    return sandbox.killUserSessions('x@y.z').then(function () {
+      assert.deepStrictEqual(events, [
+        'confirm',
+        'overlay:Signing out x@y.z…',
+        'api:x@y.z',
+        'hideOverlay',
+        'toast:All sessions for x@y.z have been invalidated.|success',
+        'setAuthToken:',
+        'reload',
+      ], label + ' handler flow diverged');
+      assert.strictEqual(sessionMsg, 'indiaPostReauthMsg=You signed yourself out everywhere. Please sign in again.', label);
+    });
+  };
+  return runOne('script.html (GAS client)', SCRIPT).then(function () {
+    return runOne('docs/app.js (PWA client)', APP);
+  });
+});

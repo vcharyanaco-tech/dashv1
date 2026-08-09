@@ -289,9 +289,17 @@
   verification); linked from the Admin Guide's First login section.
 - **Kill-all-sessions endpoint** — new admin-only `adminKillUserSessions(email,
   token)` bumps a user's session epoch to invalidate every active session
-  without changing their password (rate-limited, audited, notifies the target);
-  wrapped as `ApiService.adminKillUserSessions(email)` in both clients and
-  covered by new `tests/admin-session-kill.test.js` (6 tests).
+  without changing their password (rate-limited, audited, notifies the target,
+  returns `reAuth` when the acting admin targets themselves); wrapped as
+  `ApiService.adminKillUserSessions(email)` in both clients and covered by new
+  `tests/admin-session-kill.test.js` (6 tests).
+- **Sign out everywhere button** — Settings → Users table rows now include a
+  "Sign out everywhere" action (confirmed via the shared confirm dialog,
+  success toast, `reAuth` re-login flow when self-targeted) wired through the
+  table's event delegation in both clients; `tests/admin-session-kill.test.js`
+  extended to 10 tests (button presence + colspan in both copies, delegation
+  routing, and a behavioral handler test that executes the real handler from
+  both clients).
 
 ---
 
