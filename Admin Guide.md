@@ -28,6 +28,9 @@ Roles and capabilities:
 3. You will be forced to choose a new password before the dashboard loads.
    Change it again any time under **Settings → Change password**.
 
+To rotate the admin password later (including invalidating all active
+sessions), follow the [bootstrap password rotation runbook](runbooks/bootstrap-password-rotation.md).
+
 ## Managing users (Settings → Users)
 
 - **Add a user** — enter an email address, choose a role

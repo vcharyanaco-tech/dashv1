@@ -283,6 +283,10 @@
   first-run auto-generates, persists, and emails a random one); new
   `tests/sanitizer-idempotency.test.js` (11 tests) covers `sanitizeHtml_` XSS
   cases and `withIdempotency_` replay semantics.
+- **Ops runbook** — new `runbooks/bootstrap-password-rotation.md` documents the
+  full bootstrap-admin password rotation (self-change vs admin reset, session
+  epoch invalidation, optional `ADMIN_BOOTSTRAP_PASSWORD` refresh, and login
+  verification); linked from the Admin Guide's First login section.
 
 ---
 
