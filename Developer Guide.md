@@ -14,34 +14,52 @@ Then, from the repo root (see `.clasp.json` for the script ID):
 
 ```powershell
 clasp pull   # sanity-check the binding (do NOT commit pulled files over yours)
-clasp push -f
-clasp deploy --deploymentId AKfycbzWFefNu0Hw0z_eMzrzQZxRnCaM1FVS5_Uj8lgYpr1eUNyHpuwdrFZrcdpO1RfOi8Ki --description "desc"
+clasp push --force
+clasp deploy --deploymentId AKfycbxPwINC2LOPQ-II6vhMXuEqy30Fim32INQNjK3j0sK_9kBClr2MrbSPDnR91AmC7Ian --description "desc"
 ```
 
-Live URL:
-`https://script.google.com/macros/s/AKfycbzWFefNu0Hw0z_eMzrzQZxRnCaM1FVS5_Uj8lgYpr1eUNyHpuwdrFZrcdpO1RfOi8Ki/exec`
+Live URLs:
 
-Details in the [Deployment Guide](Deployment%20Guide.md).
+- PWA: `https://dashboardharyana.site/app.html`
+- GAS exec: `https://script.google.com/macros/s/AKfycbxPwINC2LOPQ-II6vhMXuEqy30Fim32INQNjK3j0sK_9kBClr2MrbSPDnR91AmC7Ian/exec`
+- Compliance site: `https://www.dashboardharyana.site`
+
+Details in the [Deployment Guide](Deployment%20Guide.md). The one-command path is
+`.\deploy-all.ps1 "commit message"`.
 
 ## File layout
 
 ```
-code.js          doGet, getData/getAppData, record CRUD, title stamping, HTML rendering helpers
-Auth.js          users, hashing, sessions, throttling, login/logout/reset, admin user mgmt
-Data.js          low-level sheet read/write/insert/delete/renumber
-Utils.js         sheet/header detection, field mapping, locks, cache, properties, binding, preauthorize
-Audit.js         Audit Log sheet + logAudit_ + read/delete/clear
-Reports.js       analytics builders, XLSX + PDF export
-Submissions.js   Submissions sheet, submission CRUD + locks + display toggle
-Settings.js      CONFIG constants, COL map, PROP keys
-Triggers.js      daily trigger management + setupProject
-index.html       page shell + all screens + base64 logos
-styles.html      design system (CSS variables, dark mode)
-script.html      client logic (auth → dashboard → analytics → audit → reports → settings → submissions)
-ReportPdf.html   PDF report template
-Scripts.html     legacy standalone client (not used by index.html)
-appsscript.json  manifest
-.clasp.json      script binding
+code.js             doGet/doPost JSON API, getData/getAppData, record CRUD, title stamping
+DashboardService.js item building + review-status logic
+RecordService.js    record CRUD + review-done service layer
+Auth.js             users, hashing, sessions, throttling, login/logout/reset, admin user mgmt
+Data.js             low-level sheet read/write/insert/delete/renumber
+Utils.js            sheet/header detection, field mapping, locks, cache, properties, binding, preauthorize
+Audit.js            Audit Log sheet + logAudit_ + read/delete/clear
+Reports.js          analytics builders, XLSX + PDF export
+Submissions.js      Submissions sheet, submission CRUD + locks + display toggle
+Settings.js         CONFIG constants, COL map, PROP keys
+Triggers.js         daily trigger management + setupProject
+Notifications.js    Notifications sheet + per-user notification CRUD + event hooks
+Tasks.js            Tasks sheet + task CRUD + status/priority tracking
+Analytics.js        analytics builder (trends, sector/office breakdowns)
+DashboardStudio.js  user dashboard preferences (view mode, column visibility)
+Documents.js        Documents sheet + Drive upload/delete + record links
+EnterpriseService.gs  enterprise endpoints (ics, whatsapp, ai)
+EnterpriseSettings.js / EnterpriseUtils.js  enterprise feature flags + helpers
+index.html          GAS page shell + all screens + base64 logos
+styles.html         design system (CSS variables, dark mode)
+script.html         GAS client logic (auth → dashboard → analytics → audit → reports → settings → tasks → AI)
+docs/app.html       static PWA copy of index.html
+docs/app.js         static PWA copy of script.html
+ReportPdf.html      PDF report template
+appsscript.json     manifest
+.clasp.json         script binding
+worker.js           Cloudflare Worker split-routing proxy
+worker-enterprise-routes.js  enterprise PWA header upgrades for the Worker
+deploy-all.ps1      full deployment pipeline
+wrangler.toml       Worker config + routes + KV binding + GAS URL var
 ```
 
 ## Data model
@@ -51,9 +69,14 @@ appsscript.json  manifest
   Data starts at row 4 (`CONFIG.SHEET.START_ROW`); rows 1–3 hold the title
   and header.
 - **`Users`** (hidden, auto-created) — `Email, Role, Salt, PasswordHash,
-  MustChange, CreatedBy, CreatedAt, ResetToken, ResetExpires`.
+  MustChange, CreatedBy, CreatedAt, ResetToken, ResetExpires, Group,
+  Department, Office, Preferences`.
 - **`Submissions`** (hidden, auto-created) — `Id, CardRow, CardId, Email, Text,
   CreatedAt, UpdatedAt, LockedBy, LockedAt, Displayed`.
+- **`Tasks`** (hidden, auto-created) — title, description, assignee, priority,
+  status, due date, record link.
+- **`Notifications`** (hidden, auto-created) — one row per recipient, pruned to 50.
+- **`Documents`** (hidden, auto-created) — Drive file metadata per record.
 - **`Audit Log`** — `Timestamp, User, Action, Record ID, Details`.
 
 ### Review status (how it works)
@@ -71,14 +94,22 @@ cell's rich text (see the conditional rewrite in `updateItem`).
 
 ## How the client talks to the server
 
-`script.html` calls `google.script.run.<fn>(...args, token)`. Protected functions
-throw on a bad token; the client catches `isAuthError` messages and redirects to
-login. The bootstrap payload comes from `getAppData(token)` which returns:
+`script.html` / `docs/app.js` wrap every server call in `ApiService`:
+`apiCall_(functionName, ...args)` posts `{ function, args }` as `text/plain`
+JSON to `API_URL` (the GAS exec URL via the Worker's `/macros/*` route). The
+backend `doPost` resolves the named global function and returns JSON. Protected
+functions throw on a bad token; the client catches `isAuthError` messages and
+redirects to login.
+
+The bootstrap payload comes from `getAppData(token)` which returns:
 
 ```
-user, items, summary, analytics { sectors, flaggedItems, trend },
-audit (80), settings, submissionCounts, submissionFlash, displayedSubmissions
+user, items, summary, analytics { sectors, offices, flaggedItems, trend },
+settings, submissionCounts, submissionFlash, displayedSubmissions
 ```
+
+The audit tail and notifications are loaded lazily the first time their tabs are
+opened (`ensureAuditLoaded`, `loadNotifications`).
 
 ## Key implementation notes
 
@@ -90,6 +121,14 @@ audit (80), settings, submissionCounts, submissionFlash, displayedSubmissions
   blob to PDF.
 - **Print layouts** — `printReport()` / `printAudit()` in `script.html` open a new
   window, write a self-contained styled document, and call `print()`.
+- **Batch sheet writes** — record re-sequencing and updates use the advanced
+  `Sheets` service (`spreadsheets.values.batchUpdate`) instead of per-cell
+  writes.
+- **Optimistic UI** — mutations update the DOM immediately via `paintItem_`
+  (which scrolls the edited card into view) and roll back on failure.
+- **Sorting** — `sortedItems()` applies `dashSortKey`/`dashSortDir`, with
+  `dashDateKey()` giving numeric ordering for `dd.MM.yyyy` dates; the card and
+  table views share it.
 - **Submissions visibility** — server-side `canEditSubmission_` enforces rules;
   admins override locks, editors are blocked only by admin locks, viewers edit
   only their own.
@@ -98,6 +137,8 @@ audit (80), settings, submissionCounts, submissionFlash, displayedSubmissions
 - **Data sheet header detection** (`Utils.js`) — `getPreferredHeaderRow_` prefers
   row 3, then scans for a header row; `buildFieldMap_` matches column labels
   flexibly so field order in the sheet is not required to be fixed.
+- **Auto-refresh** — a 60 s `setInterval` polls `getAppData` when the dashboard
+  tab is visible; it preserves the current page and scroll.
 
 ## Debugging
 

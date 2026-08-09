@@ -34,7 +34,7 @@ values AND flip the matching enabled flag. Never commit real secrets.
 ## Offline queue (docs/offline-queue.js)
 
 - Mutating calls (addItem, updateItem, deleteItem, markReviewDone, tasks,
-  submissions, documents, approvals, settings) are queued in localStorage
+  submissions, documents, settings) are queued in localStorage
   (key ipd_offline_queue_v1, capped at 200) when navigator.onLine is false.
 - Read calls pass through untouched.
 - On the online event the queue replays FIFO; each item is removed whether it
@@ -73,17 +73,25 @@ only an optimization.
 
 ## Deploy checklist (manual, in order)
 
+The fast path is the repo's one-command pipeline:
+
+```powershell
+.\deploy-all.ps1 "feat: enterprise addons (PWA, offline queue, ics, whatsapp, ai)"
+```
+
+This handles everything below automatically. To deploy manually:
+
 1. git add -A; git commit -m 'feat: enterprise addons (PWA, offline queue, ics, whatsapp, ai)'; git push
-   -> GitHub Pages rebuilds docs/.
+   -> GitHub Actions rebuilds docs/ and redeploys the Worker.
 2. clasp push --force
    -> pushes EnterpriseService.gs + EnterpriseSettings.js + EnterpriseUtils.js
       (docs/ and *.ps1/*.md are excluded via .claspignore).
-3. clasp version '<message>'
-   clasp deploy -i <worker-target-deployment-id> -V <newVersion> -d '<message>'
+3. clasp deploy --deploymentId AKfycbxPwINC2LOPQ-II6vhMXuEqy30Fim32INQNjK3j0sK_9kBClr2MrbSPDnR91AmC7Ian --description 'enterprise'
    -> GAS exec URL now serves the new endpoints.
 4. Bump the cache-buster in docs/app.html (?v=...) so clients fetch the new
    app.js, then commit + push again.
-5. Redeploy the Cloudflare Worker after wiring worker-enterprise-routes.js.
+5. Redeploy the Cloudflare Worker: node deploy-worker-api.js (or via the
+   pages.yml workflow on push).
 
 ## Verification
 

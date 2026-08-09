@@ -16,7 +16,7 @@ project.
 4. Commit with a concise, descriptive message (imperative mood, see conventions).
 5. Push and open a pull request against `main`.
 
-> The repository is the source of truth. `clasp push -f` uploads the working
+> The repository is the source of truth. `clasp push --force` uploads the working
 > directory to Apps Script, so **only** commit intended files.
 
 ## Local checks (required before commit)
@@ -37,13 +37,17 @@ project.
 
 - Keep server code split by concern in the existing modules (`Auth.js`,
   `Data.js`, `Audit.js`, `Reports.js`, `Submissions.js`, `Settings.js`,
-  `Triggers.js`, `Utils.js`, `code.js`) — do not add a new top-level file unless
+  `Triggers.js`, `Utils.js`, `Notifications.js`, `Tasks.js`, `Analytics.js`,
+  `DashboardStudio.js`, `Documents.js`, `DashboardService.js`,
+  `RecordService.js`, `code.js`) — do not add a new top-level file unless
   it clearly needs its own module.
 - Every mutation should run inside `runWithLock_(...)` and every protected
   endpoint must start with `requireLogin_(token)` / `requireEditor_(token)` /
   `requireAdmin_(token)`.
-- The client calls server functions with `google.script.run` and always passes the
-  session token as the trailing argument.
+- The client calls server functions through the `ApiService` wrapper
+  (`apiCall_('fn', ...args, token)` — or `fetch(API_URL, { body: { function,
+  args } })` in the PWA copy) and always passes the session token as the
+  trailing argument.
 - Never hard-code per-user access checks in the client — the server must enforce
   authorization; the UI only hides what the user cannot do.
 - All destructive actions should write an audit entry via `logAudit_(...)`.

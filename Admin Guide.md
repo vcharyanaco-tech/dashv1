@@ -5,7 +5,7 @@ Roles and capabilities:
 
 | Capability                                        | Viewer | Editor | Admin |
 | ------------------------------------------------- | :----: | :----: | :---: |
-| View dashboard, filter, search                    |  Yes   |  Yes   |  Yes  |
+| View dashboard, filter, search, sort             |  Yes   |  Yes   |  Yes  |
 | Submit updates against records                    |  Yes   |  Yes   |  Yes  |
 | Edit / lock / unlock submissions                 |   –    |  Yes*  |  Yes  |
 | Add, edit, delete records                        |   –    |  Yes   |  Yes  |
@@ -39,13 +39,21 @@ Roles and capabilities:
 
 ## Working with records (Dashboard)
 
+- **Filter** — use the sector filter dropdown and the search box to narrow the
+  cards. Applying a filter resets you to page 1.
+- **Sort** — use the **Sort by** dropdown (Entry Date, Review Date, ID) and the
+  up/down direction toggle to reorder the cards. Changing the sort also resets to
+  page 1.
 - **Add** — click **Add record** to open the form; save to append a new row.
-- **Edit** — open a record and click **Edit**, change fields, then **Save**.
+- **Edit** — open a record and click **Edit**, change fields, then **Save**. The
+  edited card is brought into view automatically.
 - **Delete** — click **Delete** and confirm. IDs are renumbered automatically.
 - **Mark review done** — open a record, use the review-due arrow, and choose
   **Mark as done**. This turns the review badge green and logs the action.
 - Records whose review date is due are shown with a red **Review due** badge;
   the flag colour comes from the review-date cell background in the sheet.
+- **Pagination** — the dashboard loads a page at a time with infinite scroll;
+  your current page is preserved across refresh and search results.
 
 ## Submissions
 

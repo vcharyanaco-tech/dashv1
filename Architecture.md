@@ -1,36 +1,54 @@
 # Architecture
 
-This document describes how the India Post Dashboard works end to end: the Google
-Apps Script backend, the served frontend, the data model, and the auth flow.
+This document describes how the India Post Dashboard works end to end: the
+Google Apps Script backend, the served frontend, the Cloudflare Worker, the data
+model, and the auth flow.
 
 ## 1. Overview
 
 ```
-browser ── https://script.google.com/macros/s/<deploymentId>/exec
-   │          (ANYONE_ANONYMOUS, executes as the deploying user)
+browser ── dashboardharyana.site (Cloudflare Worker)
+   │  /app.html  → Google Apps Script exec URL (banner-stripped, sandboxed)
+   │  /macros/*  → forwarded to script.google.com (backend API)
+   │  /*         → GitHub Pages static bundle (docs/ via raw CDN)
    ▼
-Apps Script web app
-   │  doGet → index.html (HTML + styles.html + script.html)
-   │  google.script.run.* → *.js server functions
+Apps Script web app (doPost JSON API + doGet template)
+   │  apiCall_() → POST { function, args } to the exec URL
    ▼
 Bound Google Spreadsheet
-   ├── Sheet1        → dashboard records (visible)
-   ├── Users         → user accounts (hidden, auto-created)
-   ├── Submissions   → viewer/editor updates (hidden, auto-created)
-   └── Audit Log     → action history (visible)
+   ├── Sheet1          → dashboard records (visible)
+   ├── Users           → user accounts (hidden, auto-created)
+   ├── Submissions     → viewer/editor updates (hidden, auto-created)
+   ├── Tasks           → task store (hidden, auto-created)
+   ├── Notifications   → per-user notifications (hidden, auto-created)
+   ├── Documents       → Drive-backed attachments (hidden, auto-created)
+   └── Audit Log       → action history (visible)
 ```
 
 The web app is deployed as `ANYONE_ANONYMOUS` with `USER_DEPLOYING` execution, so
 no Google sign-in is required to reach the page. Access control is implemented in
 the app itself with email/password login and token-based sessions.
 
+There are **two in-sync frontends**:
+
+- `index.html` + `script.html` — served directly by Google Apps Script as a
+  template (`doGet`), used when hitting the GAS exec URL directly.
+- `docs/app.html` + `docs/app.js` — the static PWA copy served by GitHub Pages
+  and proxied by the Cloudflare Worker at `dashboardharyana.site`.
+
+Both call the same backend API via `fetch(API_URL, { method: 'POST', body:
+{ function, args } })` (`apiCall_` in `script.html` / `docs/app.js`), where
+`API_URL` points at the GAS exec URL through the Worker's `/macros/*` route.
+
 ## 2. Backend modules
 
-### `code.js` — entry point and dashboard data
-- `doGet(e)` — serves the app. Supports `?inspect=1`, which returns a raw JSON dump
+### `code.js` — entry points and JSON API
+- `doGet(e)` — serves the GAS template (`index.html` with `styles.html` and
+  `script.html` included). Supports `?inspect=1`, which returns a raw JSON dump
   of the bound sheet (sheets, last row/column, and preview) for debugging.
-  Otherwise returns `HtmlService` with `index.html` (with `styles.html` and
-  `script.html` included).
+- `doPost(e)` — the JSON API. Reads `{ function, args }` from the body,
+  resolves the named global function, calls it with the args, and returns JSON.
+  This is what the static PWA (`docs/app.js`) talks to.
 - `getData()` — reads rows from the data sheet, applies review-status heuristics
   from the review-date cell background, formats dates, linkifies URLs, preserves
   rich-text formatting in the action field, and returns `{ title, heading, asOf, items }`.
@@ -40,12 +58,20 @@ the app itself with email/password login and token-based sessions.
 - `markReviewDone(row, token)` — admin only; sets the review-date cell background
   to the "done" colour and writes an `REVIEW_DONE` audit entry.
 - `getAppData(token)` — the aggregate bootstrap payload for the client:
-  `user`, `items`, `summary`, `analytics`, `audit` (last 80), `settings`,
-  `submissionCounts`, `submissionFlash`, `displayedSubmissions`.
+  `user`, `items`, `summary`, `analytics`, `settings`, `submissionCounts`,
+  `submissionFlash`, `displayedSubmissions`.
 - `stampTitle_()` / `dailyDateUpdate()` — write/update the "… on <date>" heading in
   cell A1 of the data sheet.
 - Rendering helpers — `escHtml_`, `looksLikeUrl_`, `linkifyText_`,
   `richToHtml_` (converts rich-text runs + colours + links to inline HTML).
+
+### `DashboardService.js` — item building + review status
+- Extracted from `code.js`: `buildDashboardItems_`-style item construction and
+  review-status logic live here so the data-reading layer stays thin.
+
+### `RecordService.js` — record CRUD + review-done
+- Service layer for record add/update/delete and `markReviewDone`, called by the
+  `code.js` entry points; runs inside `runWithLock_` with role guards first.
 
 ### `Auth.js` — users, sessions, roles
 - Users live in the hidden `Users` sheet with headers
@@ -140,13 +166,49 @@ the app itself with email/password login and token-based sessions.
 - `getAppSettings()` / `saveAppSettings(...)` remain as a thin property-store
   wrapper (the client no longer exposes an Application settings UI).
 
+### `Notifications.js` — notifications store
+- Hidden `Notifications` sheet stores one row per recipient
+  (`Id | Email | Message | Type | RefId | Read | CreatedAt`); each user keeps at
+  most `CONFIG.NOTIFICATIONS.MAX_PER_USER` (50) entries, pruned on write.
+- `getMyNotifications(token)` / `markNotificationsRead(token, ids)` back the
+  in-app bell; event hooks notify staff on record changes, submissions, task
+  assignment, and account events.
+
+### `Tasks.js` — task store
+- Hidden `Tasks` sheet with columns for title, description, assignee, priority
+  (LOW/MEDIUM/HIGH/URGENT), status (OPEN/IN_PROGRESS/DONE/CANCELLED), due date,
+  and an optional record row link.
+- `createTask` / `getTasks` / `getMyTasks` / `updateTask` / `deleteTask` plus
+  `getAssignableUsers` for the assignee dropdown. Task completion uses optimistic
+  UI in the client.
+
+### `Analytics.js` — analytics builder
+- `buildAnalytics_` computes sector breakdowns, office breakdowns, flagged items,
+  monthly trends, and the previous-month comparison used by the trend indicators.
+
+### `DashboardStudio.js` — user dashboard preferences
+- Stores per-user view mode (cards/table) and table column visibility in a
+  `Preferences` JSON column on the `Users` sheet; applied on login.
+
+### `Documents.js` — Drive attachments
+- Hidden `Documents` sheet (`Id | CardRow | FileId | FileName | MimeType |
+  Size | UploadedBy | UploadedAt`). Uploads store the file privately in Drive
+  and list per record; delete trashes the file and removes the row.
+
+### `EnterpriseService.gs` — enterprise endpoints
+- `exportReviewCalendarIcs` — review-calendar `.ics` export for review-due records.
+- `sendWhatsAppReviewReminders` — WhatsApp review reminders (Meta provider).
+- `getAiInsights` — AI summary endpoint with provider selection and Cloudflare KV
+  caching.
+- All gated by `ENTERPRISE_SETTINGS` in `EnterpriseSettings.js` (off by default).
+
 ### `Triggers.js` — scheduled jobs
 - `installTriggers()` creates a daily time trigger for `dailyDateUpdate`
   (at 00:00, Asia/Kolkata); `removeTriggers()`, `reinstallTriggers()`,
   `listTriggers()`, and `setupProject()` (install + `stampTitle_` + ensure the
   bootstrap admin) are provided.
 
-## 3. Frontend (`script.html`)
+## 3. Frontend (`script.html` / `docs/app.js`)
 
 Modules, roughly in order of appearance:
 
@@ -156,28 +218,42 @@ Modules, roughly in order of appearance:
 2. **Session & auth** — `getAuthToken`/`setAuthToken` (reads/writes the
    `indiaPostAuthToken` localStorage key), `isAuthError`, `handleServerFailure`,
    login/forgot/reset forms, `logout`.
-3. **App chrome** — `initApp` (bootstraps `loadApp`), `loadApp` (calls
+3. **API layer** — `ApiService` wraps every server call as
+   `apiCall_(functionName, ...args)` → `fetch(API_URL, { method: 'POST', body:
+   { function, args } })`. `API_URL` points at the GAS exec URL through the
+   Worker (`https://dashboardharyana.site/macros/s/<deploymentId>/exec`).
+4. **App chrome** — `initApp` (bootstraps `loadApp`), `loadApp` (calls
    `getAppData`), theme/dark mode, sidebar, profile menu, tab switching,
-   `openTab`.
-4. **Dashboard** — filter population/chips, search (debounced), KPI cards
-   (`renderKpiCards` with sparklines), card builder (`buildCardHtml`), pagination.
-5. **Analytics** — `renderAnalytics` using `summary` and `analytics` payload.
-6. **Audit** — `renderAudit`, sorting (`setAuditSort`), row selection
+   `openTab`, 60 s auto-refresh timer.
+5. **Dashboard** — filter population/chips, search (debounced), sort dropdown +
+   direction toggle (`handleSortChange`, `toggleSortDir`, `updateSortControls`),
+   KPI cards (`renderKpiCards`), card builder (`buildCardHtml`), virtualized
+   infinite-scroll cards (`sortedItems().slice(...)` + `ensureDashSentinel_`),
+   pagination, page preservation.
+6. **Analytics** — `renderAnalytics` using `summary` and `analytics` payload.
+7. **Audit** — `renderAudit`, sorting (`setAuditSort`), row selection
    (`auditSelectedRows`, `toggleAuditSelectAll`), `deleteAuditRows`,
    `clearAuditLog`, copy to clipboard, CSV download, `printAudit` (dedicated
    A4 print window).
-7. **Reports** — `renderReportPreview`, CSV, `exportSpreadsheet` (XLSX),
+8. **Reports** — `renderReportPreview`, CSV, `exportSpreadsheet` (XLSX),
    `downloadPdf`, `printReport` (dedicated A4 landscape print window).
-8. **Settings** — `renderSettings` (password change), user management
+9. **Settings** — `renderSettings` (password change), user management
    (`loadUsers`, add/delete/reset).
-9. **Record editing** — modal for add/edit (`openEditModal`, `saveEditModal`),
-   `deleteItem`, `toggleReviewDropdown`, `markReviewDone`.
-10. **Submissions** — `openSubmissionsModal`, `loadSubmissions`,
+10. **Record editing** — modal for add/edit (`openEditModal`, `saveEditModal`),
+    `deleteItem`, `toggleReviewDropdown`, `markReviewDone`/`markReviewNotDone`.
+    Optimistic DOM updates via `paintItem_` (replaces the card/row and scrolls it
+    into view) with rollback on failure.
+11. **Submissions** — `openSubmissionsModal`, `loadSubmissions`,
     `renderSubmissionList`, add/edit (`submitSubmission`), `lockSubmission`,
     `unlockSubmission`, `deleteSubmission`, display toggle.
+12. **Tasks** — task list, create/edit/delete modals, status change with
+    optimistic completion.
+13. **Notifications** — bell + dropdown (`renderNotifications`), mark-all-read.
+14. **AI** — `openAiInsights` (dashboard/per-card insights), `openMeetingNotes`
+    (transcription + minutes + live recording).
 
-The client calls server functions via `google.script.run` and always passes the
-session token (`getAuthToken()`) as a trailing argument to protected endpoints.
+The client always passes the session token (`getAuthToken()`) as the trailing
+argument to protected endpoints.
 
 ## 4. Data model
 
@@ -189,10 +265,24 @@ Columns (1-based): 1 `ID`, 2 `Sector`, 3 `Description`, 4 `Entry Date`,
 `#ffffff` = normal.
 
 ### `Users` (hidden)
-See Auth section above.
+`Email | Role | Salt | PasswordHash | MustChange | CreatedBy | CreatedAt |
+ResetToken | ResetExpires | Group | Department | Office | Preferences`.
+`Preferences` holds the Dashboard Studio JSON (view mode, column visibility).
 
 ### `Submissions` (hidden)
-See Submissions section above.
+`Id | CardRow | CardId | Email | Text | CreatedAt | UpdatedAt | LockedBy |
+LockedAt | Displayed`.
+
+### `Tasks` (hidden)
+Title, description, assignee, priority, status, due date, optional record link,
+created/updated metadata.
+
+### `Notifications` (hidden)
+One row per recipient (`Email | Message | Type | RefId | Read | CreatedAt`),
+pruned to the newest 50 per user.
+
+### `Documents` (hidden)
+`Id | CardRow | FileId | FileName | MimeType | Size | UploadedBy | UploadedAt`.
 
 ### `Audit Log`
 `Timestamp | User | Action | Record ID | Details`; the client shows the newest 80.

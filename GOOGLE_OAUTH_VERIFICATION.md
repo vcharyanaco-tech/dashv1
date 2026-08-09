@@ -149,19 +149,25 @@ Then on the **Scopes / Data Access** tab add the scopes declared in
 | ----- | -------------------------- |
 | `https://www.googleapis.com/auth/userinfo.email` | See your primary Google Account email address |
 | `https://www.googleapis.com/auth/spreadsheets` | See, edit, create, and delete your spreadsheets in Google Drive |
+| `https://www.googleapis.com/auth/drive` | See, edit, create, and delete all of your Google Drive files |
 | `https://www.googleapis.com/auth/drive.file` | See, edit, create, and delete only the specific Google Drive files you use with this app |
 | `https://www.googleapis.com/auth/script.scriptapp` | Manage the current script's processes and triggers |
 | `https://www.googleapis.com/auth/script.send_mail` | Send email on your behalf |
+| `https://www.googleapis.com/auth/script.external_request` | Connect to an external service (WhatsApp / AI provider over HTTPS) |
 
 > **Why these scopes only** — each maps to a real API call in the code:
 > - `spreadsheets` → bound spreadsheet reads/writes + report workbook creation
 >   (`code.js`, `Data.js`, `Reports.js`)
+> - `drive` → Drive v3 export fast path for XLSX reports + document metadata
+>   (`Documents.js`, `Reports.js`)
 > - `drive.file` → document attachments and XLSX/PDF exports (`Documents.js`,
 >   `Reports.js`)
 > - `script.scriptapp` → password-reset URL + installable triggers (`Auth.js`,
 >   `Triggers.js`)
 > - `script.send_mail` → password-reset and scheduled report email (`Auth.js`,
 >   `Reports.js`)
+> - `script.external_request` → the WhatsApp/AI enterprise endpoints
+>   (`EnterpriseService.gs`); only used when the matching flag is enabled
 > - `userinfo.email` → identifies the signed-in user for roles/audit
 > Do not add scopes that the app does not use; unnecessary scopes are a common
 > rejection reason.
@@ -203,7 +209,7 @@ Then on the **Scopes / Data Access** tab add the scopes declared in
 | Privacy policy too short or vague | Full policy in `docs/privacy.html` covering collection, use, scopes, retention, deletion, sharing, security, contact, and Google's limited-use policy |
 | No data deletion mechanism | Dedicated `docs/data-deletion.html` + a "Data Deletion" section in the privacy policy; in-app deletion + support-email process |
 | Missing or one-line Terms of Service | Full terms in `docs/terms.html` |
-| Scopes requested that the app doesn't use | `appsscript.json` trimmed to only used scopes (`userinfo.profile` removed) |
+| Scopes requested that the app doesn't use | `appsscript.json` trimmed to only used scopes (`userinfo.profile` removed). The extra `drive` and `script.external_request` scopes map to real features (XLSX Drive-v3 export, WhatsApp/AI endpoints) — the enterprise flags stay OFF by default |
 | App name / support email inconsistent | Branded "India Post Dashboard" and `vcharyanaco@gmail.com` consistently across the app, site, and this guide |
 | Domain not verified | Search Console HTML-file verification file kept in `docs/` (section 3) |
 | Policy doesn't match app behavior | Policy accurately describes Sheets/Drive/Gmail/ScriptApp usage and states data is not shared or sold |

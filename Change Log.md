@@ -1,6 +1,6 @@
 # Change Log
 
-## 1.0.0 — 2026-08-02 (current)
+## 1.0.0 — 2026-08-19 (current, git `main`)
 
 ### Phase 1 — Architecture & technical debt (deployment @79)
 - Backend service extraction: new `DashboardService.js` (item building + review
@@ -55,6 +55,31 @@
   when that tab is visible during a manual refresh.
 - Verified with `node --check` and a DOM/onclick audit; deployed @81.
 
+### Phase 4 — Enterprise Features, Tranche A: User & Role Management (deployment @82)
+- **Granular RBAC permission matrix:** new `MODULES` / `MODULE_ACTIONS` /
+  `PERMISSIONS` in `Settings.js` with View/Create/Edit/Delete/Export/Approve per
+  module (`records`, `submissions`, `audit`, `users`, `reports`, `settings`).
+  Server-side `hasPermission_` / `getUserPermissions` / `getUserContext` enforce
+  and expose the caller's effective permission set.
+- **User groups:** `USER_GROUPS` (Approver, Auditor, Exporter) grant extra
+  permissions on top of the role; a user's `Group` cell may list several
+  comma-separated groups.
+- **Department / office access restrictions:** users now have `Department` and
+  `Office` fields. When set (non-admin), `getAppData` scopes visible records to
+  the user's department (matches record sector) and office (matches
+  responsibility) — summary and analytics follow the scoped set.
+- **Users schema v2:** the hidden `Users` sheet gained `Group`, `Department`,
+  `Office` columns (auto-migrated on first run). Add-user form, users table, and
+  a new Edit-user dialog manage them.
+- **Bulk import/export:** `adminExportUsers` downloads all users as CSV;
+  `adminImportUsers` creates/updates users from pasted CSV (email, role, group,
+  department, office, optional password; random password + forced change for new
+  users without one) with per-row error reporting.
+- **User activity dashboard:** `adminGetUserActivity` aggregates per-user
+  actions/logins/last-seen and recent events from the audit log; rendered as a
+  stats grid, table, and recent-activity list in Settings.
+- Verified with `node --check` and a DOM/onclick audit; deployed @82.
+
 ### Phase 4 — Enterprise Features, Tranche B: Notification Center (deployment @83)
 - **In-app notification center:** a bell in the topbar with an unread badge and a
   dropdown panel lists the signed-in user's most recent notifications. Items can
@@ -70,6 +95,8 @@
 - Verified with `node --check` and a DOM/onclick audit; deployed @83.
 
 ### Phase 4 — Enterprise Features, Tranche C: Workflow Engine (deployment @84)
+> **Removed in Phase 7** — the Approvals tab and `Workflow.js` were later removed
+> (see Phase 7). This entry is kept for the historical record.
 - **Approval workflow engine:** new `Workflow.js` server module backed by a hidden
   `Approvals` sheet. Defines `WORKFLOW_TYPES` (currently `RECORD_REVIEW`) and
   `APPROVAL_STATUS` (PENDING / APPROVED / REJECTED).
@@ -80,9 +107,6 @@
   tab and can approve or reject with an optional comment. Approving a
   `RECORD_REVIEW` automatically marks the record's review-date cell as done
   and writes an audit entry; rejecting notifies the submitter.
-- **Hooks:** record add/update/delete and review-done notify staff (ADMIN/EDITOR
-  + APPROVER group); new submissions notify approvers; account creation and
-  password changes notify the affected user.
 - Verified with `node --check` and a DOM/onclick audit; deployed @84.
 
 ### Phase 4 — Enterprise Features, Tranche D: Task Management (deployment @85)
@@ -130,9 +154,8 @@
 
 ### Phase 4 — Enterprise Features, Tranche H: Global Search & Command Palette (deployment @91)
 - **Command palette:** Ctrl+K opens a command palette with quick navigation
-  (Dashboard, Audit, Reports, Settings, Approvals, Tasks), actions (Refresh,
-  Add record, Toggle theme, Sign out), and live record search (by ID, sector,
-  description).
+  (Dashboard, Audit, Reports, Settings, Tasks), actions (Refresh, Add record,
+  Toggle theme, Sign out), and live record search (by ID, sector, description).
 - **Keyboard shortcuts:** palette actions show shortcuts; commands are filtered
   by role (editor-only actions hidden for viewers).
 - Verified with `node --check` and a DOM/onclick audit; deployed @91.
@@ -170,32 +193,55 @@
 - **Token cleanup on password change:** `changePassword` and `adminResetPassword`
   now clear any pending `resetToken` / `resetExpires`.
 
-### Phase 4 — Enterprise Features, Tranche A: User & Role Management (deployment @82)
-- **Granular RBAC permission matrix:** new `MODULES` / `MODULE_ACTIONS` /
-  `PERMISSIONS` in `Settings.js` with View/Create/Edit/Delete/Export/Approve per
-  module (`records`, `submissions`, `audit`, `users`, `reports`, `settings`).
-  Server-side `hasPermission_` / `getUserPermissions` / `getUserContext` enforce
-  and expose the caller's effective permission set.
-- **User groups:** `USER_GROUPS` (Approver, Auditor, Exporter) grant extra
-  permissions on top of the role; a user's `Group` cell may list several
-  comma-separated groups.
-- **Department / office access restrictions:** users now have `Department` and
-  `Office` fields. When set (non-admin), `getAppData` scopes visible records to
-  the user's department (matches record sector) and office (matches
-  responsibility) — summary and analytics follow the scoped set.
-- **Users schema v2:** the hidden `Users` sheet gained `Group`, `Department`,
-  `Office` columns (auto-migrated on first run). Add-user form, users table, and
-  a new Edit-user dialog manage them.
-- **Bulk import/export:** `adminExportUsers` downloads all users as CSV;
-  `adminImportUsers` creates/updates users from pasted CSV (email, role, group,
-  department, office, optional password; random password + forced change for new
-  users without one) with per-row error reporting.
-- **User activity dashboard:** `adminGetUserActivity` aggregates per-user
-  actions/logins/last-seen and recent events from the audit log; rendered as a
-  stats grid, table, and recent-activity list in Settings.
-- Verified with `node --check` and a DOM/onclick audit; deployed @82.
+### Phase 6 — AI & meeting intelligence (deployment @162+)
+- **AI insights** — dashboard-wide and per-card AI summaries with provider
+  selection (Groq free tier default; OpenRouter, Hugging Face Inference,
+  Gemini, Kilo Gateway fallbacks), real provider error surfacing, results
+  cached in Cloudflare KV (`AI_INSIGHTS_KV`), and linked-file content analysis
+  with an inline table preview.
+- **AI meeting notes** — admin-only: upload a meeting recording → Groq Whisper
+  transcription with segmented retry hardening, AI-generated minutes (summary,
+  action items), and one-click task creation. Live browser recording via
+  `getDisplayMedia` (tab/screen share with WebAudio mix and fallback chain),
+  floating REC indicator, background recording, and Drive saving.
+- **Fathom AI notes integration** — pull Fathom meeting notes (summary,
+  transcript, action items) into the AI Meeting Notes modal (enabled by default).
 
-Major refresh and stabilization of the India Post Dashboard for Circle Office, Haryana.
+### Phase 7 — Performance & UX (git `main`)
+- **Batch sheet writes** — record ID re-sequencing and updates use
+  `Sheets.Values.batchUpdate` instead of per-cell `setValue`.
+- **Optimistic UI** — add/update/delete records, task completion, and review
+  status apply instantly to the DOM while the server write runs in the
+  background (with rollback on failure), so actions feel non-blocking.
+- **Auto-refresh** — dashboard polls `getAppData` every 60 s without disturbing
+  the current page or scroll position.
+- **Sorting** — homepage sort dropdown (Sector, Entry date, Review date,
+  Responsibility) with ascending/descending toggle; date-aware ordering and a
+  removable sort chip.
+- **Page preservation** — editing/updating a record no longer jumps the user
+  back to page 1; the edited card is scrolled back into view after save.
+- **Approvals removed** — the Approvals tab and `Workflow.js` server workflow
+  were removed to match the UI (see git `745a535`, `57ed495`).
+- **Hyperlink display text** — only the link text is hyperlinked, and link text
+  round-trips to the editor.
+
+### Phase 8 — Enterprise production wiring
+- **PWA + offline action queue** — `docs/` app is a PWA (`manifest.json`,
+  `sw.js`) with an offline queue (`docs/offline-queue.js`) that buffers mutating
+  calls in localStorage and replays them on reconnect.
+- **Cloudflare split-routing Worker** — `worker.js` serves `docs/` statics from
+  GitHub Pages (raw CDN) and `/app.html` from the GAS exec URL (banner-stripped),
+  with `/macros/*` and `/static/*` forwarded to Google.
+- **Review-calendar `.ics` export, WhatsApp review reminders, AI provider**
+  enterprise endpoints (`EnterpriseService.gs`), gated by
+  `ENTERPRISE_SETTINGS` in `EnterpriseSettings.js` (off by default).
+- **Deployment pipeline** — `deploy-all.ps1` runs git commit+push (→ GitHub
+  Pages + Worker via `.github/workflows/pages.yml`), `clasp push`, a pinned-GAS
+  deployment redeploy, and the Worker deploy in one step.
+
+---
+
+## 1.0.0 (early release) — 2026-08-02
 
 ### Auth, roles & users
 - Optimized login and app-load performance.
@@ -255,6 +301,9 @@ Major refresh and stabilization of the India Post Dashboard for Circle Office, H
   trail with the full error message.
 - **Token cleanup on password change:** `changePassword` and `adminResetPassword`
   now clear any pending `resetToken` / `resetExpires`.
+
+> Duplicate of the section in the phase list above — retained here only in the
+> original release notes.
 
 ---
 
