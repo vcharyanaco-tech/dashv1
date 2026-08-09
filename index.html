@@ -203,6 +203,14 @@
               <select id="sectorFilter" class="select" aria-label="Filter by sector" onchange="handleSectorFilterChange()">
                 <option value="">All sectors</option>
               </select>
+              <select id="sortFilter" class="select select-sort" aria-label="Sort records" onchange="handleSortChange()">
+                <option value="">Sort: Default</option>
+                <option value="sector">Sector</option>
+                <option value="entryDate">Entry date</option>
+                <option value="reviewDate">Review date</option>
+                <option value="responsibility">Responsibility</option>
+              </select>
+              <button id="sortDirBtn" class="btn btn-ghost btn-small" type="button" onclick="toggleSortDir()" aria-label="Sort ascending" title="Ascending">&#8593;</button>
             </div>
           </div>
 

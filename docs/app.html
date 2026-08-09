@@ -198,6 +198,14 @@
               <select id="sectorFilter" class="select" aria-label="Filter by sector" onchange="handleSectorFilterChange()">
                 <option value="">All sectors</option>
               </select>
+              <select id="sortFilter" class="select select-sort" aria-label="Sort records" onchange="handleSortChange()">
+                <option value="">Sort: Default</option>
+                <option value="sector">Sector</option>
+                <option value="entryDate">Entry date</option>
+                <option value="reviewDate">Review date</option>
+                <option value="responsibility">Responsibility</option>
+              </select>
+              <button id="sortDirBtn" class="btn btn-ghost btn-small" type="button" onclick="toggleSortDir()" aria-label="Sort ascending" title="Ascending">&#8593;</button>
             </div>
           </div>
 
@@ -508,7 +516,7 @@
       <footer class="app-footer">
         <div class="footer-brand-line">
           <span class="footer-title">India Post Dashboard</span>
-          <span class="footer-dot" aria-hidden="true">â€¢</span>
+          <span class="footer-dot" aria-hidden="true">•</span>
           <span class="footer-version" id="footerVersion">v1.0.0</span>
         </div>
         <div class="footer-credit">Designed, developed and maintained by <span class="footer-credit-org">Circle Office, Haryana</span></div>

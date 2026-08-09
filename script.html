@@ -1960,7 +1960,7 @@ function dismissReminderBanner() {
   if (banner) banner.classList.add('hidden');
 }
 
-function applyFilters() {
+function applyFilters(resetPage) {
   const query = appState.searchQuery.toLowerCase();
   const sector = appState.sector;
   appState.filtered = appState.items.filter(function (item) {
@@ -1968,11 +1968,49 @@ function applyFilters() {
       .join(' ').toLowerCase();
     return (!query || haystack.indexOf(query) !== -1) && (!sector || item.sector === sector);
   });
-  appState.page = 1;
+  const pages = Math.max(1, Math.ceil(appState.filtered.length / PAGE_SIZE));
+  if (resetPage) appState.page = 1;
+  if (!appState.page || appState.page > pages) appState.page = pages;
 }
 
 function handleSectorFilterChange() {
   appState.sector = getEl('sectorFilter').value;
+  appState.page = 1;
+  updateFilterChips();
+  renderDashboard();
+}
+
+function updateSortControls() {
+  const select = getEl('sortFilter');
+  if (select) select.value = appState.dashSortKey === 'id' ? '' : appState.dashSortKey;
+  const btn = getEl('sortDirBtn');
+  if (btn) {
+    const asc = appState.dashSortDir !== 'desc';
+    btn.textContent = asc ? '\u2191' : '\u2193';
+    btn.setAttribute('aria-label', asc ? 'Sort ascending' : 'Sort descending');
+    btn.title = asc ? 'Ascending' : 'Descending';
+  }
+}
+
+function sortLabel(key) {
+  const labels = { id: 'Default', sector: 'Sector', entryDate: 'Entry date', reviewDate: 'Review date', responsibility: 'Responsibility' };
+  return labels[key] || key;
+}
+
+function handleSortChange() {
+  const value = getEl('sortFilter').value;
+  appState.dashSortKey = value || 'id';
+  appState.dashSortDir = 'asc';
+  appState.page = 1;
+  updateSortControls();
+  updateFilterChips();
+  renderDashboard();
+}
+
+function toggleSortDir() {
+  appState.dashSortDir = appState.dashSortDir === 'desc' ? 'asc' : 'desc';
+  appState.page = 1;
+  updateSortControls();
   updateFilterChips();
   renderDashboard();
 }
@@ -1980,10 +2018,14 @@ function handleSectorFilterChange() {
 function resetFilters() {
   appState.searchQuery = '';
   appState.sector = '';
+  appState.dashSortKey = 'id';
+  appState.dashSortDir = 'asc';
+  appState.page = 1;
   const search = getEl('searchInput');
   if (search) search.value = '';
   const filter = getEl('sectorFilter');
   if (filter) filter.value = '';
+  updateSortControls();
   updateFilterChips();
   renderDashboard();
 }
@@ -1998,6 +2040,10 @@ function updateFilterChips() {
   if (appState.sector) {
     parts.push(`<span class="filter-chip">Sector: ${escapeHtml(appState.sector)} <button type="button" aria-label="Remove sector filter" onclick="removeChip('sector')">✕</button></span>`);
   }
+  if (appState.dashSortKey !== 'id') {
+    const dirLabel = appState.dashSortDir === 'desc' ? 'descending' : 'ascending';
+    parts.push(`<span class="filter-chip">Sort: ${escapeHtml(sortLabel(appState.dashSortKey))} (${dirLabel}) <button type="button" aria-label="Remove sort" onclick="removeChip('sort')">✕</button></span>`);
+  }
   chips.innerHTML = parts.join('');
   const resetBtn = getEl('resetFiltersBtn');
   if (resetBtn) resetBtn.classList.toggle('hidden', parts.length === 0);
@@ -2006,6 +2052,12 @@ function updateFilterChips() {
 function removeChip(kind) {
   if (kind === 'search') appState.searchQuery = '';
   if (kind === 'sector') appState.sector = '';
+  if (kind === 'sort') {
+    appState.dashSortKey = 'id';
+    appState.dashSortDir = 'asc';
+    updateSortControls();
+  }
+  appState.page = 1;
   const search = getEl('searchInput');
   if (search) search.value = appState.searchQuery;
   const filter = getEl('sectorFilter');
@@ -2200,7 +2252,7 @@ function renderDashboardCards() {
   const grid = getEl('dashboardCards');
   if (!grid) return;
   const start = (appState.page - 1) * PAGE_SIZE;
-  const pageItems = appState.filtered.slice(start, start + PAGE_SIZE);
+  const pageItems = sortedItems().slice(start, start + PAGE_SIZE);
 
   if (!pageItems.length) { grid.innerHTML = emptyStateHtml(); teardownDashScroller_(); return; }
 
@@ -2274,10 +2326,26 @@ function dashCompare(a, b) {
     : (String(av).toLowerCase() > String(bv).toLowerCase() ? 1 : 0);
 }
 
+function dashDateKey(v) {
+  if (v == null) return 0;
+  v = String(v).trim();
+  let m = v.match(/^(\d{1,2})[.\-/](\d{1,2})[.\-/](\d{2,4})$/);
+  if (m) {
+    let y = Number(m[3]);
+    if (y < 100) y += 2000;
+    return (y * 10000) + (Number(m[2]) * 100) + Number(m[1]);
+  }
+  m = v.match(/^(\d{4})-(\d{1,2})-(\d{1,2})$/);
+  if (m) return (Number(m[1]) * 10000) + (Number(m[2]) * 100) + Number(m[3]);
+  return Number(v) || 0;
+}
+
 function sortedItems() {
   const key = appState.dashSortKey;
   const dir = appState.dashSortDir === 'desc' ? -1 : 1;
+  const isDate = key === 'entryDate' || key === 'reviewDate';
   return appState.filtered.slice().sort(function (a, b) {
+    if (isDate) return (dashDateKey(a[key]) - dashDateKey(b[key])) * dir;
     return dashCompare(a[key], b[key]) * dir;
   });
 }
@@ -2361,6 +2429,8 @@ function setDashSort(key) {
     appState.dashSortKey = key;
     appState.dashSortDir = 'asc';
   }
+  appState.page = 1;
+  updateSortControls();
   renderDashboard();
 }
 
@@ -2400,6 +2470,7 @@ function renderDashboard() {
   applyFilters();
   renderKpiCards();
   updateFilterChips();
+  updateSortControls();
   const grid = getEl('dashboardCards');
   const tableWrap = getEl('dashboardTableWrap');
   const viewCardsBtn = getEl('viewCardsBtn');
@@ -2425,6 +2496,7 @@ function refreshData() {
     populateFilters();
     populateResponsibilitySelect();
     renderReviewReminders();
+    appState.page = 1;
     renderDashboard();
     loadNotifications(true);
     auditLoaded = false;
@@ -4354,6 +4426,7 @@ function submitNewItem(item) {
     appState.summary = data.summary || {};
     if (data.analytics) appState.analytics = data.analytics;
     populateFilters();
+    appState.page = 1;
     renderDashboard();
     showToast('New item created', 'success');
   }).catch(function (err) {
@@ -4420,6 +4493,7 @@ function paintItem_(item) {
   let node;
   try { node = htmlToNode_(html); } catch (err) { return false; }
   el.parentNode.replaceChild(node, el);
+  if (node.scrollIntoView) node.scrollIntoView({ block: 'nearest', inline: 'nearest' });
   return true;
 }
 
@@ -4767,6 +4841,7 @@ function wireGlobalEvents() {
   if (searchInput) {
     searchInput.addEventListener('input', debounce(function () {
       appState.searchQuery = searchInput.value.trim();
+      appState.page = 1;
       updateFilterChips();
       renderDashboard();
     }, 180));
