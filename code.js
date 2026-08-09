@@ -704,14 +704,94 @@ function getServerTime() {
   return Date.now();
 }
 
+/**
+ * Explicit allowlist of every function the frontend may call through
+ * doPost. A function name is only accepted if it is a key here; the value
+ * is the actual global function reference. This replaces the old
+ * eval(fn) dispatch, which allowed arbitrary code execution by anyone
+ * who could reach the anonymous /exec endpoint.
+ * @type {Object<string, Function>}
+ */
+var API_ROUTES = {
+  getServerTime: getServerTime,
+  // getData() is the raw, cacheable read of all dashboard records. It is
+  // intentionally NOT callable anonymously: any viewer session token is
+  // accepted. (The dashboard bootstrap uses getAppData(token) anyway.)
+  getData: function (token) { requireLogin_(token); return getData(); },
+  getAppData: getAppData,
+  validateSession: validateSession,
+  login: login,
+  logout: logout,
+  requestPasswordReset: requestPasswordReset,
+  changePassword: changePassword,
+  addItem: addItem,
+  updateItem: updateItem,
+  deleteItem: deleteItem,
+  markReviewDone: markReviewDone,
+  markReviewNotDone: markReviewNotDone,
+  getAuditEntries: getAuditEntries,
+  adminDeleteAuditRows: adminDeleteAuditRows,
+  adminClearAudit: adminClearAudit,
+  getSubmissions: getSubmissions,
+  addSubmission: addSubmission,
+  updateSubmission: updateSubmission,
+  deleteSubmission: deleteSubmission,
+  lockSubmission: lockSubmission,
+  unlockSubmission: unlockSubmission,
+  toggleSubmissionDisplay: toggleSubmissionDisplay,
+  adminGetUsers: adminGetUsers,
+  adminAddUser: adminAddUser,
+  adminUpdateUser: adminUpdateUser,
+  adminDeleteUser: adminDeleteUser,
+  adminResetPassword: adminResetPassword,
+  adminExportUsers: adminExportUsers,
+  adminImportUsers: adminImportUsers,
+  adminGetUserActivity: adminGetUserActivity,
+  adminEmailAllUsers: adminEmailAllUsers,
+  getAssignableUsers: getAssignableUsers,
+  getReportData: getReportData,
+  getReportTemplates: getReportTemplates,
+  exportToSpreadsheet: exportToSpreadsheet,
+  createPdfReport: createPdfReport,
+  emailReport: emailReport,
+  getMyNotifications: getMyNotifications,
+  markNotificationsRead: markNotificationsRead,
+  clearMyNotifications: clearMyNotifications,
+  generateReviewNotifications: generateReviewNotifications,
+  getTasks: getTasks,
+  getMyTasks: getMyTasks,
+  createTask: createTask,
+  updateTask: updateTask,
+  deleteTask: deleteTask,
+  getDashboardPreferences: getDashboardPreferences,
+  saveDashboardPreferences: saveDashboardPreferences,
+  getRecordDocuments: getRecordDocuments,
+  uploadDocument: uploadDocument,
+  deleteDocument: deleteDocument,
+  getAiInsights: getAiInsights,
+  getCardAiInsight: getCardAiInsight,
+  getLinkContentAiInsight: getLinkContentAiInsight,
+  getFathomStatus: getFathomStatus,
+  listFathomMeetings: listFathomMeetings,
+  getFathomMeetingContent: getFathomMeetingContent,
+  setFathomApiKey: setFathomApiKey,
+  transcribeMeetingSegment: transcribeMeetingSegment,
+  processMeetingRecording: processMeetingRecording,
+  generateMeetingMinutes: generateMeetingMinutes,
+  exportReviewCalendarIcs: exportReviewCalendarIcs,
+  sendWhatsAppReviewReminders: sendWhatsAppReviewReminders
+};
+
 function doPost(e) {
   try {
     const body = JSON.parse(e.postData.contents);
     const fn = body.function;
     const args = body.args || [];
-    // Resolve the global function by name. eval(fn) returns the function
-    // reference without invoking it (untrusted input only names a function).
-    const fnRef = (typeof fn === 'string') ? eval(fn) : null;
+    // Resolve only from the explicit allowlist. Unknown names are rejected;
+    // never eval() untrusted input.
+    const fnRef = (typeof fn === 'string' && Object.prototype.hasOwnProperty.call(API_ROUTES, fn))
+      ? API_ROUTES[fn]
+      : null;
     if (typeof fnRef !== 'function') {
       return JsonResponse_({ error: 'Unknown function: ' + fn });
     }

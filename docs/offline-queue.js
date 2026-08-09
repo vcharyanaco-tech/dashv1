@@ -77,7 +77,7 @@
     var chain = Promise.resolve();
     q.forEach(function (item) {
       chain = chain.then(function () {
-        return realApiCall(item.fn).apply(null, item.args).then(function () {
+        return realApiCall.apply(null, [item.fn].concat(item.args)).then(function () {
           flushed++;
           renderQueueStatus();
           emit('OfflineQueueChange', { pending: remove(item) });

@@ -39,7 +39,7 @@
 ### Phase 3 — Performance & optimization (deployment @81)
 - **Read caching (S1):** the `getData()` payload (items, review statuses,
   formatted fields) is now served from a chunked `CacheService` read cache
-  (`CONFIG.CACHE.TTL`, 300 s), so page loads, refreshes, and report/summary
+  (`CONFIG.CACHE.TTL`, 60 s), so page loads, refreshes, and report/summary
   builders no longer re-read the sheet, rich text, or backgrounds every call.
   The cache is invalidated in every data-sheet write (add/update/delete record,
   mark review done) and safely degrades when disabled or quota-limited.

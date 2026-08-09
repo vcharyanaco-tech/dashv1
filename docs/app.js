@@ -71,7 +71,7 @@ function apiCall_(fn) {
 const ApiService = {
   getServerTime: function () { return apiCall_('getServerTime'); },
   getAppData: function () { return apiCall_('getAppData', getAuthToken()); },
-  getData: function () { return apiCall_('getData'); },
+  getData: function () { return apiCall_('getData', getAuthToken()); },
   addItem: function (item) { return apiCall_('addItem', item, getAuthToken()); },
   updateItem: function (item) { return apiCall_('updateItem', item, getAuthToken()); },
   deleteItem: function (row) { return apiCall_('deleteItem', row, getAuthToken()); },

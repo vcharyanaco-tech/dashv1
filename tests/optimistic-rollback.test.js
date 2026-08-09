@@ -1,10 +1,11 @@
-/**
+﻿/**
  * Unit tests for the Optimistic UI rollback logic (completeTaskOptimistic).
  *
- * The function lives inside app.js / docs/app.js / script.html (three
- * in-sync copies). To test the actual shipped code rather than a re-typed
- * copy, we extract the function body from app.js (the master copy) at load
- * time and run it inside a Node vm sandbox with stubbed DOM + ApiService.
+ * The function lives in docs/app.js (the deployed PWA client), which is kept
+ * in sync with script.html (the GAS client). To test the actual shipped code
+ * rather than a re-typed copy, we extract the function body from
+ * docs/app.js (the source of truth for the PWA) at load time and run it
+ * inside a Node vm sandbox with stubbed DOM + ApiService.
  *
  * Run with:  node --test tests/optimistic-rollback.test.js
  */
@@ -17,12 +18,12 @@ const fs = require('node:fs');
 const path = require('node:path');
 const vm = require('node:vm');
 
-const APP_JS = fs.readFileSync(path.join(__dirname, '..', 'app.js'), 'utf8');
+const APP_JS = fs.readFileSync(path.join(__dirname, '..', 'docs', 'app.js'), 'utf8');
 
 /** Extracts a top-level `function name(` block from the app.js source. */
 function extractFunction(src, name) {
   const start = src.indexOf('function ' + name + '(');
-  assert.notStrictEqual(start, -1, 'function ' + name + ' not found in app.js');
+  assert.notStrictEqual(start, -1, 'function ' + name + ' not found in docs/app.js');
   const open = src.indexOf('{', start);
   assert.notStrictEqual(open, -1, 'open brace not found for ' + name);
 
@@ -108,7 +109,7 @@ function runOptimistic({ row, api, appStateTasks, handleServerFailure }) {
 
   const fnSrc = extractFunction(APP_JS, 'completeTaskOptimistic') +
     '\n;completeTaskOptimistic(42);';
-  vm.runInNewContext(fnSrc, sandbox, { filename: 'app.js (completeTaskOptimistic)' });
+  vm.runInNewContext(fnSrc, sandbox, { filename: 'docs/app.js (completeTaskOptimistic)' });
 
   return { calls, row };
 }
@@ -220,7 +221,7 @@ test('missing row falls back to a full re-render', () => {
   };
   const fnSrc = extractFunction(APP_JS, 'completeTaskOptimistic') +
     '\n;completeTaskOptimistic(7);';
-  vm.runInNewContext(fnSrc, sandbox, { filename: 'app.js (completeTaskOptimistic)' });
+  vm.runInNewContext(fnSrc, sandbox, { filename: 'docs/app.js (completeTaskOptimistic)' });
   assert.strictEqual(renders, 1, 'renderTasks called for missing row');
 });
 
@@ -246,7 +247,7 @@ test('task id is escaped before being interpolated into the selector', async () 
   };
   const fnSrc = extractFunction(APP_JS, 'completeTaskOptimistic') +
     '\n;completeTaskOptimistic(' + JSON.stringify(tricky) + ');';
-  vm.runInNewContext(fnSrc, sandbox, { filename: 'app.js (completeTaskOptimistic)' });
+  vm.runInNewContext(fnSrc, sandbox, { filename: 'docs/app.js (completeTaskOptimistic)' });
 
   // The escaping turns the hostile " and \ into \" and \\ so the attribute
   // value can never close the selector early. Assert the exact escaped form:

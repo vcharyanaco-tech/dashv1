@@ -113,7 +113,7 @@ Both call the same backend API via `fetch(API_URL, { method: 'POST', body:
   rows when the data sheet is empty.
 - Locking: `runWithLock_(callback)` wraps mutations in `LockService` with a
   `CONFIG.LOCK.WAIT_TIME = 30000` ms timeout.
-- Caching: `cacheGet_` / `cachePut_` over `CacheService` (300 s TTL, disabled via
+- Caching: `cacheGet_` / `cachePut_` over `CacheService` (60 s TTL, disabled via
   `CONFIG.CACHE.ENABLED`).
 - Helpers: `preauthorize()` (forces OAuth consent as the deploying user),
   `inspectBoundSheet_`, date/colour/validation helpers.

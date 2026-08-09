@@ -16,13 +16,19 @@ if (!TOKEN) { console.error('Usage: node deploy-worker-api.js <API_TOKEN>'); pro
 const workerSrc = fs.readFileSync(path.join(__dirname, 'worker.js'), 'utf8');
 const workerRoutesSrc = fs.readFileSync(path.join(__dirname, 'worker-enterprise-routes.js'), 'utf8');
 
-// Inject env vars into worker source since we're not using wrangler bindings
-const GAS_URL = 'https://script.google.com/macros/s/AKfycbykqb0AE0a6bwHGk4Q_e5LTXhefKtjao9_r7G0zR1cODl5JP5lH_ooqrgFt2hu3oDo2/exec';
-const GAS_SCRIPT_URL = 'https://script.google.com/macros/s/AKfycbykqb0AE0a6bwHGk4Q_e5LTXhefKtjao9_r7G0zR1cODl5JP5lH_ooqrgFt2hu3oDo2';
+// Inject env vars into worker source since we're not using wrangler bindings.
+// The Apps Script deployment ID is read from docs/app.js (the live client) so
+// the worker always proxies the same deployment the frontend calls.
+const appJs = fs.readFileSync(path.join(__dirname, 'docs', 'app.js'), 'utf8');
+const gasMatch = appJs.match(/\/macros\/s\/([A-Za-z0-9_-]+)\/exec/);
+if (!gasMatch) {
+  console.error('Could not find the Apps Script deployment id in docs/app.js');
+  process.exit(1);
+}
+const GAS_SCRIPT_URL = 'https://script.google.com/macros/s/' + gasMatch[1];
 
-// Patch env references in worker: env.GAS_URL -> literal string
+// Patch env references in worker: env.GAS_SCRIPT_URL -> literal string
 let patchedSrc = workerSrc
-  .replace(/env\.GAS_URL/g, JSON.stringify(GAS_URL))
   .replace(/env\.GAS_SCRIPT_URL/g, JSON.stringify(GAS_SCRIPT_URL));
 
 const boundary = 'boundary' + Date.now();

@@ -138,8 +138,7 @@ const MODULE_ACTIONS = Object.freeze({
   CREATE: 'create',
   EDIT: 'edit',
   DELETE: 'delete',
-  EXPORT: 'export',
-  APPROVE: 'approve'
+  EXPORT: 'export'
 });
 
 /**
@@ -149,8 +148,8 @@ const MODULE_ACTIONS = Object.freeze({
  */
 const PERMISSIONS = Object.freeze({
   ADMIN: {
-    records: ['view', 'create', 'edit', 'delete', 'export', 'approve'],
-    submissions: ['view', 'create', 'edit', 'delete', 'export', 'approve'],
+    records: ['view', 'create', 'edit', 'delete', 'export'],
+    submissions: ['view', 'create', 'edit', 'delete', 'export'],
     audit: ['view', 'delete', 'export'],
     users: ['view', 'create', 'edit', 'delete', 'export'],
     reports: ['view', 'export'],
@@ -182,7 +181,7 @@ const PERMISSIONS = Object.freeze({
 const USER_GROUPS = Object.freeze({
   APPROVER: {
     label: 'Approver',
-    permissions: { records: ['approve'] }
+    permissions: {}
   },
   AUDITOR: {
     label: 'Auditor',
