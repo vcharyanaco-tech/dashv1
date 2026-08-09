@@ -63,10 +63,6 @@
           <svg viewBox="0 0 24 24" width="20" height="20" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"></path><polyline points="14 2 14 8 20 8"></polyline></svg>
           <span>Reports</span>
         </button>
-        <button class="nav-item" data-tab="approvals" onclick="openTab('approvals')">
-          <svg viewBox="0 0 24 24" width="20" height="20" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z"></path><polyline points="9 12 11 14 15 10"></polyline></svg>
-          <span>Approvals</span>
-        </button>
         <button class="nav-item" data-tab="tasks" onclick="openTab('tasks')">
           <svg viewBox="0 0 24 24" width="20" height="20" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M9 11l3 3L22 4"></path><path d="M21 12v7a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h11"></path></svg>
           <span>Tasks</span>
@@ -461,40 +457,10 @@
             </div>
             <h4 class="text-subheading activity-subheading">Recent activity</h4>
             <ul class="activity-recent" id="activityRecentList"></ul>
-           </div>
-         </section>
-
-         <!-- ============================ APPROVALS ============================ -->
-         <section id="approvals" class="tab-panel hidden" aria-labelledby="approvalsTitle">
-           <div class="section-header">
-             <div>
-               <h2 class="text-heading" id="approvalsTitle">Approvals</h2>
-               <p class="section-copy">Review and act on pending approval requests.</p>
-             </div>
-           </div>
-           <div class="settings-card" id="approvalsPendingCard">
-             <div class="settings-card-head"><h3 class="text-subheading">Pending</h3></div>
-             <div class="table-card"><div class="table-scroll" tabindex="0" aria-label="Pending approvals">
-               <table class="data-table" id="approvalsPendingTable">
-                 <thead><tr><th>Record</th><th>Summary</th><th>Submitted</th><th>Action</th></tr></thead>
-                 <tbody id="approvalsPendingBody"></tbody>
-               </table>
-             </div></div>
-             <div id="approvalsPendingEmpty" class="banner banner-info">No pending approvals.</div>
-           </div>
-           <div class="settings-card" id="approvalsMyCard">
-             <div class="settings-card-head"><h3 class="text-subheading">My requests</h3></div>
-             <div class="table-card"><div class="table-scroll" tabindex="0" aria-label="My approval requests">
-               <table class="data-table" id="approvalsMyTable">
-                 <thead><tr><th>Record</th><th>Summary</th><th>Status</th><th>Reviewed</th></tr></thead>
-                 <tbody id="approvalsMyBody"></tbody>
-               </table>
-             </div></div>
-             <div id="approvalsMyEmpty" class="banner banner-info">No requests yet.</div>
-           </div>
+            </div>
           </section>
 
-          <!-- ============================ TASKS ============================ -->
+         <!-- ============================ TASKS ============================ -->
           <section id="tasks" class="tab-panel hidden" aria-labelledby="tasksTitle">
             <div class="section-header">
               <div>
@@ -913,28 +879,6 @@
     </div>
   </div>
 
-  <!-- ============================ REVIEW DIALOG ============================ -->
-  <div id="reviewModal" class="modal-backdrop hidden" role="dialog" aria-modal="true" aria-labelledby="reviewModalTitle">
-    <div class="modal-card modal-card-sm">
-      <div class="modal-header">
-        <h3 class="text-subheading" id="reviewModalTitle">Review request</h3>
-        <button class="icon-btn" type="button" onclick="closeReviewDialog()" aria-label="Close dialog">
-          <svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><line x1="18" y1="6" x2="6" y2="18"></line><line x1="6" y1="6" x2="18" y2="18"></line></svg>
-        </button>
-      </div>
-      <form class="form" novalidate onsubmit="saveReview(); return false;">
-        <input id="reviewApprovalId" type="hidden">
-        <div class="field">
-          <label for="reviewComment">Comment</label>
-          <textarea id="reviewComment" class="input" rows="3" placeholder="Optional comment for the submitter" autocomplete="off"></textarea>
-        </div>
-        <div class="form-row">
-          <button id="reviewApproveBtn" class="btn btn-primary" type="button" onclick="setReviewDecision(true)">Approve</button>
-          <button id="reviewRejectBtn" class="btn btn-danger" type="button" onclick="setReviewDecision(false)">Reject</button>
-          <button class="btn btn-secondary" type="button" onclick="closeReviewDialog()">Cancel</button>
-        </div>
-      </form>
-    </div>
   </div>
 
   <!-- ============================ TASK MODAL ============================ -->

@@ -94,10 +94,6 @@ const ApiService = {
   getMyNotifications: function () { return apiCall_('getMyNotifications', getAuthToken()); },
   markNotificationsRead: function (ids) { return apiCall_('markNotificationsRead', ids, getAuthToken()); },
   clearMyNotifications: function () { return apiCall_('clearMyNotifications', getAuthToken()); },
-  submitRecordReview: function (row, summary) { return apiCall_('submitRecordReview', row, summary, getAuthToken()); },
-  getPendingApprovals: function () { return apiCall_('getPendingApprovals', getAuthToken()); },
-  getMyApprovals: function () { return apiCall_('getMyApprovals', getAuthToken()); },
-  reviewApproval: function (id, approve, comment) { return apiCall_('reviewApproval', id, approve, comment, getAuthToken()); },
   createTask: function (params) { return apiCall_('createTask', params, getAuthToken()); },
   getTasks: function (filters) { return apiCall_('getTasks', filters || {}, getAuthToken()); },
   getMyTasks: function () { return apiCall_('getMyTasks', getAuthToken()); },
@@ -1748,7 +1744,6 @@ function openTab(tabId) {
   if (tabId === 'reports') renderReportPreview();
   if (tabId === 'settings') renderSettings();
   if (tabId === 'dashboard') renderDashboard();
-  if (tabId === 'approvals') renderApprovals();
   if (tabId === 'tasks') renderTasks();
 }
 
@@ -3537,7 +3532,6 @@ function openRecordDetail(row) {
   let actionsHtml = '';
   if (appState.isEditor) {
     actionsHtml += `<button class="btn btn-primary" type="button" onclick="closeRecordDetail(); editItem('${escAttr(item.row)}');">Edit</button>`;
-    actionsHtml += `<button class="btn btn-secondary" type="button" onclick="closeRecordDetail(); submitRecordReview('${escAttr(item.row)}', '${escAttr((item.description || '').slice(0, 80))}');">Submit for review</button>`;
   }
   actionsHtml += `
     <button class="btn btn-secondary" type="button" onclick="closeRecordDetail(); openSubmissionsModal('${escAttr(item.row)}','${escAttr(item.id)}');">Submit update</button>
@@ -3617,104 +3611,6 @@ function deleteRecordDoc(docId, row) {
 
 function closeRecordDetail() {
   closeDialog('recordDetailModal');
-}
-
-function submitRecordReview(row, summary) {
-  showOverlay('Submitting review request…');
-  ApiService.submitRecordReview(row, summary).then(function () {
-    hideOverlay();
-    showToast('Review request submitted.', 'success');
-  }).catch(function (err) {
-    hideOverlay();
-    if (handleServerFailure(err)) return;
-    showToast('Could not submit review: ' + (err.message || err), 'error');
-  });
-}
-
-/* ---------------------------------- Approvals ---------------------------------- */
-
-function loadApprovals() {
-  return Promise.all([
-    ApiService.getPendingApprovals(),
-    ApiService.getMyApprovals()
-  ]).then(function (results) {
-    appState.pendingApprovals = results[0] || [];
-    appState.myApprovals = results[1] || [];
-    renderApprovals();
-  }).catch(function (err) {
-    if (handleServerFailure(err)) return;
-    showToast('Could not load approvals: ' + (err.message || err), 'error');
-  });
-}
-
-function renderApprovals() {
-  const pending = appState.pendingApprovals || [];
-  const mine = appState.myApprovals || [];
-  const pendingBody = getEl('approvalsPendingBody');
-  const pendingEmpty = getEl('approvalsPendingEmpty');
-  const myBody = getEl('approvalsMyBody');
-  const myEmpty = getEl('approvalsMyEmpty');
-
-  if (pendingBody) {
-    pendingBody.innerHTML = pending.map(function (a) {
-      return '<tr>' +
-        '<td>' + escapeHtml('Record #' + (a.targetRow || '')) + '</td>' +
-        '<td class="preserve-whitespace">' + escapeHtml(a.summary || '') + '</td>' +
-        '<td>' + escapeHtml(formatNotifTime(a.submittedAt)) + '</td>' +
-        '<td><button class="btn btn-primary btn-small" type="button" onclick="openReviewDialog(\'' + escapeAttr(a.id) + '\')">Review</button></td>' +
-        '</tr>';
-    }).join('') || '<tr><td colspan="4">No pending approvals.</td></tr>';
-  }
-  if (pendingEmpty) pendingEmpty.classList.toggle('hidden', !!pending.length);
-
-  if (myBody) {
-    myBody.innerHTML = mine.map(function (a) {
-      const statusBadge = a.status === 'APPROVED'
-        ? '<span class="badge" data-tone="success">Approved</span>'
-        : a.status === 'REJECTED'
-          ? '<span class="badge" data-tone="danger">Rejected</span>'
-          : '<span class="badge" data-tone="muted">Pending</span>';
-      return '<tr>' +
-        '<td>' + escapeHtml('Record #' + (a.targetRow || '')) + '</td>' +
-        '<td class="preserve-whitespace">' + escapeHtml(a.summary || '') + '</td>' +
-        '<td>' + statusBadge + '</td>' +
-        '<td>' + escapeHtml(a.reviewedBy ? formatNotifTime(a.reviewedAt) : '—') + '</td>' +
-        '</tr>';
-    }).join('') || '<tr><td colspan="4">No requests yet.</td></tr>';
-  }
-  if (myEmpty) myEmpty.classList.toggle('hidden', !!mine.length);
-}
-
-function openReviewDialog(id) {
-  getEl('reviewApprovalId').value = id;
-  getEl('reviewComment').value = '';
-  openDialog('reviewModal');
-  const commentEl = getEl('reviewComment');
-  if (commentEl) commentEl.focus();
-}
-
-function closeReviewDialog() {
-  closeDialog('reviewModal');
-}
-
-function setReviewDecision(approve) {
-  const id = getEl('reviewApprovalId').value;
-  const comment = getEl('reviewComment').value;
-  saveReview(id, approve, comment);
-}
-
-function saveReview(id, approve, comment) {
-  showOverlay('Processing review…');
-  ApiService.reviewApproval(id, approve, comment).then(function (result) {
-    hideOverlay();
-    closeReviewDialog();
-    showToast('Approval ' + (approve ? 'approved' : 'rejected') + '.', 'success');
-    loadApprovals();
-  }).catch(function (err) {
-    hideOverlay();
-    if (handleServerFailure(err)) return;
-    showToast('Could not process review: ' + (err.message || err), 'error');
-  });
 }
 
 /* ---------------------------------- Tasks ---------------------------------- */
@@ -4183,7 +4079,6 @@ const COMMAND_ACTIONS = [
   { key: 'goto-audit', label: 'Go to Audit log', shortcut: 'G A', action: function () { openTab('audit'); closeCommandPalette(); } },
   { key: 'goto-reports', label: 'Go to Reports', shortcut: 'G R', action: function () { openTab('reports'); closeCommandPalette(); } },
   { key: 'goto-settings', label: 'Go to Settings', shortcut: 'G S', action: function () { openTab('settings'); closeCommandPalette(); } },
-  { key: 'goto-approvals', label: 'Go to Approvals', shortcut: 'G P', action: function () { openTab('approvals'); closeCommandPalette(); } },
   { key: 'goto-tasks', label: 'Go to Tasks', shortcut: 'G T', action: function () { openTab('tasks'); closeCommandPalette(); } },
   { key: 'refresh', label: 'Refresh data', shortcut: 'R', action: function () { refreshData(); closeCommandPalette(); } },
   { key: 'add-record', label: 'Add new record', shortcut: 'N', action: function () { openAddModal(); closeCommandPalette(); }, requireEditor: true },
@@ -4844,7 +4739,7 @@ function wireGlobalEvents() {
         cancelConfirmDialog();
         return;
       }
-      ['editModal', 'aboutModal', 'submissionsModal', 'recordDetailModal', 'editUserModal', 'reviewModal', 'taskModal', 'columnModal', 'commandPalette', 'previewModal', 'linkModal'].forEach(function (id) {
+      ['editModal', 'aboutModal', 'submissionsModal', 'recordDetailModal', 'editUserModal', 'taskModal', 'columnModal', 'commandPalette', 'previewModal', 'linkModal'].forEach(function (id) {
         const el = getEl(id);
         if (el && !el.classList.contains('hidden')) closeDialog(id);
       });
