@@ -60,10 +60,10 @@ function notificationRecordFromRow_(row) {
    primary email so notifications are always found for any alias. */
 function appendNotification_(email, type, title, body, link) {
   email = primaryEmail_(email);
-  if (!isValidEmail_(email)) return;
+  if (!AppUtils.isValidEmail(email)) return;
   const sh = notificationsSheet_();
   if (!sh) return;
-  sh.appendRow([Utilities.getUuid().replace(/-/g, ''), email, String(type || NOTIFICATION_TYPES.SYSTEM), String(title || ''), String(body || ''), String(link || ''), now_(), null]);
+  sh.appendRow([Utilities.getUuid().replace(/-/g, ''), email, String(type || NOTIFICATION_TYPES.SYSTEM), String(title || ''), String(body || ''), String(link || ''), AppUtils.now(), null]);
   pruneNotifications_(email);
   invalidateCounts_('notif'); // badge counts change
 }
@@ -195,7 +195,7 @@ function markNotificationsRead(ids, token) {
       if (wantAll || idSet[String(values[i][0])]) rows.push(i + 2);
     }
     if (rows.length) {
-      const now = now_();
+      const now = AppUtils.now();
       const readRange = sh.getRange(1, NOTIFICATION_COL.READ_AT, sh.getLastRow(), 1);
       rows.forEach(function (row) { readRange.getCell(row, 1).setValue(now); });
       invalidateCounts_('notif');

@@ -44,7 +44,7 @@ function countCacheKey_(scope, email) {
   const r = countGen_(COUNT_GEN_PROP.RECORDS);
   const t = countGen_(COUNT_GEN_PROP.TASKS);
   const n = countGen_(COUNT_GEN_PROP.NOTIF);
-  return 'counts:v1:' + scope + ':d' + d + ':r' + r + ':t' + t + ':n' + n + ':u' + safeCacheKey_(email);
+  return 'counts:v1:' + scope + ':d' + d + ':r' + r + ':t' + t + ':n' + n + ':u' + AppUtils.safeCacheKey(email);
 }
 
 function countCacheRead_(key) {

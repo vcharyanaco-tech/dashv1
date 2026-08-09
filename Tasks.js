@@ -112,7 +112,7 @@ function createTask(params, token) {
     const sh = tasksSheet_();
     if (!sh) throw clientError_('Tasks sheet unavailable.');
     const id = Utilities.getUuid().replace(/-/g, '');
-    const now = now_();
+    const now = AppUtils.now();
     sh.appendRow([
       id,
       recordRow,
@@ -213,7 +213,7 @@ function updateTask(id, fields, token) {
       updates.dueDate = fields.dueDate ? new Date(fields.dueDate) : null;
     }
 
-    const now = now_();
+    const now = AppUtils.now();
     const range = sh.getRange(rowIdx, 1, 1, TASK_SHEET_HEADERS.length);
     const row = range.getValues()[0];
     if (updates.title !== undefined) row[TASK_COL.TITLE - 1] = updates.title;
@@ -476,7 +476,7 @@ function updateTaskField(id, field, value, rowVersion, idempotencyKey, token) {
         }
       }
 
-      const now = now_();
+      const now = AppUtils.now();
       const range = sh.getRange(rowIdx, 1, 1, TASK_SHEET_HEADERS.length);
       const row = range.getValues()[0];
       const newRowVersion = (existing.rowVersion || 1) + 1;

@@ -98,10 +98,6 @@ function isBootstrapAdmin_(email) {
   return false;
 }
 
-function isValidEmail_(email) {
-  return /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(String(email || '').trim());
-}
-
 /* Splits a stored Email cell (comma-separated aliases) into lowercased,
    trimmed values, dropping empties. A plain single email yields [email]. */
 function emailList_(value) {
@@ -138,7 +134,7 @@ function emailsMatch_(storedCell, query) {
 function isValidEmailList_(value) {
   const list = emailList_(value);
   if (!list.length) return false;
-  return list.every(function (e) { return isValidEmail_(e); });
+  return list.every(function (e) { return AppUtils.isValidEmail(e); });
 }
 
 function isValidUsername_(username) {
@@ -227,10 +223,6 @@ function isV2Hash_(hash) {
 
 function generateSalt_() {
   return Utilities.getUuid().replace(/-/g, '');
-}
-
-function safeCacheKey_(value) {
-  return sha256Hex_(String(value || '')).slice(0, 16);
 }
 
 
@@ -588,7 +580,7 @@ function verifyPassword_(email, password) {
 function sessionEpoch_(email) {
   try {
     const props = PropertiesService.getScriptProperties();
-    return String(props.getProperty('sessEpoch_' + safeCacheKey_(email)) || '0');
+    return String(props.getProperty('sessEpoch_' + AppUtils.safeCacheKey(email)) || '0');
   } catch (err) {
     return '0';
   }
@@ -596,7 +588,7 @@ function sessionEpoch_(email) {
 
 function bumpSessionEpoch_(email) {
   try {
-    PropertiesService.getScriptProperties().setProperty('sessEpoch_' + safeCacheKey_(email), String(Date.now()));
+    PropertiesService.getScriptProperties().setProperty('sessEpoch_' + AppUtils.safeCacheKey(email), String(Date.now()));
   } catch (err) {}
 }
 
@@ -645,7 +637,7 @@ function destroySession_(token) {
 
 function recordFailedAttempt_(email) {
   const cache = CacheService.getScriptCache();
-  const key = 'loginfail_' + safeCacheKey_(email);
+  const key = 'loginfail_' + AppUtils.safeCacheKey(email);
   const count = Number(cache.get(key) || 0) + 1;
   cache.put(key, String(count), 60 * CONFIG.USERS.LOCK_MINUTES);
   return count;
@@ -653,12 +645,12 @@ function recordFailedAttempt_(email) {
 
 function isAttemptBlocked_(email) {
   const cache = CacheService.getScriptCache();
-  const key = 'loginfail_' + safeCacheKey_(email);
+  const key = 'loginfail_' + AppUtils.safeCacheKey(email);
   return Number(cache.get(key) || 0) >= CONFIG.USERS.MAX_LOGIN_ATTEMPTS;
 }
 
 function clearAttempts_(email) {
-  CacheService.getScriptCache().remove('loginfail_' + safeCacheKey_(email));
+  CacheService.getScriptCache().remove('loginfail_' + AppUtils.safeCacheKey(email));
 }
 
 
@@ -857,7 +849,7 @@ function login(identifier, password) {
   // per-email lockout below, and a hit here returns a clean object (not a
   // thrown error) so doPost's generic-error sanitisation never masks it.
   try {
-    checkRateLimit_('login_' + safeCacheKey_(identifier), CONFIG.RATE_LIMIT.LOGIN_MAX, CONFIG.RATE_LIMIT.LOGIN_WINDOW);
+    checkRateLimit_('login_' + AppUtils.safeCacheKey(identifier), CONFIG.RATE_LIMIT.LOGIN_MAX, CONFIG.RATE_LIMIT.LOGIN_WINDOW);
   } catch (err) {
     return { success: false, message: 'Too many login attempts. Please try again in a minute.' };
   }
@@ -870,7 +862,7 @@ function login(identifier, password) {
 
   let rec = resolveUserByIdentifier_(identifier);
 
-  if (!rec && isValidEmail_(identifier) && isBootstrapAdmin_(identifier)) {
+  if (!rec && AppUtils.isValidEmail(identifier) && isBootstrapAdmin_(identifier)) {
     ensureUserRecord_(identifier);
     rec = findUserRecord_(identifier);
   }
@@ -957,7 +949,7 @@ function requestPasswordReset(identifier) {
     return { success: false, message: 'Enter your email or username.' };
   }
 
-  checkRateLimit_('pwreset_' + safeCacheKey_(identifier), CONFIG.RATE_LIMIT.PASSWORD_RESET_MAX, CONFIG.RATE_LIMIT.PASSWORD_RESET_WINDOW);
+  checkRateLimit_('pwreset_' + AppUtils.safeCacheKey(identifier), CONFIG.RATE_LIMIT.PASSWORD_RESET_MAX, CONFIG.RATE_LIMIT.PASSWORD_RESET_WINDOW);
 
   const rec = resolveUserByIdentifier_(identifier);
   if (!rec) {
@@ -1001,7 +993,7 @@ function requestPasswordReset(identifier) {
  */
 function changePassword(currentPassword, newPassword, token) {
   const user = requireLogin_(token);
-  checkRateLimit_('chpw_' + safeCacheKey_(user.email), CONFIG.RATE_LIMIT.PASSWORD_CHANGE_MAX, CONFIG.RATE_LIMIT.PASSWORD_CHANGE_WINDOW);
+  checkRateLimit_('chpw_' + AppUtils.safeCacheKey(user.email), CONFIG.RATE_LIMIT.PASSWORD_CHANGE_MAX, CONFIG.RATE_LIMIT.PASSWORD_CHANGE_WINDOW);
 
   if (!verifyPassword_(user.email, currentPassword)) {
     return { success: false, message: 'Current password is incorrect.' };
@@ -1071,7 +1063,7 @@ function getAssignableUsers(token) {
  */
 function adminAddUser(email, username, role, password, group, department, office, token) {
   const admin = requireAdmin_(token);
-  checkRateLimit_('adminuser_' + safeCacheKey_(admin.email), CONFIG.RATE_LIMIT.ADMIN_USER_MAX, CONFIG.RATE_LIMIT.ADMIN_USER_WINDOW);
+  checkRateLimit_('adminuser_' + AppUtils.safeCacheKey(admin.email), CONFIG.RATE_LIMIT.ADMIN_USER_MAX, CONFIG.RATE_LIMIT.ADMIN_USER_WINDOW);
 
   return runWithLock_(function () {
     email = String(email || '').toLowerCase().trim();
@@ -1268,7 +1260,7 @@ function parseCsvLine_(line) {
  */
 function adminImportUsers(csv, token) {
   const admin = requireAdmin_(token);
-  checkRateLimit_('adminuser_' + safeCacheKey_(admin.email), CONFIG.RATE_LIMIT.ADMIN_USER_MAX, CONFIG.RATE_LIMIT.ADMIN_USER_WINDOW);
+  checkRateLimit_('adminuser_' + AppUtils.safeCacheKey(admin.email), CONFIG.RATE_LIMIT.ADMIN_USER_MAX, CONFIG.RATE_LIMIT.ADMIN_USER_WINDOW);
 
   const result = { users: listUserRecords_(), added: 0, updated: 0, errors: [] };
   if (!csv || !String(csv).trim()) throw clientError_('Paste CSV content to import.');
@@ -1509,7 +1501,7 @@ function adminKillUserSessions(email, token) {
   // Normalize BEFORE the rate-limit key so casing/whitespace permutations of
   // the same address share one bucket (no per-variant bypass).
   email = String(email || '').toLowerCase().trim();
-  checkRateLimit_('killses_' + safeCacheKey_(email), CONFIG.RATE_LIMIT.ADMIN_USER_MAX, CONFIG.RATE_LIMIT.ADMIN_USER_WINDOW);
+  checkRateLimit_('killses_' + AppUtils.safeCacheKey(email), CONFIG.RATE_LIMIT.ADMIN_USER_MAX, CONFIG.RATE_LIMIT.ADMIN_USER_WINDOW);
 
   return runWithLock_(function () {
     if (!findUserRecord_(email)) throw clientError_('User not found.');

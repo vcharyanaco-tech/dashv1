@@ -42,10 +42,14 @@ const AppUtils = {
   },
 
   /** Hash-safe cache key (avoids hitting CacheService key-length limits). */
-  safeCacheKey: function (value) { return safeCacheKey_(value); },
+  safeCacheKey: function (value) {
+    return sha256Hex_(String(value || '')).slice(0, 16);
+  },
 
   /** Validates an email address. */
-  isValidEmail: function (email) { return isValidEmail_(email); },
+  isValidEmail: function (email) {
+    return /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(String(email || '').trim());
+  },
 
   /** Days until a date, or null when unparseable. */
   daysUntilDate: function (value) { return daysUntilDate_(value); },
@@ -66,6 +70,18 @@ const AppUtils = {
   /** Today's date string in the display format (script timezone). */
   today: function () {
     return Utilities.formatDate(new Date(), Session.getScriptTimeZone(), DATE_FORMAT.DISPLAY);
+  },
+
+  /** Current timestamp (Date). */
+  now: function () {
+    return new Date();
+  },
+
+  /** Adds whole days to a Date, preserving the time-of-day components. */
+  addDays: function (date, days) {
+    const out = new Date(date.getTime());
+    out.setDate(out.getDate() + days);
+    return out;
   },
 
   /** Parses a display date ("dd.MM.yyyy") or Date into a Date (null if unparseable). */
@@ -697,7 +713,7 @@ function preauthorize() {
  */
 function sendMail_(to, subject, body) {
   to = primaryEmail_(to);
-  if (!to || !isValidEmail_(to)) return false;
+  if (!to || !AppUtils.isValidEmail(to)) return false;
   if (!subject) return false;
   try {
     MailApp.sendEmail({
@@ -1099,10 +1115,11 @@ function patchCachedDataRow_(row) {
 /* ============================================================
  * Date Helpers
  *
- * formatDate / today / parseDisplayDate now live in AppUtils (see top of
- * file). daysUntilDate_ below is the full implementation and is DELEGATED TO
- * by AppUtils.daysUntilDate; it stays top-level so existing bare-name callers
- * keep working during the incremental migration.
+ * formatDate / today / parseDisplayDate / now / addDays now live in
+ * AppUtils (see top of file). daysUntilDate_ below is the full
+ * implementation and is DELEGATED TO by AppUtils.daysUntilDate; it stays
+ * top-level so existing bare-name callers keep working during the
+ * incremental migration.
  * ============================================================ */
 
 /* Whole days from today (script timezone) to the given display date.
@@ -1114,19 +1131,6 @@ function daysUntilDate_(value) {
   const today = new Date(now.getFullYear(), now.getMonth(), now.getDate());
   const target = new Date(d.getFullYear(), d.getMonth(), d.getDate());
   return Math.round((target - today) / 86400000);
-}
-
-/* Adds whole days to a Date, preserving the time-of-day components. */
-function addDays_(date, days) {
-  const out = new Date(date.getTime());
-  out.setDate(out.getDate() + days);
-  return out;
-}
-
-function now_() {
-
-  return new Date();
-
 }
 
 

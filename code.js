@@ -612,7 +612,7 @@ function sendReviewReminders(token) {
 
     users.forEach(function (user) {
       const email = String(user.primaryEmail || '').trim().toLowerCase();
-      if (!email || !isValidEmail_(email)) return;
+      if (!email || !AppUtils.isValidEmail(email)) return;
       if (!responsibilityMatchesUser_(responsibility, user)) return;
 
       const dedupeKey = 'remind_' + todayKey + '_' + item.row + '_' + email;

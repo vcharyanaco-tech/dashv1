@@ -56,7 +56,7 @@ test('server: adminKillUserSessions bumps the epoch, requires admin, audits', ()
   const fn = loadFunction(AUTH, 'adminKillUserSessions', {
     requireAdmin_(token) { assert.strictEqual(token, 'tok'); return { email: 'admin@x.com' }; },
     checkRateLimit_() {},
-    safeCacheKey_(v) { return String(v); },
+    AppUtils: { safeCacheKey(v) { return String(v); } },
     CONFIG: { RATE_LIMIT: { ADMIN_USER_MAX: 20, ADMIN_USER_WINDOW: 60 } },
     runWithLock_(cb) { calls.locked++; return cb(); },
     findUserRecord_(email) { return email === 'victim@x.com' ? { email: email } : null; },
@@ -80,7 +80,7 @@ test('server: self-target sets reAuth so the client prompts for sign-in', () => 
   const fn = loadFunction(AUTH, 'adminKillUserSessions', {
     requireAdmin_() { return { email: 'me@x.com' }; },
     checkRateLimit_() {},
-    safeCacheKey_(v) { return String(v); },
+    AppUtils: { safeCacheKey(v) { return String(v); } },
     CONFIG: { RATE_LIMIT: { ADMIN_USER_MAX: 20, ADMIN_USER_WINDOW: 60 } },
     runWithLock_(cb) { return cb(); },
     findUserRecord_(email) { return { email: email }; },
@@ -96,7 +96,7 @@ test('server: adminKillUserSessions rejects unknown users', () => {
   const fn = loadFunction(AUTH, 'adminKillUserSessions', {
     requireAdmin_() { return { email: 'admin@x.com' }; },
     checkRateLimit_() {},
-    safeCacheKey_(v) { return String(v); },
+    AppUtils: { safeCacheKey(v) { return String(v); } },
     CONFIG: { RATE_LIMIT: { ADMIN_USER_MAX: 20, ADMIN_USER_WINDOW: 60 } },
     runWithLock_(cb) { return cb(); },
     findUserRecord_() { return null; },
@@ -110,7 +110,7 @@ test('server: adminKillUserSessions does NOT touch the password hash', () => {
   const fn = loadFunction(AUTH, 'adminKillUserSessions', {
     requireAdmin_() { return { email: 'admin@x.com' }; },
     checkRateLimit_() {},
-    safeCacheKey_(v) { return String(v); },
+    AppUtils: { safeCacheKey(v) { return String(v); } },
     CONFIG: { RATE_LIMIT: { ADMIN_USER_MAX: 20, ADMIN_USER_WINDOW: 60 } },
     runWithLock_(cb) { return cb(); },
     findUserRecord_(email) { return { email: email }; },
