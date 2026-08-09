@@ -16,7 +16,7 @@
     outputSheetName: 'ICS_EXPORT'
   },
   FATHOM: {
-    enabled: false,
+    enabled: true,
     apiBaseUrl: 'https://api.fathom.ai/external/v1',
     apiKey: '',             // PLACEHOLDER - real key goes in Script Properties (FATHOM_API_KEY)
     maxMeetings: 20         // how many recent meetings to list when pulling notes
