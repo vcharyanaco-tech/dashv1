@@ -115,6 +115,7 @@ function addRecord_(item, token) {
       );
 
     bumpDataGeneration_();
+    invalidateCounts_('records'); // KPI totals change
 
     try {
       notifyStaffLocked_(NOTIFICATION_TYPES.RECORD, 'New item added', 'Record #' + id + ' · ' + normalized.sector + (normalized.description ? ' — ' + normalized.description : ''), '', editor.email);
@@ -202,6 +203,7 @@ function updateRecord_(item, token) {
       );
 
     patchCachedDataRow_(row);
+    invalidateCounts_('records'); // KPI totals change
 
     try {
       notifyStaffLocked_(NOTIFICATION_TYPES.RECORD, 'Record updated', 'Record #' + normalized.id + ' · ' + normalized.sector + (normalized.description ? ' — ' + normalized.description : ''), '', editor.email);
@@ -226,6 +228,7 @@ function deleteRecord_(row, token) {
     sheet.deleteRow(row);
     dataRenumber_();
     bumpDataGeneration_();
+    invalidateCounts_('records'); // KPI totals change
 
     try {
       notifyStaffLocked_(NOTIFICATION_TYPES.RECORD, 'Item deleted', 'Record #' + deletedId + ' was removed from the dashboard.', '', editor.email);
@@ -250,6 +253,7 @@ function markReviewDone_(row, token) {
     sheet.getRange(row, COL.REVIEW_DATE).setBackground(CONFIG.COLORS.REVIEW_DONE);
     logAudit_(ACTIONS.REVIEW_DONE, String(row), 'Marked review as done');
     patchCachedDataRow_(row);
+    invalidateCounts_('records');
 
     try {
       notifyStaffLocked_(NOTIFICATION_TYPES.RECORD, 'Review marked done', 'Review for record #' + (row - CONFIG.SHEET.START_ROW + 1) + ' was marked as done.', '', admin.email);
@@ -279,6 +283,7 @@ function markReviewNotDone_(row, token) {
     sheet.getRange(row, COL.REVIEW_DATE).setBackground(CONFIG.COLORS.NORMAL);
     logAudit_(ACTIONS.REVIEW_NOT_DONE, String(row), 'Marked review as not done');
     patchCachedDataRow_(row);
+    invalidateCounts_('records');
 
     try {
       notifyStaffLocked_(NOTIFICATION_TYPES.RECORD, 'Review reopened', 'Review for record #' + (row - CONFIG.SHEET.START_ROW + 1) + ' was marked as not done (review due again).', '', admin.email);

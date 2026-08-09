@@ -6,7 +6,21 @@
  * ============================================================
  */
 
+/* Point 7: the bootstrap admin password is read from Script Properties
+ * (ADMIN_BOOTSTRAP_PASSWORD) so no credential ships in source. The constant
+ * below is only a development fallback — set the property in production and
+ * remove the literal from this file. */
 const DEFAULT_ADMIN_PASSWORD = 'Admin@123';
+
+/* Reads the configured bootstrap admin password, falling back to the legacy
+ * constant so fresh deployments keep working until the property is set. */
+function bootstrapAdminPassword_() {
+  try {
+    const p = PropertiesService.getScriptProperties().getProperty('ADMIN_BOOTSTRAP_PASSWORD');
+    if (p && String(p).length >= 8) return String(p);
+  } catch (err) {}
+  return DEFAULT_ADMIN_PASSWORD;
+}
 
 const ADMIN_USERS = [
   "vcharyanaco@gmail.com"
@@ -18,7 +32,7 @@ const EDITOR_USERS = [
 const VIEWER_USERS = [
 ];
 
-const USER_SHEET_HEADERS = ['Email', 'Role', 'Salt', 'PasswordHash', 'MustChange', 'CreatedBy', 'CreatedAt', 'ResetToken', 'ResetExpires', 'Group', 'Department', 'Office', 'Preferences', 'ResetRequested', 'Username'];
+const USER_SHEET_HEADERS = ['Email', 'Role', 'Salt', 'PasswordHash', 'MustChange', 'CreatedBy', 'CreatedAt', 'ResetToken', 'ResetExpires', 'Group', 'Department', 'Office', 'Preferences', 'ResetRequested', 'Username', 'Id'];
 
 const USER_COL = Object.freeze({
   EMAIL: 1,
@@ -35,7 +49,8 @@ const USER_COL = Object.freeze({
   OFFICE: 12,
   PREFERENCES: 13,
   RESET_REQUESTED: 14,
-  USERNAME: 15
+  USERNAME: 15,
+  ID: 16
 });
 
 function getCurrentUser() {
@@ -127,12 +142,71 @@ function sha256Hex_(input) {
   }).join('');
 }
 
+/* Legacy v1 hasher (salted SHA-256, 500 iterations). Kept ONLY to verify
+ * existing accounts; all new hashes are PBKDF2 v2 (see hashPasswordV2_).
+ * Legacy hashes are transparently upgraded to v2 on the next successful
+ * login, so this function can be deleted once every user has signed in. */
 function hashPassword_(password, salt) {
   let hash = sha256Hex_((salt || '') + '|' + (password || ''));
   for (let i = 0; i < 500; i++) {
     hash = sha256Hex_(hash + '|' + (salt || ''));
   }
   return hash;
+}
+
+/* ============================================================
+ * Point 7: PBKDF2-HMAC-SHA256 password hashing (v2)
+ *
+ * Apps Script has no native PBKDF2, so we build the standard PBKDF2
+ * construction over Utilities.computeHmacSha256Signature (HMAC-SHA256,
+ * password as the key). The stored hash records its own iteration count:
+ *   "pbkdf2$<iterations>$<hex>"
+ * so the iteration count can be raised later without forcing a re-login.
+ * ============================================================ */
+
+const PASSWORD_VERSION_V2 = 'pbkdf2';
+
+/** PBKDF2-HMAC-SHA256 (RFC 2898) — dkLen bytes of derived key as hex. */
+function pbkdf2HmacSha256_(password, salt, iterations, dkLen) {
+  iterations = iterations || CONFIG.USERS.PBKDF2_ITERATIONS;
+  dkLen = dkLen || 32;
+  const int32be = function (n) {
+    return String.fromCharCode((n >>> 24) & 0xff, (n >>> 16) & 0xff, (n >>> 8) & 0xff, n & 0xff);
+  };
+  const hmac = function (msg) {
+    return Array.prototype.slice.call(
+      Utilities.computeHmacSha256Signature(msg, String(password), Utilities.Charset.UTF_8)
+    );
+  };
+  const hex = function (b) {
+    return ((b + 256) % 256).toString(16).padStart(2, '0');
+  };
+
+  const out = [];
+  let blockIndex = 1;
+  while (out.length < dkLen) {
+    // U1 = PRF(password, salt || INT_32_BE(blockIndex))
+    let u = hmac((salt || '') + int32be(blockIndex));
+    let t = u.slice();
+    for (let i = 1; i < iterations; i++) {
+      u = hmac(u);
+      t = t.map(function (v, j) { return (v ^ u[j]) & 0xff; });
+    }
+    out.push.apply(out, t);
+    blockIndex++;
+  }
+  return out.slice(0, dkLen).map(hex).join('');
+}
+
+/** Builds a v2 hash string: pbkdf2$<iterations>$<hex>. */
+function hashPasswordV2_(password, salt, iterations) {
+  const it = iterations || CONFIG.USERS.PBKDF2_ITERATIONS;
+  return PASSWORD_VERSION_V2 + '$' + it + '$' + pbkdf2HmacSha256_(password, salt, it, 32);
+}
+
+/** True when the stored hash uses the v2 (PBKDF2) format. */
+function isV2Hash_(hash) {
+  return typeof hash === 'string' && hash.indexOf(PASSWORD_VERSION_V2 + '$') === 0;
 }
 
 function generateSalt_() {
@@ -190,6 +264,7 @@ function readUserRecords_() {
 
 function userRecordFromRow_(row) {
   return {
+    id: String(row[15] || ''),
     role: row[1] || ROLES.VIEWER,
     salt: row[2] || '',
     passwordHash: row[3] || '',
@@ -314,7 +389,8 @@ function addUserRecord_(email, role, salt, passwordHash, createdBy, group, depar
     office || '',
     '',
     null,
-    username || ''
+    username || '',
+    newEntityId_('USER')
   ]]);
 }
 
@@ -415,6 +491,7 @@ function listUserRecords_() {
   for (let i = 0; i < values.length; i++) {
     if (!String(values[i][0] || '').trim()) continue;
     out.push({
+      id: String(values[i][15] || ''),
       email: String(values[i][0] || '').trim(),
       emailList: emailList_(values[i][0]),
       primaryEmail: primaryEmail_(values[i][0]),
@@ -441,7 +518,7 @@ function ensureUserRecord_(email) {
     let rec = findUserRecord_(email);
     if (!rec) {
       const salt = generateSalt_();
-      addUserRecord_(email, ROLES.ADMIN, salt, hashPassword_(DEFAULT_ADMIN_PASSWORD, salt), 'system');
+      addUserRecord_(email, ROLES.ADMIN, salt, hashPasswordV2_(bootstrapAdminPassword_(), salt), 'system');
       setUserField_(email, 'mustChange', true);
       rec = findUserRecord_(email);
     }
@@ -453,7 +530,16 @@ function ensureUserRecord_(email) {
 
 function verifyPasswordRecord_(rec, password) {
   if (!rec || !rec.salt || !rec.passwordHash) return false;
-  return hashPassword_(password, rec.salt) === rec.passwordHash;
+  const hash = String(rec.passwordHash);
+  if (isV2Hash_(hash)) {
+    const parts = hash.split('$');
+    const iterations = parseInt(parts[1], 10);
+    const expected = parts[2] || '';
+    if (!isFinite(iterations) || iterations <= 0) return false;
+    return pbkdf2HmacSha256_(password, rec.salt, iterations, 32) === expected;
+  }
+  // Legacy v1 hash (salted SHA-256, 500 iterations) — verify, then upgrade.
+  return hashPassword_(password, rec.salt) === hash;
 }
 
 function verifyPassword_(email, password) {
@@ -465,16 +551,63 @@ function verifyPassword_(email, password) {
  * Sessions (CacheService tokens, TTL 6 hours)
  * ============================================================ */
 
+/* ============================================================
+ * Point 7: per-user session epoch
+ *
+ * Bumped when a user's password changes, role changes, or the account is
+ * deleted — every session minted before the bump becomes invalid at once.
+ * Sessions created before this feature shipped carry a legacy plain-email
+ * value and are accepted until they expire (<= 6h), so the rollout does not
+ * log anyone out.
+ * ============================================================ */
+
+function sessionEpoch_(email) {
+  try {
+    const props = PropertiesService.getScriptProperties();
+    return String(props.getProperty('sessEpoch_' + safeCacheKey_(email)) || '0');
+  } catch (err) {
+    return '0';
+  }
+}
+
+function bumpSessionEpoch_(email) {
+  try {
+    PropertiesService.getScriptProperties().setProperty('sessEpoch_' + safeCacheKey_(email), String(Date.now()));
+  } catch (err) {}
+}
+
 function createSession_(email) {
   const token = Utilities.getUuid().replace(/-/g, '') + Utilities.getUuid().replace(/-/g, '');
-  CacheService.getScriptCache().put('session_' + token, String(email).toLowerCase(), CONFIG.USERS.SESSION_TTL_SECONDS);
+  const value = String(email).toLowerCase() + '|' + sessionEpoch_(email);
+  CacheService.getScriptCache().put('session_' + token, value, CONFIG.USERS.SESSION_TTL_SECONDS);
   return token;
 }
 
 function sessionEmail_(token) {
   if (!token) return null;
-  const email = CacheService.getScriptCache().get('session_' + String(token));
-  return email || null;
+  const value = CacheService.getScriptCache().get('session_' + String(token));
+  if (!value) return null;
+  const pipe = value.indexOf('|');
+  if (pipe === -1) return value; // legacy session (pre-epoch) — accepted until TTL
+  const email = value.substring(0, pipe);
+  const epoch = value.substring(pipe + 1);
+  if (epoch !== sessionEpoch_(email)) return null; // invalidated by epoch bump
+  return email;
+}
+
+/* ============================================================
+ * Point 7: generic rate limiting (CacheService sliding counter)
+ * ============================================================ */
+
+/** Throws when the caller has exceeded maxAttempts within windowSeconds. */
+function checkRateLimit_(key, maxAttempts, windowSeconds) {
+  const cache = CacheService.getScriptCache();
+  const k = 'rl_' + key;
+  const count = Number(cache.get(k) || 0);
+  if (count >= maxAttempts) {
+    throw new Error('Too many requests. Please try again later.');
+  }
+  cache.put(k, String(count + 1), windowSeconds || 60);
 }
 
 function destroySession_(token) {
@@ -536,7 +669,7 @@ function isAdmin(email) {
 function isEditor(email) {
   const role = getUserRole(email);
   return role === ROLES.ADMIN || role === ROLES.EDITOR;
-}
+}
 /* ============================================================
  * Granular RBAC (permission matrix + user groups)
  * ============================================================ */
@@ -622,7 +755,7 @@ function hasModulePermission_(module) {
  * @param {string} module One of MODULES.
  * @param {string} action One of MODULE_ACTIONS.
  * @returns {boolean}
- */
+ */
 /**
  * Full identity + permission context for a user.
  * @param {string} email User email.
@@ -663,7 +796,7 @@ function requireAdmin_(token) {
   const user = requireLogin_(token);
   if (!isAdmin(user.email)) throw new Error('Admin permission required.');
   return user;
-}
+}
 function requireEditor() {
   if (!isEditor()) throw new Error('Editor permission required.');
 }
@@ -716,6 +849,14 @@ function login(identifier, password) {
   clearAttempts_(identifier);
 
   const email = rec.email;
+
+  // Point 7: transparently upgrade legacy (v1) hashes to PBKDF2 on login.
+  if (!isV2Hash_(rec.passwordHash)) {
+    try {
+      setUserField_(email, 'passwordHash', hashPasswordV2_(password, rec.salt, CONFIG.USERS.PBKDF2_ITERATIONS));
+    } catch (err) {}
+  }
+
   const token = createSession_(email);
   try { logAudit_(ACTIONS.LOGIN, '', 'Signed in', email); } catch (err) {}
 
@@ -782,6 +923,8 @@ function requestPasswordReset(identifier) {
     return { success: false, message: 'Enter your email or username.' };
   }
 
+  checkRateLimit_('pwreset_' + safeCacheKey_(identifier), CONFIG.RATE_LIMIT.PASSWORD_RESET_MAX, CONFIG.RATE_LIMIT.PASSWORD_RESET_WINDOW);
+
   const rec = resolveUserByIdentifier_(identifier);
   if (!rec) {
     return { success: true, message: 'If an account exists, your administrator has been notified.' };
@@ -824,6 +967,7 @@ function requestPasswordReset(identifier) {
  */
 function changePassword(currentPassword, newPassword, token) {
   const user = requireLogin_(token);
+  checkRateLimit_('chpw_' + safeCacheKey_(user.email), CONFIG.RATE_LIMIT.PASSWORD_CHANGE_MAX, CONFIG.RATE_LIMIT.PASSWORD_CHANGE_WINDOW);
 
   if (!verifyPassword_(user.email, currentPassword)) {
     return { success: false, message: 'Current password is incorrect.' };
@@ -835,13 +979,14 @@ function changePassword(currentPassword, newPassword, token) {
   runWithLock_(function () {
     const salt = generateSalt_();
     setUserField_(user.email, 'salt', salt);
-    setUserField_(user.email, 'passwordHash', hashPassword_(newPassword, salt));
+    setUserField_(user.email, 'passwordHash', hashPasswordV2_(newPassword, salt, CONFIG.USERS.PBKDF2_ITERATIONS));
     setUserField_(user.email, 'mustChange', false);
     setUserField_(user.email, 'resetToken', '');
     setUserField_(user.email, 'resetExpires', null);
     setUserField_(user.email, 'resetRequested', null);
   });
 
+  bumpSessionEpoch_(user.email); // invalidate the user's other sessions
   try { logAudit_(ACTIONS.CHANGE_PASSWORD, '', '', user.email); } catch (err) {}
   try { notify_(user.email, NOTIFICATION_TYPES.USER, 'Password changed', 'Your dashboard password was changed successfully.', ''); } catch (err) {}
   return { success: true, message: 'Password updated.' };
@@ -892,6 +1037,7 @@ function getAssignableUsers(token) {
  */
 function adminAddUser(email, username, role, password, group, department, office, token) {
   const admin = requireAdmin_(token);
+  checkRateLimit_('adminuser_' + safeCacheKey_(admin.email), CONFIG.RATE_LIMIT.ADMIN_USER_MAX, CONFIG.RATE_LIMIT.ADMIN_USER_WINDOW);
 
   return runWithLock_(function () {
     email = String(email || '').toLowerCase().trim();
@@ -909,7 +1055,7 @@ function adminAddUser(email, username, role, password, group, department, office
     if (pwError) throw new Error(pwError);
 
     const salt = generateSalt_();
-    addUserRecord_(email, role, salt, hashPassword_(password, salt), admin.email, group, department, office, username);
+    addUserRecord_(email, role, salt, hashPasswordV2_(password, salt, CONFIG.USERS.PBKDF2_ITERATIONS), admin.email, group, department, office, username);
 
     try { logAudit_(ACTIONS.USER_ADD, '', email + ' as ' + role, admin.email); } catch (err) {}
     try { notify_(email, NOTIFICATION_TYPES.USER, 'Account created', 'Your dashboard account was created with the ' + role + ' role. Use the credentials given by your administrator.', ''); } catch (err) {}
@@ -971,6 +1117,7 @@ function adminUpdateUser(email, fields, token) {
         }
 
         renameUserEmail_(oldRaw, newEmail);
+        bumpSessionEpoch_(oldPrimary); // Point 7: email change invalidates the old identity's sessions
         changes.push('email ' + oldRaw + ' -> ' + newEmail);
         try { notify_(primaryEmail_(newEmail), NOTIFICATION_TYPES.USER, 'Account updated', 'Your dashboard login email was changed to ' + newEmail + ' by an administrator.', ''); } catch (err) {}
         if (oldPrimary === admin.email) {
@@ -992,6 +1139,7 @@ function adminUpdateUser(email, fields, token) {
       }
       if (getUserRole(email) !== role) {
         setUserField_(email, 'role', role);
+        bumpSessionEpoch_(email); // Point 7: role changes invalidate existing sessions
         changes.push('role -> ' + role);
         try { notify_(email, NOTIFICATION_TYPES.USER, 'Role changed', 'Your dashboard role was changed to ' + role + ' by an administrator.', ''); } catch (err) {}
       }
@@ -1086,6 +1234,7 @@ function parseCsvLine_(line) {
  */
 function adminImportUsers(csv, token) {
   const admin = requireAdmin_(token);
+  checkRateLimit_('adminuser_' + safeCacheKey_(admin.email), CONFIG.RATE_LIMIT.ADMIN_USER_MAX, CONFIG.RATE_LIMIT.ADMIN_USER_WINDOW);
 
   const result = { users: listUserRecords_(), added: 0, updated: 0, errors: [] };
   if (!csv || !String(csv).trim()) throw new Error('Paste CSV content to import.');
@@ -1144,7 +1293,7 @@ function adminImportUsers(csv, token) {
           if (pwError) { result.errors.push('Row ' + (r + 1) + ': ' + pwError); continue; }
           const salt = generateSalt_();
           setUserField_(email, 'salt', salt);
-          setUserField_(email, 'passwordHash', hashPassword_(password, salt));
+          setUserField_(email, 'passwordHash', hashPasswordV2_(password, salt, CONFIG.USERS.PBKDF2_ITERATIONS));
           setUserField_(email, 'mustChange', false);
         }
         result.updated++;
@@ -1157,7 +1306,7 @@ function adminImportUsers(csv, token) {
           continue;
         }
         const salt = generateSalt_();
-        addUserRecord_(email, role, salt, hashPassword_(pw, salt), admin.email, group, department, office, username);
+        addUserRecord_(email, role, salt, hashPasswordV2_(pw, salt, CONFIG.USERS.PBKDF2_ITERATIONS), admin.email, group, department, office, username);
         if (!password) setUserField_(email, 'mustChange', true);
         result.added++;
         try { notify_(email, NOTIFICATION_TYPES.USER, 'Account created', 'Your dashboard account was created with the ' + role + ' role during a bulk import.', ''); } catch (err) {}
@@ -1292,7 +1441,8 @@ function adminResetPassword(email, newPassword, token) {
 
     const salt = generateSalt_();
     setUserField_(email, 'salt', salt);
-    setUserField_(email, 'passwordHash', hashPassword_(newPassword, salt));
+    setUserField_(email, 'passwordHash', hashPasswordV2_(newPassword, salt, CONFIG.USERS.PBKDF2_ITERATIONS));
+    bumpSessionEpoch_(email);
     setUserField_(email, 'mustChange', false);
     setUserField_(email, 'resetToken', '');
     setUserField_(email, 'resetExpires', null);
@@ -1368,7 +1518,7 @@ function getCurrentUserInfo() {
 /**
  * Debug helper: session/user/timezone/timestamp snapshot.
  * @returns {Object} Session info.
- */
+ */
 /**
  * Debug helper: alias for getCurrentUserInfo().
  * @returns {Object} Session info.

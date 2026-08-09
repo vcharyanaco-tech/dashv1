@@ -239,6 +239,43 @@
   Pages + Worker via `.github/workflows/pages.yml`), `clasp push`, a pinned-GAS
   deployment redeploy, and the Worker deploy in one step.
 
+### Phase 9 — Optimistic tasks, cached counts & security hardening
+- **Partial optimistic task updates (Point 5)** — new `updateTaskField` server
+  endpoint (field whitelist: status/priority/assignee/dueDate/title/description,
+  stable-ID lookup, RowVersion conflict detection returning the latest task,
+  status-transition validation, LockService + idempotency-key dedupe, single-row
+  writes). Client `completeTaskOptimistic` applies the status instantly,
+  disables the row's buttons, rolls back to a DOM snapshot on failure/conflict,
+  and refreshes only that row (or a safe full re-render) — never a whole-list
+  reload for one update.
+- **Cached count endpoints (Point 6)** — new `Counts.js` with
+  `dashboard.getCounts` / `tasks.getCounts` / `notifications.getUnreadCount`,
+  per-user versioned cache keys (embedding data/task/notif generation counters
+  so one bump orphans stale counts), 45 s TTL for fast-moving counts, and
+  generation bumps on every task/submission/notification/record mutation. KPI
+  tiles + notification badge render from counts and refresh in the background
+  (fallback `—` on failure).
+- **Security hardening (Point 7)** — PBKDF2-HMAC-SHA256 password hashing (v2,
+  10 k iterations, iteration count stored in the hash) with transparent
+  upgrade of legacy salted-SHA-256 hashes on login; per-user session epochs
+  (password/role/email changes invalidate existing sessions); CacheService
+  rate limiting for password reset/change, task updates, submissions,
+  admin user ops; rich-text `sanitizeHtml_` allow-lists tags/styles/URL schemes,
+  strips `script`/`iframe`/`svg`, event handlers (incl. no-space variants),
+  `javascript:`/`data:` links, adds `rel="noopener noreferrer"`; bootstrap
+  admin password read from `ADMIN_BOOTSTRAP_PASSWORD` Script Property.
+- **Stable IDs & row versioning (Point 8)** — `newEntityId_` generates
+  `TASK-YYYYMMDD-XXXXXXXX` style IDs; Tasks/Submissions gained `RowVersion` +
+  `UpdatedBy`, Users gained an `Id` column (auto-ensured non-destructively);
+  admin-only `adminMigrateStableIds` dry-run/run backfills IDs/RowVersions with
+  collision-safe generation (records sheet intentionally untouched).
+- **Idempotent offline sync (Point 9)** — `docs/offline-queue.js` rewritten to
+  v2 schema: every queued mutation carries a one-time idempotency key,
+  PENDING→SYNCING→SUCCESS/CONFLICT/FAILED lifecycle, exponential backoff with
+  max retries, sync-status banner (pending/syncing/conflict/failed), legacy v1
+  queue migration, and queue clearing on logout. Worker `/api/*` routes gained
+  per-IP rate limiting.
+
 ---
 
 ## 1.0.0 (early release) — 2026-08-02

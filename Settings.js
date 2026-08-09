@@ -26,7 +26,10 @@ const CONFIG = Object.freeze({
   },
   CACHE: {
     ENABLED: true,
-    TTL: 60
+    TTL: 60,
+    // Point 6: count endpoints keep their own short-lived caches.
+    COUNTS_TTL_FAST: 45,   // seconds — task/notification counts
+    COUNTS_TTL_SLOW: 300   // seconds — slower analytics-style values
   },
   USERS: {
     SHEET_NAME: 'Users',
@@ -34,7 +37,20 @@ const CONFIG = Object.freeze({
     RESET_TTL_MINUTES: 30,
     MAX_LOGIN_ATTEMPTS: 5,
     LOCK_MINUTES: 15,
-    ACTIVITY_LIMIT: 500
+    ACTIVITY_LIMIT: 500,
+    // Point 7: PBKDF2-HMAC-SHA256 iterations. 10k keeps login well inside
+    // the anonymous web-app execution budget; the stored hash records the
+    // exact iteration count so it can be raised later without a re-login.
+    PBKDF2_ITERATIONS: 10000
+  },
+  RATE_LIMIT: {
+    PASSWORD_RESET_MAX: 3,     PASSWORD_RESET_WINDOW: 900,
+    PASSWORD_CHANGE_MAX: 10,   PASSWORD_CHANGE_WINDOW: 900,
+    TASK_UPDATE_MAX: 120,      TASK_UPDATE_WINDOW: 60,
+    SUBMISSION_MAX: 30,        SUBMISSION_WINDOW: 60,
+    ADMIN_USER_MAX: 20,        ADMIN_USER_WINDOW: 60,
+    DOCUMENT_MAX: 30,          DOCUMENT_WINDOW: 60,
+    AI_MAX: 30,                AI_WINDOW: 60
   },
   SUBMISSIONS: {
     SHEET_NAME: 'Submissions',

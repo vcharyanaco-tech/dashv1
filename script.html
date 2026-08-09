@@ -98,6 +98,10 @@ const ApiService = {
   getTasks: function (filters) { return apiCall_('getTasks', filters || {}, getAuthToken()); },
   getMyTasks: function () { return apiCall_('getMyTasks', getAuthToken()); },
   updateTask: function (id, fields) { return apiCall_('updateTask', id, fields, getAuthToken()); },
+  updateTaskField: function (id, field, value, rowVersion, idempotencyKey) { return apiCall_('updateTaskField', id, field, value, rowVersion, idempotencyKey, getAuthToken()); },
+  getDashboardCounts: function () { return apiCall_('getDashboardCounts', getAuthToken()); },
+  getTaskCounts: function () { return apiCall_('getTaskCounts', getAuthToken()); },
+  getUnreadCount: function () { return apiCall_('getUnreadNotificationCount', getAuthToken()); },
   deleteTask: function (id) { return apiCall_('deleteTask', id, getAuthToken()); },
   getDashboardPreferences: function () { return apiCall_('getDashboardPreferences', getAuthToken()); },
   saveDashboardPreferences: function (prefs) { return apiCall_('saveDashboardPreferences', prefs, getAuthToken()); },
@@ -274,7 +278,10 @@ function svgIcon(name) {
     inbox: '<polyline points="22 12 16 12 14 15 10 15 8 12 2 12"></polyline><path d="M5.45 5.11L2 12v6a2 2 0 0 0 2 2h16a2 2 0 0 0 2-2v-6l-3.45-6.89A2 2 0 0 0 16.76 4H7.24a2 2 0 0 0-1.79 1.11z"></path>',
     check: '<polyline points="20 6 9 17 4 12"></polyline>',
     alert: '<path d="M10.29 3.86L1.82 18a2 2 0 0 0 1.71 3h16.94a2 2 0 0 0 1.71-3L13.71 3.86a2 2 0 0 0-3.42 0z"></path><line x1="12" y1="9" x2="12" y2="13"></line><line x1="12" y1="17" x2="12.01" y2="17"></line>',
-    info: '<circle cx="12" cy="12" r="10"></circle><line x1="12" y1="16" x2="12" y2="12"></line><line x1="12" y1="8" x2="12.01" y2="8"></line>'
+    info: '<circle cx="12" cy="12" r="10"></circle><line x1="12" y1="16" x2="12" y2="12"></line><line x1="12" y1="8" x2="12.01" y2="8"></line>',
+    bell: '<path d="M18 8A6 6 0 0 0 6 8c0 7-3 9-3 9h18s-3-2-3-9"></path><path d="M13.73 21a2 2 0 0 1-3.46 0"></path>',
+    calendar: '<rect x="3" y="4" width="18" height="18" rx="2" ry="2"></rect><line x1="16" y1="2" x2="16" y2="6"></line><line x1="8" y1="2" x2="8" y2="6"></line><line x1="3" y1="10" x2="21" y2="10"></line>',
+    clock: '<circle cx="12" cy="12" r="10"></circle><polyline points="12 6 12 12 16 14"></polyline>'
   };
   const body = paths[name] || paths.info;
   return `<svg viewBox="0 0 24 24" width="20" height="20" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">${body}</svg>`;
@@ -1690,6 +1697,7 @@ function markAllNotificationsRead() {
   ApiService.markNotificationsRead('all').then(function (data) {
     appState.notifications = data || { unread: 0, recent: [] };
     renderNotifications();
+    refreshCounts();
     showToast('All notifications marked as read.', 'success');
   }).catch(function (err) {
     if (handleServerFailure(err)) return;
@@ -1701,6 +1709,7 @@ function clearAllNotifications() {
   ApiService.clearMyNotifications().then(function (data) {
     appState.notifications = data || { unread: 0, recent: [] };
     renderNotifications();
+    refreshCounts();
     showToast('All notifications cleared.', 'success');
   }).catch(function (err) {
     if (handleServerFailure(err)) return;
@@ -1716,12 +1725,40 @@ function openNotification(id, type) {
   ApiService.markNotificationsRead([id]).then(function (data) {
     appState.notifications = data || { unread: 0, recent: [] };
     renderNotifications();
+    refreshCounts();
   }).catch(function (err) {
     if (handleServerFailure(err)) return;
   });
   closeNotificationsPanel();
   const map = { record: 'dashboard', submission: 'dashboard', user: 'settings', system: 'dashboard' };
   openTab(map[type] || 'dashboard');
+}
+
+/* ---------------------------------- Point 6: cached counts ---------------------------------- */
+
+/* Generates a one-time client id (idempotency keys, offline queue items). */
+function newClientId_() {
+  if (window.crypto && typeof window.crypto.randomUUID === 'function') {
+    return window.crypto.randomUUID();
+  }
+  return 'c' + Date.now().toString(36) + Math.random().toString(36).slice(2, 10);
+}
+
+/* Refreshes the KPI tiles + notification badge from the lightweight count
+ * endpoints — never reloads a full list and never throws. Keeps working when
+ * the count call fails (tiles fall back to '—'). */
+function refreshCounts() {
+  return ApiService.getDashboardCounts().then(function (counts) {
+    appState.counts = counts || {};
+    renderKpiCards();
+    if (counts && typeof counts.unreadNotifications === 'number') {
+      if (!appState.notifications) appState.notifications = { unread: 0, recent: [] };
+      appState.notifications.unread = counts.unreadNotifications;
+      renderNotifications();
+    }
+  }).catch(function () {
+    // silent: keep last known values; tiles fall back to '—' when absent
+  });
 }
 
 /* ---------------------------------- Tabs ---------------------------------- */
@@ -1743,8 +1780,8 @@ function openTab(tabId) {
   if (tabId === 'audit') renderAuditPanel();
   if (tabId === 'reports') renderReportPreview();
   if (tabId === 'settings') renderSettings();
-  if (tabId === 'dashboard') renderDashboard();
-  if (tabId === 'tasks') renderTasks();
+  if (tabId === 'dashboard') { renderDashboard(); refreshCounts(); }
+  if (tabId === 'tasks') { renderTasks(); refreshCounts(); }
 }
 
 /* ---------------------------------- Auth flows ---------------------------------- */
@@ -2110,11 +2147,14 @@ function renderKpiCards() {
   const grid = getEl('summaryCards');
   if (!grid) return;
   const summary = appState.summary || {};
+  const counts = appState.counts || {};
+  const hasCounts = !!appState.counts;
   const sectorCount = Object.keys(summary.sectors || {}).length;
-  const total = summary.total || 0;
-  const flagged = summary.flagged || 0;
+  const total = hasCounts && counts.totalRecords !== undefined ? counts.totalRecords : (summary.total || 0);
+  const flagged = hasCounts && counts.flaggedRecords !== undefined ? counts.flaggedRecords : (summary.flagged || 0);
   const trend = trendPill();
   const spark = sparklineSvg();
+  const dash = function (v) { return (v === undefined || v === null) ? '—' : v; };
 
   grid.innerHTML =
     `<div class="kpi-card">
@@ -2142,6 +2182,38 @@ function renderKpiCards() {
       <div class="kpi-label">Open sectors</div>
       <div class="kpi-value">${sectorCount}</div>
       <div class="kpi-subtitle">Active operations</div>
+    </div>
+    <div class="kpi-card">
+      <div class="kpi-top">
+        <span class="kpi-icon tone-warning">${svgIcon('check')}</span>
+      </div>
+      <div class="kpi-label">Open tasks</div>
+      <div class="kpi-value">${dash(counts.openTasks)}</div>
+      <div class="kpi-subtitle">Not yet completed</div>
+    </div>
+    <div class="kpi-card">
+      <div class="kpi-top">
+        <span class="kpi-icon tone-secondary">${svgIcon('calendar')}</span>
+      </div>
+      <div class="kpi-label">Due today</div>
+      <div class="kpi-value">${dash(counts.dueToday)}</div>
+      <div class="kpi-subtitle">Tasks due today</div>
+    </div>
+    <div class="kpi-card">
+      <div class="kpi-top">
+        <span class="kpi-icon tone-warning">${svgIcon('clock')}</span>
+      </div>
+      <div class="kpi-label">Overdue</div>
+      <div class="kpi-value">${dash(counts.overdue)}</div>
+      <div class="kpi-subtitle">Past due date</div>
+    </div>
+    <div class="kpi-card">
+      <div class="kpi-top">
+        <span class="kpi-icon tone-success">${svgIcon('bell')}</span>
+      </div>
+      <div class="kpi-label">Unread</div>
+      <div class="kpi-value">${dash(counts.unreadNotifications)}</div>
+      <div class="kpi-subtitle">Notifications</div>
     </div>`;
 }
 
@@ -3762,6 +3834,7 @@ function saveTask() {
     closeTaskModal();
     showToast('Task created.', 'success');
     renderTasks();
+    refreshCounts();
   }).catch(function (err) {
     if (handleServerFailure(err)) return;
     showToast('Could not create task: ' + (err.message || err), 'error');
@@ -3798,12 +3871,32 @@ function completeTaskOptimistic(id) {
   row.classList.add('task-pending');
   buttons.forEach(function (b) { b.disabled = true; });
 
-  // 2) Fire the real call
-  ApiService.updateTask(id, { status: 'DONE' }).then(function () {
-    const task = (appState.tasks || []).find(function (t) { return t.id === id; });
-    if (task) { task.status = 'DONE'; task.completedAt = Date.now(); }
+  // 2) Fire the real call — partial update with optimistic locking +
+  //    a one-time idempotency key so retries never double-apply.
+  const known = (appState.tasks || []).find(function (t) { return String(t.id) === String(id); });
+  const rowVersion = known && known.rowVersion ? Number(known.rowVersion) : 1;
+  const idempotencyKey = newClientId_();
+  ApiService.updateTaskField(id, 'status', 'DONE', rowVersion, idempotencyKey).then(function (res) {
+    if (res && res.conflict) {
+      // RowVersion conflict — the task changed elsewhere. Do NOT overwrite:
+      // revert this row's optimistic state and refetch the fresh list.
+      row.innerHTML = snapshot;
+      if (statusEl) statusEl.textContent = prevText;
+      row.classList.remove('task-pending');
+      buttons.forEach(function (b) { b.disabled = false; });
+      showToast('This task changed elsewhere. Reloading…', 'warning');
+      renderTasks();
+      return;
+    }
+    const task = (appState.tasks || []).find(function (t) { return String(t.id) === String(id); });
+    if (task) {
+      task.status = 'DONE';
+      task.completedAt = Date.now();
+      if (res && res.task && res.task.rowVersion) task.rowVersion = res.task.rowVersion;
+    }
     row.classList.remove('task-pending');
     buttons.forEach(function (b) { b.disabled = false; });
+    if (typeof refreshCounts === 'function') refreshCounts();
     showToast('Task marked complete.', 'success');
   }).catch(function (err) {
     // 3) ROLLBACK: restore the exact prior DOM + re-enable buttons
@@ -4428,6 +4521,7 @@ function submitNewItem(item) {
     populateFilters();
     appState.page = 1;
     renderDashboard();
+    refreshCounts();
     showToast('New item created', 'success');
   }).catch(function (err) {
     if (handleServerFailure(err)) return;
@@ -4513,6 +4607,7 @@ function saveItem(item) {
     if (data.analytics) appState.analytics = data.analytics;
     const fresh = (appState.items || []).find(function (it) { return String(it.row) === String(item.row); });
     if (fresh && !paintItem_(fresh)) renderDashboard();
+    refreshCounts();
     showToast('Record saved', 'success');
   }).catch(function (err) {
     appState.items = snapshotItems;
@@ -4544,6 +4639,7 @@ function deleteItem(row) {
       appState.summary = data.summary || {};
       if (data.analytics) appState.analytics = data.analytics;
       renderDashboard();
+      refreshCounts();
       showToast('Record deleted', 'success');
     }).catch(function (err) {
       appState.items = snapshotItems;
@@ -4612,6 +4708,7 @@ function markReviewDone(row) {
       if (data.analytics) appState.analytics = data.analytics;
       const fresh = (appState.items || []).find(function (it) { return String(it.row) === String(row); });
       if (!fresh || !paintItem_(fresh)) renderDashboard();
+      refreshCounts();
       showToast('Marked review as done', 'success');
     }).catch(function (err) {
       appState.items = snapshotItems;
@@ -4733,6 +4830,7 @@ function submitSubmission() {
       resetSubmissionCompose();
       getEl('submissionStatus').textContent = '';
       renderSubmissionList();
+      refreshCounts();
       showToast('Submission updated', 'success');
     }).catch(function (err) {
       if (handleServerFailure(err)) return;
@@ -4748,6 +4846,7 @@ function submitSubmission() {
       getEl('submissionStatus').textContent = '';
       renderSubmissionList();
       renderDashboard();
+      refreshCounts();
       showToast('Update submitted', 'success');
     }).catch(function (err) {
       if (handleServerFailure(err)) return;

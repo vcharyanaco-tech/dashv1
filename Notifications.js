@@ -65,6 +65,7 @@ function appendNotification_(email, type, title, body, link) {
   if (!sh) return;
   sh.appendRow([Utilities.getUuid().replace(/-/g, ''), email, String(type || NOTIFICATION_TYPES.SYSTEM), String(title || ''), String(body || ''), String(link || ''), now_(), null]);
   pruneNotifications_(email);
+  invalidateCounts_('notif'); // badge counts change
 }
 
 /* Public path for callers outside a locked write: acquires the script lock. */
@@ -197,6 +198,7 @@ function markNotificationsRead(ids, token) {
       const now = now_();
       const readRange = sh.getRange(1, NOTIFICATION_COL.READ_AT, sh.getLastRow(), 1);
       rows.forEach(function (row) { readRange.getCell(row, 1).setValue(now); });
+      invalidateCounts_('notif');
     }
   }
   return getMyNotifications(token);
@@ -221,6 +223,24 @@ function clearMyNotifications(token) {
       }
     }
     rowsToDelete.forEach(function (row) { sh.deleteRow(row); });
+    if (rowsToDelete.length) invalidateCounts_('notif');
   }
   return getMyNotifications(token);
+}
+
+/** Point 6: unread count for one recipient. Reads only the Notifications
+ * sheet (server-cached by Counts.js) — no full record/task data involved. */
+function countUnreadNotificationsForEmail_(email) {
+  email = primaryEmail_(email);
+  const sh = notificationsSheet_();
+  if (!sh) return 0;
+  const lastRow = sh.getLastRow();
+  if (lastRow < 2) return 0;
+  const values = sh.getRange(2, 1, lastRow - 1, NOTIFICATION_SHEET_HEADERS.length).getValues();
+  let unread = 0;
+  for (let i = 0; i < values.length; i++) {
+    if (String(values[i][1] || '').toLowerCase() !== email) continue;
+    if (!values[i][NOTIFICATION_COL.READ_AT - 1]) unread++;
+  }
+  return unread;
 }

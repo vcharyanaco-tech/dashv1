@@ -97,6 +97,7 @@ function runOptimistic({ row, api, appStateTasks, handleServerFailure }) {
     },
     ApiService: api,
     appState: { tasks: appStateTasks || [] },
+    newClientId_: function () { return 'test-idempotency-key'; },
     showToast(msg, type) { calls.toasts.push({ msg, type }); },
     handleServerFailure(err) {
       calls.serverFailures++;
@@ -124,7 +125,7 @@ function deferred() {
 
 test('optimistic state applied synchronously before network resolves', () => {
   const row = makeRow('<span class="badge badge-warning">OPEN</span><button>Done</button>');
-  const api = { updateTask: () => new Promise(() => {}) };
+  const api = { updateTaskField: () => new Promise(() => {}) };
   const { row: r } = runOptimistic({ row, api, appStateTasks: [] });
 
   assert.strictEqual(r._badge.textContent, 'DONE');
@@ -139,7 +140,7 @@ test('success commits: clears pending, re-enables buttons, updates appState, toa
   const task = { id: 42, status: 'OPEN' };
   const { calls } = runOptimistic({
     row,
-    api: { updateTask: () => d.promise },
+    api: { updateTaskField: () => d.promise },
     appStateTasks: [task],
   });
 
@@ -159,7 +160,7 @@ test('failure rolls back: snapshot restored, buttons re-enabled, pending cleared
   const d = deferred();
   const { calls } = runOptimistic({
     row,
-    api: { updateTask: () => d.promise },
+    api: { updateTaskField: () => d.promise },
     appStateTasks: [],
   });
 
@@ -180,7 +181,7 @@ test('rollback preserves original badge text and re-enables buttons from snapsho
   const d = deferred();
   const { row: r } = runOptimistic({
     row,
-    api: { updateTask: () => d.promise },
+    api: { updateTaskField: () => d.promise },
     appStateTasks: [],
   });
 
@@ -196,7 +197,7 @@ test('server failure helper suppresses the error toast when it returns true', as
   const d = deferred();
   const { calls } = runOptimistic({
     row,
-    api: { updateTask: () => d.promise },
+    api: { updateTaskField: () => d.promise },
     appStateTasks: [],
     handleServerFailure: () => true,
   });
@@ -213,8 +214,9 @@ test('missing row falls back to a full re-render', () => {
   const sandbox = {
     console,
     document: { querySelector: () => null },
-    ApiService: { updateTask: () => new Promise(() => {}) },
+    ApiService: { updateTaskField: () => new Promise(() => {}) },
     appState: { tasks: [] },
+    newClientId_: function () { return 'test-idempotency-key'; },
     showToast() {},
     handleServerFailure() { return false; },
     renderTasks() { renders++; },
@@ -239,8 +241,9 @@ test('task id is escaped before being interpolated into the selector', async () 
         return row;
       },
     },
-    ApiService: { updateTask: () => d.promise },
+    ApiService: { updateTaskField: () => d.promise },
     appState: { tasks: [] },
+    newClientId_: function () { return 'test-idempotency-key'; },
     showToast() {},
     handleServerFailure() { return false; },
     renderTasks() {},
@@ -265,7 +268,7 @@ test('id with a numeric id resolves via loose equality on appState', async () =>
   const task = { id: 42, status: 'OPEN' };
   const { calls } = runOptimistic({
     row,
-    api: { updateTask: () => d.promise },
+    api: { updateTaskField: () => d.promise },
     appStateTasks: [task],
   });
   d.resolve({});

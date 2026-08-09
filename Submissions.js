@@ -6,7 +6,7 @@
  * ============================================================
  */
 
-const SUBMISSION_HEADERS = ['Id', 'CardRow', 'CardId', 'Email', 'Text', 'CreatedAt', 'UpdatedAt', 'LockedBy', 'LockedAt', 'Displayed'];
+const SUBMISSION_HEADERS = ['Id', 'CardRow', 'CardId', 'Email', 'Text', 'CreatedAt', 'UpdatedAt', 'LockedBy', 'LockedAt', 'Displayed', 'RowVersion', 'UpdatedBy'];
 
 const SUBMISSION_COL = Object.freeze({
   ID: 1,
@@ -18,7 +18,9 @@ const SUBMISSION_COL = Object.freeze({
   UPDATED_AT: 7,
   LOCKED_BY: 8,
   LOCKED_AT: 9,
-  DISPLAYED: 10
+  DISPLAYED: 10,
+  ROW_VERSION: 11,
+  UPDATED_BY: 12
 });
 
 
@@ -64,7 +66,9 @@ function submissionRecordFromRow_(row, rowIndex) {
     updatedAt: row[SUBMISSION_COL.UPDATED_AT - 1],
     lockedBy: String(row[SUBMISSION_COL.LOCKED_BY - 1] || ''),
     lockedAt: row[SUBMISSION_COL.LOCKED_AT - 1],
-    displayed: row[SUBMISSION_COL.DISPLAYED - 1] === true || String(row[SUBMISSION_COL.DISPLAYED - 1]).toLowerCase() === 'true'
+    displayed: row[SUBMISSION_COL.DISPLAYED - 1] === true || String(row[SUBMISSION_COL.DISPLAYED - 1]).toLowerCase() === 'true',
+    rowVersion: Number(row[SUBMISSION_COL.ROW_VERSION - 1]) || 1,
+    updatedBy: String(row[SUBMISSION_COL.UPDATED_BY - 1] || '')
   };
 }
 
@@ -240,18 +244,26 @@ function addSubmission(cardRow, cardId, text, token) {
   }
 
   return runWithLock_(function () {
-    if (!cardExists_(cardRow)) throw new Error('Record not found.');
+    // Point 9: content-key idempotency — the exact same payload submitted to
+    // the same record within 5 minutes is treated as a duplicate and returns
+    // the stored result instead of appending twice (protects offline replay).
+    const idemKey = 'sub:' + sha256Hex_(String(cardRow) + '|' + String(cardId || '') + '|' + content);
+    const res = withIdempotency_(idemKey, 300, function () {
+      if (!cardExists_(cardRow)) throw new Error('Record not found.');
 
-    const sh = submissionsSheet_();
-    const id = Utilities.getUuid().replace(/-/g, '');
-    const now = new Date();
-    sh.appendRow([id, cardRow, String(cardId || ''), user.email, content, now, now, '', null]);
+      const sh = submissionsSheet_();
+      const id = Utilities.getUuid().replace(/-/g, '');
+      const now = new Date();
+      sh.appendRow([id, cardRow, String(cardId || ''), user.email, content, now, now, '', null, false, 1, user.email]);
+      invalidateCounts_('notif'); // staff recipients get a notification
 
-    try { logAudit_(ACTIONS.SUBMISSION_ADD, cardRow, { id: id, cardRow: cardRow, text: content }, user.email); } catch (err) {}
-    try {
-      notifyStaffLocked_(NOTIFICATION_TYPES.SUBMISSION, 'New submission', 'Update submitted on record #' + cardRow + ' by ' + user.email + '.', '', user.email);
-    } catch (err) {}
-    return submissionsForCard_(cardRow, user);
+      try { logAudit_(ACTIONS.SUBMISSION_ADD, cardRow, { id: id, cardRow: cardRow, text: content }, user.email); } catch (err) {}
+      try {
+        notifyStaffLocked_(NOTIFICATION_TYPES.SUBMISSION, 'New submission', 'Update submitted on record #' + cardRow + ' by ' + user.email + '.', '', user.email);
+      } catch (err) {}
+      return submissionsForCard_(cardRow, user);
+    });
+    return res.result;
   });
 }
 
@@ -275,9 +287,23 @@ function updateSubmission(submissionId, text, token) {
     if (!rec) throw new Error('Submission not found.');
     assertCanEditSubmission_(user, rec);
 
+    // Point 8: optimistic-lock conflict detection (client may pass rowVersion)
+    if (rowVersion !== undefined && rowVersion !== null && Number(rowVersion) !== Number(rec.rowVersion || 1)) {
+      return {
+        success: false,
+        conflict: {
+          expectedVersion: Number(rowVersion),
+          actualVersion: Number(rec.rowVersion || 1)
+        }
+      };
+    }
+
     const sh = submissionsSheet_();
+    const now = new Date();
     sh.getRange(rec.row, SUBMISSION_COL.TEXT).setValue(content);
-    sh.getRange(rec.row, SUBMISSION_COL.UPDATED_AT).setValue(new Date());
+    sh.getRange(rec.row, SUBMISSION_COL.UPDATED_AT).setValue(now);
+    sh.getRange(rec.row, SUBMISSION_COL.UPDATED_BY).setValue(user.email);
+    sh.getRange(rec.row, SUBMISSION_COL.ROW_VERSION).setValue(Number(rec.rowVersion || 1) + 1);
 
     try { logAudit_(ACTIONS.SUBMISSION_UPDATE, rec.cardRow, { id: submissionId, text: content }, user.email); } catch (err) {}
     return submissionsForCard_(rec.cardRow, user);

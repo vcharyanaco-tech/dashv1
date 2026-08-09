@@ -139,6 +139,10 @@ function buildDashboardItems_(rows, sheet) {
           fieldHtml = linkifyText_(formattedValue);
         }
       }
+      // Point 7: every rich-text/link HTML fragment passes through the
+      // allow-list sanitizer before leaving the server (tags, link schemes,
+      // inline styles, event handlers).
+      if (fieldHtml) fieldHtml = sanitizeHtml_(fieldHtml);
 
       if (normalizedLabel.indexOf("action") !== -1 && fieldHtml) {
         actionHtml = fieldHtml;
@@ -158,7 +162,7 @@ function buildDashboardItems_(rows, sheet) {
       description: rowSpec.description,
       entryDate: formatDate_(rowSpec.entryDate),
       action: rowSpec.action,
-      actionHtml: actionHtml,
+      actionHtml: sanitizeHtml_(actionHtml),
       responsibility: rowSpec.responsibility,
       reviewDate: formatDate_(rowSpec.reviewDate),
       flagged: flagged,

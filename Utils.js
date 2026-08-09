@@ -516,18 +516,18 @@ function getAuditDerivedRows_() {
   }
 }
 
-const SOURCE_SPREADSHEET_ID = "1xQaysoLjDIqNa5X_QnvA5FWp7J6lMr5r6lzLGalm-y8";
+const SOURCE_SPREADSHEET_ID = "1xQaysoLjDIqNa5X_QnvA5FWp7J6lMr5r6lzLGalm-y8";
 function getPreferredSpreadsheetId_() {
   return SOURCE_SPREADSHEET_ID;
-}
+}
 /**
  * Debug helper: returns the configured spreadsheet id and url.
  * @returns {{spreadsheetId: string, url: string}}
- */
+ */
 /**
  * Debug helper: binds the active spreadsheet into script properties.
  * @returns {{success: boolean, spreadsheetId?: string, url?: string, message?: string}}
- */
+ */
 let __spreadsheetCache__ = null;
 
 function getSpreadsheet_() {
@@ -714,7 +714,7 @@ function getDataRange_() {
 
 /* ============================================================
  * Data Helpers
- * ============================================================ */
+ * ============================================================ */
 
 /* ============================================================
  * Lock Helpers
@@ -741,7 +741,7 @@ function runWithLock_(callback) {
 
 /* ============================================================
  * Property Helpers
- * ============================================================ */
+ * ============================================================ */
 
 /* ============================================================
  * Read Cache Helpers
@@ -1067,21 +1067,144 @@ function now_() {
 
 /* ============================================================
  * Color Helpers
- * ============================================================ */
+ * ============================================================ */
 /* ============================================================
  * Validation Helpers
- * ============================================================ */
+ * ============================================================ */
 /* ============================================================
  * Response Helpers
- * ============================================================ */
+ * ============================================================ */
 
 /* ============================================================
  * Logging
- * ============================================================ */
+ * ============================================================ */
 
 /* ============================================================
  * ID Generator
- * ============================================================ */
+ * ============================================================ */
+
+/* ============================================================
+ * ID Generator
+ * ============================================================ */
+
+/** Generates a human-readable stable entity ID (TASK-20260809-1A2B3C4D).
+ * Prefixes: REC, TASK, SUB, NOTIF, DOC, USER. The 8-hex-char suffix gives
+ * 32 bits of randomness — collision risk is negligible even at ~10k rows.
+ * @param {string} prefix ID prefix (REC/TASK/SUB/NOTIF/DOC/USER).
+ * @returns {string} e.g. "TASK-20260809-1A2B3C4D"
+ */
+function newEntityId_(prefix) {
+  const p = String(prefix || '').toUpperCase().trim();
+  const day = Utilities.formatDate(new Date(), Session.getScriptTimeZone(), 'yyyyMMdd');
+  const suffix = Utilities.getUuid().replace(/-/g, '').slice(0, 8).toUpperCase();
+  return (p ? p + '-' : '') + day + '-' + suffix;
+}
+
+/* ============================================================
+ * Idempotency helper
+ * ============================================================ */
+
+/** Executes fn once per idempotency key and replays the stored result for
+ * repeat keys (offline-queue replay / double-click safety). The result must
+ * be JSON-serializable. Transient results (e.g. a version conflict) should
+ * NOT be cached: pass shouldCache to decide per-result.
+ *
+ * IMPORTANT: CacheService has no compare-and-set, so a duplicate key racing
+ * two concurrent executions could both run fn(). Callers MUST invoke this
+ * inside runWithLock_() (as updateTaskField does) so check+execute+store is
+ * serialized — that is what makes replay idempotent.
+ * @param {string} key Idempotency key (prefix handled by caller).
+ * @param {number} ttlSeconds How long to remember processed keys (default 300).
+ * @param {Function} fn Callback producing the result.
+ * @param {Function=} shouldCache Optional predicate (result) -> boolean.
+ * @returns {{idempotent: boolean, result: *}}
+ */
+function withIdempotency_(key, ttlSeconds, fn, shouldCache) {
+  const cache = CacheService.getScriptCache();
+  const k = 'idem:' + key;
+  const hit = cache.get(k);
+  if (hit) {
+    try { return { idempotent: true, result: JSON.parse(hit) }; } catch (e) {}
+  }
+  const result = fn();
+  if (!shouldCache || shouldCache(result)) {
+    try { cache.put(k, JSON.stringify(result), ttlSeconds || 300); } catch (e) {}
+  }
+  return { idempotent: false, result: result };
+}
+
+/* ============================================================
+ * HTML Sanitizer (rich-text / hyperlink rendering)
+ * ============================================================ */
+
+/** Tags allowed in rich-text HTML output. SPAN is kept only for the
+ * inline styles the dashboard itself emits (colour/bold/italic/underline). */
+const SAFE_RICH_TAGS = Object.freeze({ A: 1, STRONG: 1, EM: 1, P: 1, BR: 1, UL: 1, OL: 1, LI: 1, SPAN: 1 });
+
+/** Inline CSS properties allowed inside style="..." attributes. */
+const SAFE_STYLE_PROPS = /^(color|background-color|font-weight|font-style|text-decoration|text-align):/i;
+
+/** Blocks non-web link schemes before any attribute handling. */
+function safeLinkScheme_(url) {
+  const t = String(url || '').trim();
+  return /^(https?:|mailto:|tel:)/i.test(t) && !/[\\'"\x00-\x1f]/.test(t);
+}
+
+/** Sanitizes rich-text HTML produced from spreadsheet rich text runs.
+ *  Allow-lists tags (a/strong/em/p/br/ul/ol/li/span), only http(s)/mailto/tel
+ *  links, and a tiny set of inline style properties. Strips <script>,
+ *  event-handler attributes and javascript:/data:/vbscript: URLs, and adds
+ *  rel="noopener noreferrer". Not a general HTML parser — safe for the
+ *  dashboard's own server-generated markup. Text content of stripped tags is
+ *  preserved so no visible data is lost. */
+function sanitizeHtml_(html) {
+  if (html === null || html === undefined) return '';
+  let s = String(html);
+
+  // 1) Wholesale drop dangerous elements (tags only; text content is kept —
+  //    it is re-escaped/allow-listed by the later passes and stays inert).
+  s = s.replace(/<\s*\/?\s*(script|iframe|object|embed|style|link|meta|form|input|button|svg|math|base|template|noscript)[^>]*>/gi, '');
+
+  // 2) Strip event-handler attributes (onclick, onerror, ...), including the
+  //    no-space variant (<a href="x"onclick="...">) and handlers that are the
+  //    first attribute. A handler name must follow a quote/space/start so
+  //    ordinary words like "condition=" are never matched.
+  s = s.replace(/(^|["'\s])on[a-z]+\s*=\s*(?:"[^"]*"|'[^']*'|[^\s>]+)/gi, '$1');
+
+  // 3) Sanitize href/src attributes to safe web schemes.
+  s = s.replace(/(href|src)\s*=\s*("[^"]*"|'[^']*'|[^\s>]+)/gi, function (m, attr, val) {
+    const inner = String(val).replace(/^(['"])(.*)\1$/s, '$2');
+    if (safeLinkScheme_(inner)) {
+      return attr + '=' + val;
+    }
+    return attr + '="#"';
+  });
+
+  // 4) Allow-list remaining tags; rewrite style attributes to safe props only.
+  s = s.replace(/<\s*(\/?)([a-zA-Z][a-zA-Z0-9]*)((?:[^">']|"[^"]*"|'[^']*')*?)\s*\/?>/g, function (m, close, tag, attrs) {
+    const upper = String(tag).toUpperCase();
+    if (!SAFE_RICH_TAGS[upper]) return ''; // strip unknown tags, keep text
+    if (close) return '</' + tag + '>';
+    let cleaned = String(attrs)
+      // Defense-in-depth: drop any event-handler attribute by name even when
+      // it has no leading space (the global pass above only sees whitespace).
+      .replace(/(^|["'\s])on[a-z]+\s*=\s*(?:"[^"]*"|'[^']*'|[^\s>]+)/gi, '$1')
+      .replace(/\s+style\s*=\s*("[^"]*"|'[^']*')/gi, function (mm, sv) {
+        const inner = String(sv).replace(/^(['"])(.*)\1$/s, '$2');
+        const kept = inner.split(';')
+          .map(function (st) { return String(st).trim(); })
+          .filter(function (st) { return st && SAFE_STYLE_PROPS.test(st); });
+        return kept.length ? ' style="' + kept.join(';') + '"' : '';
+      });
+    // Add rel for links (harmless when already present).
+    if (upper === 'A' && !/\brel\s*=/.test(cleaned)) cleaned += ' rel="noopener noreferrer"';
+    return '<' + tag + cleaned + '>';
+  });
+
+  // 5) Remove stray unsafe fragments (e.g. "<" from malformed input).
+  s = s.replace(/<\s*>/g, '').replace(/javascript\s*:/gi, '').replace(/data\s*:/gi, '');
+  return s;
+}
 
 /* ============================================================
  * JSON Helpers

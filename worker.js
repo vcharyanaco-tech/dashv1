@@ -44,6 +44,9 @@ export default {
     // External secrets (GEMINI_API_KEY, WHATSAPP_TOKEN, WHATSAPP_PHONE_NUMBER_ID)
     // live only in Worker secrets/environment and are read from `env` here.
     if (url.pathname.startsWith('/api/')) {
+      if (isRateLimited(request)) {
+        return jsonResponse({ error: 'rate limited' }, 429, { 'Retry-After': '60' });
+      }
       return handleEnterpriseRoute(request, env, url, ctx);
     }
 
@@ -162,6 +165,40 @@ function guessContentType(path) {
 // Authorization: shared internal bearer token (env.WORKER_API_TOKEN).
 // External secrets (GEMINI_API_KEY, WHATSAPP_TOKEN, WHATSAPP_PHONE_NUMBER_ID)
 // are read only from Worker environment/secrets and never echoed in responses.
+
+// ── Best-effort per-IP rate limiting (in-memory, per-isolate) ───────────────
+// Not a hard guarantee across isolates, but enough to blunt brute-forcing of
+// the shared /api/* endpoints (AI + WhatsApp) without any external store.
+const RATE_BUCKETS = new Map();
+const RATE_LIMIT_MAX = 60;       // requests
+const RATE_LIMIT_WINDOW = 60000; // per minute per IP
+const RATE_BUCKET_CLEAN_EVERY = 256; // sweep stale buckets every N lookups
+let rateLookupCount = 0;
+
+function isRateLimited(request) {
+  const ip = request.headers.get('CF-Connecting-IP') ||
+    (request.headers.get('X-Forwarded-For') || '').split(',')[0].trim() ||
+    'unknown';
+  const now = Date.now();
+  // Periodically drop expired buckets so the map cannot grow unboundedly.
+  rateLookupCount++;
+  if (rateLookupCount >= RATE_BUCKET_CLEAN_EVERY) {
+    rateLookupCount = 0;
+    if (RATE_BUCKETS.size) {
+      for (const [key, b] of RATE_BUCKETS) {
+        if (now - b.start > RATE_LIMIT_WINDOW) RATE_BUCKETS.delete(key);
+      }
+    }
+  }
+  const entry = RATE_BUCKETS.get(ip);
+  if (!entry || now - entry.start > RATE_LIMIT_WINDOW) {
+    RATE_BUCKETS.set(ip, { start: now, count: 1 });
+    return false;
+  }
+  entry.count++;
+  if (entry.count > RATE_LIMIT_MAX) return true;
+  return false;
+}
 
 const AI_INSIGHTS_TTL = 3600; // seconds; 1h keeps insights fresh-ish
 
