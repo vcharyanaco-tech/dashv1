@@ -2213,21 +2213,9 @@ function sortedItems() {
 function buildTableRowHtml(item) {
   const subCount = (appState.submissionCounts || {})[item.row] || 0;
   const statusBadge = item.reviewStatus === 'due'
-    ? `<span class="review-badge review-due">Review due${appState.isAdmin ? `
-      <span class="review-dropdown">
-        <button type="button" class="review-dropdown-toggle" aria-label="Review actions" onclick="event.stopPropagation(); toggleReviewDropdown(this);">&#9662;</button>
-        <span class="review-dropdown-menu">
-          <button type="button" class="review-dropdown-item" onclick="event.stopPropagation(); markReviewDone('${escAttr(item.row)}');">Mark as review done</button>
-        </span>
-      </span>` : ''}</span>`
+    ? '<span class="review-badge review-due">Review due</span>'
     : item.reviewStatus === 'done'
-      ? `<span class="review-badge review-done">Review done${appState.isAdmin ? `
-      <span class="review-dropdown">
-        <button type="button" class="review-dropdown-toggle" aria-label="Review actions" onclick="event.stopPropagation(); toggleReviewDropdown(this);">&#9662;</button>
-        <span class="review-dropdown-menu">
-          <button type="button" class="review-dropdown-item" onclick="event.stopPropagation(); markReviewNotDone('${escAttr(item.row)}');">Mark as not done</button>
-        </span>
-      </span>` : ''}</span>`
+      ? '<span class="review-badge review-done">Review done</span>'
       : '';
   const actions = `
     <div class="row-actions">
@@ -4591,6 +4579,29 @@ function markReviewDone(row) {
       appState.summary = data.summary || {};
       renderDashboard();
       showToast('Marked review as done', 'success');
+    }).catch(function (err) {
+      hideOverlay();
+      if (handleServerFailure(err)) return;
+      showToast('Failed: ' + (err.message || err), 'error');
+    });
+  });
+}
+
+function markReviewNotDone(row) {
+  if (!appState.isAdmin) { showToast('Admin access required', 'warning'); return; }
+  showConfirm({
+    title: 'Mark as not done',
+    message: 'Reopen this record so it returns to review due?',
+    okLabel: 'Mark not done'
+  }).then(function (ok) {
+    if (!ok) return;
+    showOverlay('Reopening review…');
+    ApiService.markReviewNotDone(row).then(function (data) {
+      hideOverlay();
+      appState.items = data.items || [];
+      appState.summary = data.summary || {};
+      renderDashboard();
+      showToast('Review reopened — record is review due', 'success');
     }).catch(function (err) {
       hideOverlay();
       if (handleServerFailure(err)) return;
