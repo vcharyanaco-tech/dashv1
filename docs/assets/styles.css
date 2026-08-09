@@ -997,6 +997,23 @@ body.sidebar-collapsed .nav-item.active { box-shadow: inset 0 0 0 2px var(--seco
 /* ---------------------------------- Data cards ---------------------------------- */
 .cards-grid { display: grid; grid-template-columns: 1fr; gap: var(--sp-2); }
 
+/* Optimistic task-complete feedback: dims the row and shows a sweep shimmer
+   while the server round-trip is in flight. Removed on success / rollback. */
+.task-pending { opacity: .6; pointer-events: none; position: relative; }
+.task-pending::after {
+  content: ""; position: absolute; inset: 0;
+  background: linear-gradient(90deg, transparent, rgba(255,255,255,.55), transparent);
+  background-size: 200% 100%;
+  animation: taskSweep 1.1s ease-in-out infinite;
+}
+@keyframes taskSweep { 0% { background-position: 200% 0; } 100% { background-position: -200% 0; } }
+
+/* Lazy-render sentinel: the IntersectionObserver watches this 1px spacer. */
+.cards-sentinel { height: 1px; width: 100%; }
+
+/* Skip layout/paint for off-screen table rows (Chrome/Firefox). */
+#dashboardTable tbody tr { content-visibility: auto; contain-intrinsic-size: auto 42px; }
+
 .card {
   position: relative;
   display: grid;

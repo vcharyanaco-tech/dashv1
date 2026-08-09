@@ -26,7 +26,13 @@ let patchedSrc = workerSrc
   .replace(/env\.GAS_SCRIPT_URL/g, JSON.stringify(GAS_SCRIPT_URL));
 
 const boundary = 'boundary' + Date.now();
-const meta = JSON.stringify({ main_module: 'worker.js', compatibility_date: '2026-08-04' });
+const meta = JSON.stringify({
+  main_module: 'worker.js',
+  compatibility_date: '2026-08-04',
+  bindings: [
+    { name: 'AI_INSIGHTS_KV', type: 'kv_namespace', namespace_id: '3aed6a4c7ad842c7b5fba1558a68ab06' }
+  ]
+});
 
 const body = [
   `--${boundary}`,

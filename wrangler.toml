@@ -13,3 +13,7 @@ routes = [
 [vars]
 GAS_URL = "https://script.google.com/macros/s/AKfycbxPwINC2LOPQ-II6vhMXuEqy30Fim32INQNjK3j0sK_9kBClr2MrbSPDnR91AmC7Ian/exec"
 GAS_SCRIPT_URL = "https://script.google.com/macros/s/AKfycbxPwINC2LOPQ-II6vhMXuEqy30Fim32INQNjK3j0sK_9kBClr2MrbSPDnR91AmC7Ian/"
+
+[[kv_namespaces]]
+binding = "AI_INSIGHTS_KV"
+id = "3aed6a4c7ad842c7b5fba1558a68ab06"

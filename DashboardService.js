@@ -64,6 +64,24 @@ function getReviewStatuses_(sheet, rows) {
     return out;
   }
 
+  // Fast path: when the row specs already carry reviewBg (supplied by the
+  // Advanced Sheets read path), avoid a second background round-trip.
+  if (rows.every(function (rs) { return rs && rs.reviewBg !== undefined; })) {
+    rows.forEach(function (rowSpec) {
+      if (!rowSpec || !rowSpec.rowNumber) return;
+      const background = rowSpec.reviewBg;
+      let status = isReviewDoneBackground_(background)
+        ? "done"
+        : (isFlaggedBackground_(background) ? "due" : "");
+      if (status !== "done" && rowSpec.reviewDate) {
+        const days = daysUntilDate_(rowSpec.reviewDate);
+        if (days !== null && days <= 1) status = "due";
+      }
+      out[String(rowSpec.rowNumber)] = status;
+    });
+    return out;
+  }
+
   try {
     const colors = sheet
       .getRange(start, COL.REVIEW_DATE, end - start + 1, 1)

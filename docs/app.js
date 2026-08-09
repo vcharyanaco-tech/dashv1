@@ -2170,14 +2170,63 @@ function emptyStateHtml() {
     </div>`;
 }
 
+/* Incremental card renderer. Renders the first N cards, then appends the
+   next batch only when a sentinel div scrolls into view. No libraries:
+   IntersectionObserver is native in every modern browser. */
+var dashScroll = { sentinel: null, io: null, rendered: 0, BATCH: 15 };
+
 function renderDashboardCards() {
   const grid = getEl('dashboardCards');
   if (!grid) return;
   const start = (appState.page - 1) * PAGE_SIZE;
   const pageItems = appState.filtered.slice(start, start + PAGE_SIZE);
-  grid.innerHTML = pageItems.length
-    ? pageItems.map(buildCardHtml).join('')
-    : emptyStateHtml();
+
+  if (!pageItems.length) { grid.innerHTML = emptyStateHtml(); teardownDashScroller_(); return; }
+
+  // Batch 1 synchronously (keeps above-the-fold instant)
+  grid.innerHTML = pageItems.slice(0, dashScroll.BATCH).map(buildCardHtml).join('');
+  dashScroll.rendered = dashScroll.BATCH;
+  ensureDashSentinel_(grid, pageItems);
+}
+
+function ensureDashSentinel_(grid, pageItems) {
+  teardownDashScroller_();
+  if (dashScroll.rendered >= pageItems.length) return; // all rendered
+
+  dashScroll.sentinel = document.createElement('div');
+  dashScroll.sentinel.className = 'cards-sentinel';
+  grid.appendChild(dashScroll.sentinel);
+
+  dashScroll.io = new IntersectionObserver(function (entries) {
+    if (!entries[0].isIntersecting) return;
+    const next = pageItems.slice(dashScroll.rendered, dashScroll.rendered + dashScroll.BATCH);
+    if (!next.length) { teardownDashScroller_(); return; }
+
+    const frag = document.createDocumentFragment();
+    next.forEach(function (item) { frag.appendChild(htmlToNode_(buildCardHtml(item))); });
+    if (dashScroll.sentinel && dashScroll.sentinel.parentNode) {
+      dashScroll.sentinel.parentNode.insertBefore(frag, dashScroll.sentinel);
+    }
+    dashScroll.rendered += next.length;
+    if (dashScroll.rendered >= pageItems.length) teardownDashScroller_();
+  }, { rootMargin: '300px 0px' }); // lookahead so there is no visible blank gap
+
+  dashScroll.io.observe(dashScroll.sentinel);
+}
+
+function teardownDashScroller_() {
+  if (dashScroll.io) { dashScroll.io.disconnect(); dashScroll.io = null; }
+  if (dashScroll.sentinel && dashScroll.sentinel.parentNode) {
+    dashScroll.sentinel.parentNode.removeChild(dashScroll.sentinel);
+  }
+  dashScroll.sentinel = null;
+  dashScroll.rendered = 0;
+}
+
+function htmlToNode_(html) {
+  const tpl = document.createElement('template');
+  tpl.innerHTML = html.trim();
+  return tpl.content.firstChild;
 }
 
 /* ---------------------------------- Dashboard: table view ---------------------------------- */
@@ -2324,6 +2373,7 @@ function setPage(page) {
 }
 
 function renderDashboard() {
+  teardownDashScroller_();
   applyFilters();
   renderKpiCards();
   updateFilterChips();
@@ -3683,10 +3733,10 @@ function renderTaskList() {
         actionButtons += '<button class="btn btn-ghost btn-small" type="button" onclick="deleteTaskConfirm(\'' + escAttr(t.id) + '\')" style="margin-left:4px;color:var(--danger,#dc3545);">Delete</button>';
       }
       
-      return '<tr>' +
+      return '<tr data-task-id="' + escAttr(t.id) + '">' +
         '<td class="preserve-whitespace">' + escapeHtml(t.title || '') + '</td>' +
         '<td>' + escapeHtml(t.assignee || '') + '</td>' +
-        '<td><span class="badge ' + statusClass + '">' + escapeHtml(t.status || '') + '</span></td>' +
+        '<td><span class="badge ' + statusClass + '" id="task-status-' + escAttr(t.id) + '">' + escapeHtml(t.status || '') + '</span></td>' +
         '<td><span class="badge ' + priorityClass + '">' + escapeHtml(t.priority || '') + '</span></td>' +
         '<td>' + (t.dueDate ? escapeHtml(formatDate(t.dueDate)) : '') + '</td>' +
         '<td>' + actionButtons + '</td>' +
@@ -3802,16 +3852,43 @@ function completeTask(id) {
     okLabel: 'Done'
   }).then(function (confirmed) {
     if (!confirmed) return;
-    showOverlay('Updating task…');
-    ApiService.updateTask(id, { status: 'DONE' }).then(function () {
-      hideOverlay();
-      showToast('Task marked complete.', 'success');
-      renderTasks();
-    }).catch(function (err) {
-      hideOverlay();
-      if (handleServerFailure(err)) return;
-      showToast('Could not update task: ' + (err.message || err), 'error');
-    });
+    completeTaskOptimistic(id);
+  });
+}
+
+/** Optimistically toggles a task to DONE. DOM flips instantly; on server
+ *  failure the row is rolled back and a Toast explains the problem. */
+function completeTaskOptimistic(id) {
+  const row = document.querySelector('tr[data-task-id="' + String(id).replace(/["\\]/g, '\\$&') + '"]');
+  if (!row) { renderTasks(); return; }
+
+  const statusEl = row.querySelector('.badge');
+  const buttons = Array.prototype.slice.call(row.querySelectorAll('button'));
+  const snapshot = row.innerHTML; // cheap rollback image (a single row)
+  const prevText = statusEl ? statusEl.textContent : '';
+
+  // 1) Apply the optimistic state BEFORE the network call resolves
+  if (statusEl) {
+    statusEl.textContent = 'DONE';
+    statusEl.className = 'badge badge-success';
+  }
+  row.classList.add('task-pending');
+  buttons.forEach(function (b) { b.disabled = true; });
+
+  // 2) Fire the real call
+  ApiService.updateTask(id, { status: 'DONE' }).then(function () {
+    const task = (appState.tasks || []).find(function (t) { return t.id === id; });
+    if (task) { task.status = 'DONE'; task.completedAt = Date.now(); }
+    row.classList.remove('task-pending');
+    buttons.forEach(function (b) { b.disabled = false; });
+    showToast('Task marked complete.', 'success');
+  }).catch(function (err) {
+    // 3) ROLLBACK: restore the exact prior DOM + re-enable buttons
+    row.innerHTML = snapshot;
+    if (statusEl) statusEl.textContent = prevText;
+    row.classList.remove('task-pending');
+    if (handleServerFailure(err)) return;
+    showToast('Could not update task: ' + (err.message || err), 'error');
   });
 }
 

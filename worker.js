@@ -347,10 +347,12 @@ function stripDisclaimerJs(js) {
 // External secrets (GEMINI_API_KEY, WHATSAPP_TOKEN, WHATSAPP_PHONE_NUMBER_ID)
 // are read only from Worker environment/secrets and never echoed in responses.
 
-function jsonResponse(obj, status) {
+const AI_INSIGHTS_TTL = 3600; // seconds; 1h keeps insights fresh-ish
+
+function jsonResponse(obj, status, extraHeaders) {
   return new Response(JSON.stringify(obj), {
     status: status || 200,
-    headers: { ...COMMON_HEADERS, 'Content-Type': 'application/json' },
+    headers: { ...COMMON_HEADERS, 'Content-Type': 'application/json', ...(extraHeaders || {}) },
   });
 }
 
@@ -371,7 +373,7 @@ async function handleEnterpriseRoute(request, env, url) {
   }
 
   if (url.pathname === '/api/ai-insights' && request.method === 'POST') {
-    return handleAiInsights(request, env);
+    return handleAiInsights(request, env, ctx);
   }
   if (url.pathname === '/api/notify-whatsapp' && request.method === 'POST') {
     return handleWhatsApp(request, env);
@@ -379,18 +381,40 @@ async function handleEnterpriseRoute(request, env, url) {
   return jsonResponse({ error: 'not found' }, 404);
 }
 
-async function handleAiInsights(request, env) {
+async function handleAiInsights(request, env, ctx) {
   if (!env.GEMINI_API_KEY) {
     return jsonResponse({ error: 'AI not configured' }, 500);
   }
   let body = {};
   try { body = await request.json(); } catch (e) { body = {}; }
+
+  // Build the same deterministic prompt as before — its hash IS the cache key,
+  // so identical summaries share one edge entry.
   const s = body.summary || {};
   const prompt = body.prompt ||
     'India Post dashboard: total=' + (s.total || 0) + ', reviewDue=' + (s.flagged || s.reviewDue || 0) +
     ', normal=' + (s.normal || 0) + '. Give exactly 3 concise bullet follow-up actions.';
+
+  const cacheKey = 'ai:' + hashText(prompt); // fnv-1a of the prompt
+  const kv = env.AI_INSIGHTS_KV;
+
+  // 1) KV read first — sub-10ms when warm, zero Gemini cost.
+  if (kv) {
+    try {
+      const hit = await kv.get(cacheKey, 'json');
+      if (hit && hit.insights) {
+        return jsonResponse({
+          success: true, insights: hit.insights,
+          cachedAt: hit.cachedAt, stale: false
+        }, 200, { 'X-AI-Cache': 'HIT' });
+      }
+    } catch (e) { /* cache error = bypass, still call Gemini */ }
+  }
+
+  // 2) Cache miss → expensive Gemini call.
   const endpoint = 'https://generativelanguage.googleapis.com/v1beta/models/' +
     (env.GEMINI_MODEL || 'gemini-2.0-flash') + ':generateContent';
+  let text = '';
   try {
     const resp = await fetch(endpoint + '?key=' + encodeURIComponent(env.GEMINI_API_KEY), {
       method: 'POST',
@@ -398,14 +422,33 @@ async function handleAiInsights(request, env) {
       body: JSON.stringify({ contents: [{ parts: [{ text: prompt }] }] }),
     });
     const gem = await resp.json();
-    const text = gem && gem.candidates && gem.candidates[0] && gem.candidates[0].content &&
+    text = gem && gem.candidates && gem.candidates[0] && gem.candidates[0].content &&
       gem.candidates[0].content.parts && gem.candidates[0].content.parts[0] &&
-      gem.candidates[0].content.parts[0].text;
+      gem.candidates[0].content.parts[0].text || '';
     if (!text) return jsonResponse({ error: 'AI returned no content' }, 502);
-    return jsonResponse({ success: true, insights: text });
   } catch (err) {
     return jsonResponse({ error: 'AI request failed' }, 502);
   }
+
+  // 3) Persist asynchronously so the response is not blocked by the KV write.
+  if (kv) {
+    ctx.waitUntil(kv.put(cacheKey, JSON.stringify({
+      insights: text, cachedAt: Date.now(), prompt: prompt
+    }), { expirationTtl: AI_INSIGHTS_TTL }));
+  }
+
+  return jsonResponse({ success: true, insights: text }, 200, { 'X-AI-Cache': 'MISS' });
+}
+
+/** FNV-1a 64-bit → hex (fast, dependency-free, fine for cache keys). */
+function hashText(str) {
+  let h1 = 0x811c9dc5, h2 = 0x811c9dc5;
+  for (let i = 0; i < str.length; i++) {
+    const c = str.charCodeAt(i);
+    h1 = Math.imul(h1 ^ c, 0x01000193) >>> 0;
+    h2 = Math.imul(h2 ^ c, 0x01000193) >>> 0;
+  }
+  return (h1 >>> 0).toString(16) + (h2 >>> 0).toString(16);
 }
 
 async function handleWhatsApp(request, env) {

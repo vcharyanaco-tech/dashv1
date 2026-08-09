@@ -156,9 +156,217 @@ function ensureSheetStructure_(sheet) {
   return sheet;
 }
 
+/* ============================================================
+ * Advanced Sheets API read (fast bulk read path)
+ *
+ * Sheets.Spreadsheets.get with includeGridData returns raw cell data
+ * (values, rich-text runs + links, and background colors) in ONE HTTP
+ * round-trip, replacing the three classic calls getValues() +
+ * getRichTextValues() + getBackgrounds(). Requires the "Google Sheets
+ * API" advanced service (added in appsscript.json dependencies). Every
+ * entry point degrades to the classic API when the service is missing.
+ * ============================================================ */
+
+/** Mirrors getPreferredHeaderRow_ but operates on the already-fetched advanced
+ *  grid so the fast path never issues a second full-range getValues() read.
+ * @param {Array<Object[]>} grid Row-major advanced cells (1-indexed).
+ * @returns {number} Preferred header row number (1-based), or 1 when unknown.
+ */
+function preferredHeaderRowInGrid_(grid) {
+  if (!grid || !grid.length) return 1;
+  const values = grid.map(function (cells) {
+    return (cells || []).map(function (c) { return c.value; });
+  });
+  const row3 = values[2] || [];
+  if (row3.length && isLikelyHeaderRow_(row3)) return 3;
+  for (let i = 0; i < values.length; i++) {
+    if (isLikelyHeaderRow_(values[i])) return i + 1;
+  }
+  return 1;
+}
+
+/** Reads the whole data grid via the Advanced Sheets Service.
+ * @param {GoogleAppsScript.Spreadsheet.Sheet} sheet The dashboard sheet.
+ * @returns {Array<Object[]>|null} row-major cells {value,runs,bg,hyperlink}
+ *   for the data region, or null when the advanced service is unavailable
+ *   or the read fails (caller then uses the classic API).
+ */
+function readGridDataAdvanced_(sheet) {
+  if (!sheet || typeof Sheets === "undefined") return null;
+  try {
+    const ssId = getPreferredSpreadsheetId_();
+    const name = sheet.getName();
+    const lastRow = sheet.getLastRow();
+    if (lastRow < 1) return null;
+
+    // Fetch from row 1 in a single round-trip (title rows included); the
+    // header row is detected from the grid by buildRowsFromAdvanced_, so this
+    // fast path never issues a classic getDataRange() read.
+    const resp = Sheets.Spreadsheets.get(ssId, {
+      ranges: [name + "!A1:G" + lastRow],
+      includeGridData: true,
+      fields: "sheets.data.rowData.values(userEnteredValue,effectiveFormat.backgroundColor,textFormatRuns,hyperlink)"
+    });
+    const grid = resp && resp.sheets && resp.sheets[0] && resp.sheets[0].data && resp.sheets[0].data[0];
+    if (!grid || !grid.rowData) return null;
+
+    return grid.rowData.map(function (rowData) {
+      const rowCells = rowData.values || [];
+      return rowCells.map(function (cell) {
+        const ev = cell.userEnteredValue || {};
+        let value = "";
+        if (ev.numberValue !== undefined) value = ev.numberValue;
+        else if (ev.stringValue !== undefined) value = ev.stringValue;
+        else if (ev.boolValue !== undefined) value = ev.boolValue;
+        else if (ev.formulaValue !== undefined) value = ev.formulaValue;
+        const bg = cell.effectiveFormat && cell.effectiveFormat.backgroundColor;
+        return {
+          value: value,
+          runs: cell.textFormatRuns || [],
+          bg: bg ? rgbToHex_(bg) : "#ffffff",
+          hyperlink: cell.hyperlink || ""
+        };
+      });
+    });
+  } catch (err) {
+    console.warn("Advanced Sheets read failed, falling back to classic API: " + err.message);
+    return null;
+  }
+}
+
+/** Converts a Sheets API {red,green,blue} (0..1 floats) to "#rrggbb". */
+function rgbToHex_(c) {
+  function to2(n) { return Math.round((n || 0) * 255).toString(16).padStart(2, "0"); }
+  return "#" + to2(c.red) + to2(c.green) + to2(c.blue);
+}
+
+/** First hyperlink URL in a cell's runs ("" when plain text). */
+function linkFromCell_(cell) {
+  if (!cell) return "";
+  if (cell.hyperlink) return String(cell.hyperlink);
+  for (let i = 0; i < (cell.runs || []).length; i++) {
+    const link = cell.runs[i].format && cell.runs[i].format.link;
+    if (link && link.uri) return String(link.uri);
+  }
+  return "";
+}
+
+/** Concatenated display text of a cell's linked runs ("" when none). */
+function linkTextFromCell_(cell) {
+  if (!cell) return "";
+  if (cell.hyperlink) return String(cell.value == null ? "" : cell.value);
+  let out = "";
+  for (let i = 0; i < (cell.runs || []).length; i++) {
+    if (cell.runs[i].format && cell.runs[i].format.link) {
+      out += String(cell.runs[i].text || "");
+    }
+  }
+  return out;
+}
+
+/** Rebuilds the display HTML for a cell from its raw value + runs,
+ *  mirroring richToHtml_ (links, colors, bold/italic/underline). */
+function cellHtmlFromRuns_(cell) {
+  const value = cell ? cell.value : "";
+  const plain = String(value == null ? "" : value);
+  const runs = (cell && cell.runs) || [];
+  if (!runs.length) return linkifyText_(plain);
+  let out = "";
+  for (let i = 0; i < runs.length; i++) {
+    const t = String(runs[i].text || "");
+    if (t === "") continue;
+    const fmt = runs[i].format || {};
+    const tf = fmt.textFormat || {};
+    const css = [];
+    if (tf.foregroundColor) {
+      css.push("color:" + rgbToHex_(tf.foregroundColor));
+    }
+    if (tf.bold) css.push("font-weight:700");
+    if (tf.italic) css.push("font-style:italic");
+    if (tf.underline) css.push("text-decoration:underline");
+    let body = escHtml_(t);
+    const url = (fmt.link && fmt.link.uri) || "";
+    if (url) {
+      const au = absUrl_(url);
+      if (au) body = '<a href="' + escHtml_(au) + '" target="_blank" rel="noopener noreferrer" data-embed="1">' + body + '</a>';
+    }
+    out += css.length ? '<span style="' + css.join(";") + '">' + body + '</span>' : body;
+  }
+  return out || linkifyText_(plain);
+}
+
+/** Builds row specs from the advanced grid snapshot (same shape as the
+ *  classic getSheetDataRows_ output: rowNumber, fields, linkUrls/linkTexts). */
+function buildRowsFromAdvanced_(grid, sheet) {
+  const headerRow = preferredHeaderRowInGrid_(grid);
+  const startRow = headerRow > 0 ? headerRow + 1 : CONFIG.SHEET.START_ROW;
+  const headerCells = grid[headerRow - 1] || [];
+  const headerValues = headerCells.map(function (c) { return String(c.value || ""); });
+  const fieldMap = buildFieldMap_(headerValues);
+  const fieldIndexByKey = Object.keys(fieldMap).reduce(function (acc, key) {
+    acc[fieldMap[key]] = key;
+    return acc;
+  }, {});
+
+  const rows = [];
+  for (let index = startRow; index <= grid.length; index++) {
+    const cells = grid[index - 1] || [];
+    const normalizedRow = cells.map(function (c) { return c.value; });
+    const hasContent = normalizedRow.some(function (value) {
+      return String(value || "").trim() !== "";
+    });
+    if (!hasContent) continue;
+
+    const linkUrls = {};
+    const linkTexts = {};
+    const displayFields = [];
+    headerValues.forEach(function (label, headerIndex) {
+      const clean = String(label || "").trim();
+      if (!clean) return;
+      const cell = cells[headerIndex] || { value: "", runs: [], bg: "#ffffff" };
+      const url = linkFromCell_(cell);
+      const linkText = linkTextFromCell_(cell);
+      if (url && fieldIndexByKey[headerIndex] !== undefined) {
+        linkUrls[fieldIndexByKey[headerIndex]] = url;
+        if (linkText) linkTexts[fieldIndexByKey[headerIndex]] = linkText;
+      }
+      displayFields.push({
+        label: clean,
+        value: cell.value,
+        html: url ? cellHtmlFromRuns_(cell) : "",
+        linkUrl: url
+      });
+    });
+
+    rows.push({
+      rowNumber: index,
+      id: getFieldValue_(fieldMap, normalizedRow, "id", 0),
+      sector: getFieldValue_(fieldMap, normalizedRow, "sector", 1),
+      description: getFieldValue_(fieldMap, normalizedRow, "description", 2),
+      entryDate: getFieldValue_(fieldMap, normalizedRow, "entryDate", 3),
+      action: getFieldValue_(fieldMap, normalizedRow, "action", 4),
+      responsibility: getFieldValue_(fieldMap, normalizedRow, "responsibility", 5),
+      reviewDate: getFieldValue_(fieldMap, normalizedRow, "reviewDate", 6),
+      displayFields: displayFields,
+      linkUrls: linkUrls,
+      linkTexts: linkTexts,
+      reviewBg: cells[6] ? cells[6].bg : "#ffffff"
+    });
+  }
+  return rows;
+}
+
 function getSheetDataRows_(sheet) {
   if (!sheet) {
     return [];
+  }
+
+  // Fast path: one Advanced Sheets call for values + rich-text runs + colors
+  // (falls back to classic API when the advanced service is unavailable).
+  const advanced = readGridDataAdvanced_(sheet);
+  if (advanced) {
+    const rows = buildRowsFromAdvanced_(advanced, sheet);
+    if (rows && rows.length) return rows;
   }
 
   const dataRange = sheet.getDataRange();
@@ -548,12 +756,33 @@ function runWithLock_(callback) {
 
 const __DATA_CACHE_PREFIX__ = "dashv1:data:v1:";
 
+/* A generation number stored in Script Properties. Bumped only on structural
+ * changes (add/delete/renumber) which shift every ID — any cached payload is
+ * unrecoverable. Cache keys embed the generation, so bumping it instantly
+ * orphans every old slice without a removeAll() loop. Content edits use the
+ * surgical patchCachedDataRow_() instead, which rewrites just one record. */
+const __DATA_GEN_PROP__ = "dashv1:dataGen";
+
+function dataGeneration_() {
+  try {
+    const props = PropertiesService.getScriptProperties();
+    const g = parseInt(props.getProperty(__DATA_GEN_PROP__) || "1", 10);
+    return isFinite(g) && g > 0 ? g : 1;
+  } catch (err) { return 1; }
+}
+
+function bumpDataGeneration_() {
+  try {
+    PropertiesService.getScriptProperties().setProperty(__DATA_GEN_PROP__, String(dataGeneration_() + 1));
+  } catch (err) {}
+}
+
 const __DATA_CACHE_CHUNK_SIZE__ = 90000;
 
 const __DATA_CACHE_MAX_CHUNKS__ = 20;
 
 function __dataCacheBaseKey_() {
-  return __DATA_CACHE_PREFIX__ + today_();
+  return __DATA_CACHE_PREFIX__ + dataGeneration_() + ":" + today_();
 }
 
 function __dataCacheChunkKey_(base, index) {
@@ -655,6 +884,115 @@ function invalidateDataCache_() {
     cache.removeAll(keys);
   } catch (err) {
     // ignore
+  }
+}
+
+/**
+ * Builds a full display row spec for a single physical row, mirroring the
+ * classic getSheetDataRows_ logic (rich text HTML + linkUrls/linkTexts) so a
+ * surgical cache patch does not strip hyperlinks or rich-text formatting.
+ * @param {GoogleAppsScript.Spreadsheet.Sheet} sheet The dashboard sheet.
+ * @param {number} row Physical row number.
+ * @returns {Object|null} A row spec, or null when the row is empty/invalid.
+ */
+function buildRowSpecForRow_(sheet, row) {
+  if (!sheet || !row) return null;
+  try {
+    const headerRow = getPreferredHeaderRow_(sheet);
+    const startRow = headerRow > 0 ? headerRow + 1 : 1;
+    const headerValues = getHeaderValues_(sheet);
+    const fieldMap = headerValues.length ? buildFieldMap_(headerValues) : {};
+    const fieldIndexByKey = Object.keys(fieldMap).reduce(function (acc, key) {
+      acc[fieldMap[key]] = key;
+      return acc;
+    }, {});
+
+    const range = sheet.getRange(row, 1, 1, CONFIG.SHEET.NUM_COLS);
+    const values = range.getValues()[0];
+    let richRow = null;
+    try { richRow = range.getRichTextValues()[0]; } catch (err) { richRow = null; }
+
+    const normalizedRow = (values || []).slice(0, CONFIG.SHEET.NUM_COLS);
+    if (!normalizedRow.some(function (v) { return String(v || "").trim() !== ""; })) return null;
+
+    const linkUrls = {};
+    const linkTexts = {};
+    const displayFields = (headerValues || []).reduce(function (fields, header, headerIndex) {
+      const label = String(header || "").trim();
+      if (!label) return fields;
+      const value = normalizedRow[headerIndex] !== undefined ? normalizedRow[headerIndex] : "";
+      let html = "";
+      let linkUrl = "";
+      let linkText = "";
+      const richValue = richRow ? richRow[headerIndex] : null;
+      if (richValue) {
+        try { html = richToHtml_(richValue, String(value === null || value === undefined ? "" : value)); } catch (err) { html = ""; }
+        try { linkUrl = extractLinkUrl_(richValue); } catch (err2) { linkUrl = ""; }
+        try { linkText = extractLinkText_(richValue); } catch (err2b) { linkText = ""; }
+      }
+      if (linkUrl && fieldIndexByKey[headerIndex] !== undefined) {
+        linkUrls[fieldIndexByKey[headerIndex]] = linkUrl;
+        if (linkText) linkTexts[fieldIndexByKey[headerIndex]] = linkText;
+      }
+      fields.push({ label: label, value: value, html: html, linkUrl: linkUrl });
+      return fields;
+    }, []);
+
+    return {
+      rowNumber: row,
+      id: getFieldValue_(fieldMap, normalizedRow, "id", 0),
+      sector: getFieldValue_(fieldMap, normalizedRow, "sector", 1),
+      description: getFieldValue_(fieldMap, normalizedRow, "description", 2),
+      entryDate: getFieldValue_(fieldMap, normalizedRow, "entryDate", 3),
+      action: getFieldValue_(fieldMap, normalizedRow, "action", 4),
+      responsibility: getFieldValue_(fieldMap, normalizedRow, "responsibility", 5),
+      reviewDate: getFieldValue_(fieldMap, normalizedRow, "reviewDate", 6),
+      displayFields: displayFields,
+      linkUrls: linkUrls,
+      linkTexts: linkTexts
+    };
+  } catch (err) {
+    return null;
+  }
+}
+
+/**
+ * Surgically refreshes exactly one record inside the cached getData() payload.
+ * Reads ONE sheet row, rebuilds ONE item, splices it into the cached items
+ * array, then re-chunks + re-puts the cache. The other N-1 records are never
+ * re-read from the sheet — a single update becomes O(1 row) instead of a full
+ * sheet read + rebuild. Falls back to a full invalidate if anything fails.
+ * @param {number} row The physical sheet row to refresh.
+ */
+function patchCachedDataRow_(row) {
+  if (!CONFIG.CACHE.ENABLED) return;
+
+  const cached = getCachedData_();
+  if (!cached || !cached.items) return;
+
+  try {
+    const sheet = getSheet_();
+    const rowSpec = buildRowSpecForRow_(sheet, row);
+    if (!rowSpec) { invalidateDataCache_(); return; }
+
+    const built = DashboardService.buildItems([rowSpec], sheet);
+    const item = built && built[0];
+    if (!item) { invalidateDataCache_(); return; }
+
+    let replaced = false;
+    cached.items = (cached.items || []).map(function (it) {
+      if (Number(it.row) === Number(row)) { replaced = true; return item; }
+      return it;
+    });
+    if (!replaced) cached.items.push(item);
+
+    // Derived scoped payloads recompute in memory from the patched array.
+    if (cached.summary) cached.summary = buildSummaryFromItems(cached.items || []);
+    if (cached.analytics) cached.analytics = buildAnalytics_(cached.items || []);
+
+    putCachedData_(cached);
+  } catch (err) {
+    invalidateDataCache_();
   }
 }
 
