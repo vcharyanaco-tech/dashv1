@@ -348,6 +348,15 @@
   (6 tests) validates the client→`apiCall_`→`API_ROUTES`→server-signature
   chain for `addItem`/`updateItem`/`deleteItem` against BOTH clients and the
   same server file, plus client-to-client wrapper parity.
+- **Worker CORS tests** — new `tests/worker-cors.test.js` (8 tests) executes
+  the real `headersFor`/`TRUSTED_ORIGINS`/`BASE_HEADERS` from `worker.js` and
+  asserts: non-trusted origins (suffix-spoof, wrong scheme/port, unlisted
+  subdomain, `null`) get no `Access-Control-Allow-Origin`; trusted origins
+  echo their exact Origin with `Vary: Origin`; same-origin and request-less
+  calls are safe; `X-Frame-Options` is `SAMEORIGIN` everywhere; each call
+  returns a fresh object; plus source guards that no `ACAO: *` / `ALLOWALL`
+  returns and the proxy path deletes upstream ACAO+Vary before applying
+  trusted headers.
 - Validation: 35/35 tests pass, `node --check` on all server/client files,
   worker ESM syntax check, inline `script.html` extraction check, sync
   round-trip (drift → sync → restore) verified; PWA cache-bust bumped to
