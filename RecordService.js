@@ -60,22 +60,24 @@ function addRecord_(item, token) {
       CONFIG.SHEET.START_ROW +
       1;
 
-    const rowRange = sheet.getRange(
-      row,
-      1,
-      1,
-      CONFIG.SHEET.NUM_COLS
-    );
-
-    rowRange.setValues([[
-      id,
-      normalized.sector,
-      normalized.description,
-      normalized.entryDate,
-      normalized.action,
-      normalized.responsibility,
-      normalized.reviewDate
-    ]]);
+    // Plain-value row write: one Advanced batchUpdate round-trip (falls back
+    // to classic setValues() automatically). Rich-text links are applied
+    // separately below because hyperlinks are not plain values.
+    dataWriteValuesBatch_(sheet, [{
+      row: row,
+      col: 1,
+      numRows: 1,
+      numCols: CONFIG.SHEET.NUM_COLS,
+      values: [[
+        id,
+        normalized.sector,
+        normalized.description,
+        normalized.entryDate,
+        normalized.action,
+        normalized.responsibility,
+        normalized.reviewDate
+      ]]
+    }]);
 
     const links = normalized.links || {};
     [
@@ -90,7 +92,7 @@ function addRecord_(item, token) {
       }
     });
 
-    rowRange.setBorder(
+    sheet.getRange(row, 1, 1, CONFIG.SHEET.NUM_COLS).setBorder(
       true,
       true,
       true,
@@ -143,11 +145,16 @@ function updateRecord_(item, token) {
       return String(v);
     }
 
+    // Plain-value cells changed by this update are accumulated into one
+    // Advanced batchUpdate round-trip (rich-text/linked cells are written
+    // separately because hyperlinks are not plain values).
+    const pendingWrites = [];
+
     function writeIfChanged(col, oldVal, newVal) {
       const o = toPlainText_(oldVal).replace(/\r\n/g, "\n");
       const n = String(newVal == null ? "" : newVal).replace(/\r\n/g, "\n");
       if (o !== n) {
-        sheet.getRange(row, col).setValue(newVal);
+        pendingWrites.push({ row: row, col: col, values: [[newVal]] });
       }
     }
 
@@ -165,11 +172,11 @@ function updateRecord_(item, token) {
       const newLink = String(linkUrl == null ? "" : linkUrl);
       const newLinkText = String(linkText == null ? "" : linkText);
       if (o === n && state.link === newLink && (state.linkText || "") === newLinkText) return;
-      const range = sheet.getRange(row, col);
       if (newLink) {
-        range.setRichTextValue(buildRichTextValue_(newVal, newLink, newLinkText));
+        // Hyperlink-rich text is not a plain value; write it directly.
+        sheet.getRange(row, col).setRichTextValue(buildRichTextValue_(newVal, newLink, newLinkText));
       } else {
-        range.setValue(newVal);
+        pendingWrites.push({ row: row, col: col, values: [[newVal]] });
       }
     }
 
@@ -182,6 +189,9 @@ function updateRecord_(item, token) {
     writeLinkedField(COL.ACTION, readCellState(COL.ACTION), normalized.action, links.action ? links.action.url : "", links.action ? links.action.text : "");
     writeIfChanged(COL.RESPONSIBILITY, sheet.getRange(row, COL.RESPONSIBILITY).getValue(), normalized.responsibility);
     writeIfChanged(COL.REVIEW_DATE, sheet.getRange(row, COL.REVIEW_DATE).getValue(), normalized.reviewDate);
+
+    // Flush all plain-value changes in a single batch round-trip.
+    dataWriteValuesBatch_(sheet, pendingWrites);
 
     sheet
       .getRange(item.row, COL.REVIEW_DATE)
