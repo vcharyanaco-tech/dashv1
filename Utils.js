@@ -191,6 +191,7 @@ function getSheetDataRows_(sheet) {
       return acc;
     }, {});
     const linkUrls = {};
+    const linkTexts = {};
     const displayFields = (headerValues || []).reduce(function (fields, header, headerIndex) {
       const label = String(header || "").trim();
       if (!label) {
@@ -201,6 +202,7 @@ function getSheetDataRows_(sheet) {
 
       let html = "";
       let linkUrl = "";
+      let linkText = "";
       const richValue = (richValues[rowNumber - 1] || [])[headerIndex];
       if (richValue) {
         try {
@@ -213,9 +215,15 @@ function getSheetDataRows_(sheet) {
         } catch (err2) {
           linkUrl = "";
         }
+        try {
+          linkText = extractLinkText_(richValue);
+        } catch (err2b) {
+          linkText = "";
+        }
       }
       if (linkUrl && fieldIndexByKey[headerIndex] !== undefined) {
         linkUrls[fieldIndexByKey[headerIndex]] = linkUrl;
+        if (linkText) linkTexts[fieldIndexByKey[headerIndex]] = linkText;
       }
 
       fields.push({
@@ -238,7 +246,8 @@ function getSheetDataRows_(sheet) {
       responsibility: getFieldValue_(fieldMap, normalizedRow, "responsibility", 5),
       reviewDate: getFieldValue_(fieldMap, normalizedRow, "reviewDate", 6),
       displayFields: displayFields,
-      linkUrls: linkUrls
+      linkUrls: linkUrls,
+      linkTexts: linkTexts
     });
 
     return rows;

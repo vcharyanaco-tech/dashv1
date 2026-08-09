@@ -243,6 +243,16 @@ function markReviewDone(row, token) {
   return RecordService.markReviewDone(row, token);
 }
 
+/**
+ * Reopens a record's review (mark as not done). Admin required.
+ * @param {number} row The physical sheet row.
+ * @param {string} token Session token (admin required).
+ * @returns {{items: Object[], summary: Object}} Updated items + summary.
+ */
+function markReviewNotDone(row, token) {
+  return RecordService.markReviewNotDone(row, token);
+}
+
 function escHtml_(s) {
   if (s === null || s === undefined) return '';
   return String(s)
@@ -357,6 +367,33 @@ function extractLinkUrl_(rt) {
       return direct ? String(direct) : "";
     }
   } catch (e3) {}
+  return "";
+}
+
+/**
+ * Returns the display text of the portion of a rich-text value that carries a
+ * hyperlink (the concatenated text of linked runs), or "" when nothing is
+ * linked. Used to round-trip the link description back to the editor.
+ * @param {Object} rt A RichTextValue object (or null/undefined).
+ * @returns {string}
+ */
+function extractLinkText_(rt) {
+  if (!rt) return "";
+  var runs = null;
+  try { runs = rt.getRuns(); } catch (e) { runs = null; }
+  if (runs && runs.length) {
+    var out = "";
+    for (var i = 0; i < runs.length; i++) {
+      var u = null;
+      try { u = runs[i].getLinkUrl(); } catch (e2) { u = null; }
+      if (u) {
+        var t = "";
+        try { t = runs[i].getText(); } catch (e3) { t = ""; }
+        out += t;
+      }
+    }
+    return out;
+  }
   return "";
 }
 

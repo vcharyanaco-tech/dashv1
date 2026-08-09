@@ -8,16 +8,28 @@
  */
 
 /**
- * Builds a RichTextValue whose full text carries a hyperlink.
- * @param {string} text Display text.
+ * Builds a RichTextValue whose text carries a hyperlink. When linkText is
+ * given and appears within the text, only that substring is hyperlinked; the
+ * rest of the text stays plain. Falls back to linking the whole text when the
+ * link text is missing or not found.
+ * @param {string} text Full display text.
  * @param {string} url Link URL (empty to build plain text).
+ * @param {string} linkText The exact substring that should carry the link.
  * @returns {GoogleAppsScript.Spreadsheet.RichTextValue}
  */
-function buildRichTextValue_(text, url) {
+function buildRichTextValue_(text, url, linkText) {
   const t = String(text == null ? "" : text);
   const builder = SpreadsheetApp.newRichTextValue().setText(t);
   if (url) {
-    try { builder.setLinkUrl(String(url)); } catch (e) {}
+    const lt = String(linkText == null ? "" : linkText);
+    const idx = lt ? t.indexOf(lt) : -1;
+    try {
+      if (idx >= 0) {
+        builder.setLinkUrl(idx, idx + lt.length, String(url));
+      } else {
+        builder.setLinkUrl(String(url));
+      }
+    } catch (e) {}
   }
   return builder.build();
 }
@@ -74,7 +86,7 @@ function addRecord_(item, token) {
       const link = links[pair[1]];
       const url = link && link.url ? String(link.url) : "";
       if (url) {
-        sheet.getRange(row, pair[0]).setRichTextValue(buildRichTextValue_(normalized[pair[1]], url));
+        sheet.getRange(row, pair[0]).setRichTextValue(buildRichTextValue_(normalized[pair[1]], url, link && link.text ? String(link.text) : ""));
       }
     });
 
@@ -144,17 +156,18 @@ function updateRecord_(item, token) {
       let rt = null;
       try { rt = range.getRichTextValue(); } catch (e) { rt = null; }
       const plain = rt ? String(rt.getText()) : String(range.getValue() == null ? "" : range.getValue());
-      return { plain: plain, link: extractLinkUrl_(rt) };
+      return { plain: plain, link: extractLinkUrl_(rt), linkText: extractLinkText_(rt) };
     }
 
-    function writeLinkedField(col, state, newVal, linkUrl) {
+    function writeLinkedField(col, state, newVal, linkUrl, linkText) {
       const o = state.plain.replace(/\r\n/g, "\n");
       const n = String(newVal == null ? "" : newVal).replace(/\r\n/g, "\n");
       const newLink = String(linkUrl == null ? "" : linkUrl);
-      if (o === n && state.link === newLink) return;
+      const newLinkText = String(linkText == null ? "" : linkText);
+      if (o === n && state.link === newLink && (state.linkText || "") === newLinkText) return;
       const range = sheet.getRange(row, col);
       if (newLink) {
-        range.setRichTextValue(buildRichTextValue_(newVal, newLink));
+        range.setRichTextValue(buildRichTextValue_(newVal, newLink, newLinkText));
       } else {
         range.setValue(newVal);
       }
@@ -163,10 +176,10 @@ function updateRecord_(item, token) {
     // Read old values and only write changed cells to preserve rich text / hyperlinks
     const links = normalized.links || {};
     writeIfChanged(COL.ID, sheet.getRange(row, COL.ID).getValue(), normalized.id);
-    writeLinkedField(COL.SECTOR, readCellState(COL.SECTOR), normalized.sector, links.sector ? links.sector.url : "");
-    writeLinkedField(COL.DESCRIPTION, readCellState(COL.DESCRIPTION), normalized.description, links.description ? links.description.url : "");
+    writeLinkedField(COL.SECTOR, readCellState(COL.SECTOR), normalized.sector, links.sector ? links.sector.url : "", links.sector ? links.sector.text : "");
+    writeLinkedField(COL.DESCRIPTION, readCellState(COL.DESCRIPTION), normalized.description, links.description ? links.description.url : "", links.description ? links.description.text : "");
     writeIfChanged(COL.ENTRY_DATE, sheet.getRange(row, COL.ENTRY_DATE).getValue(), normalized.entryDate);
-    writeLinkedField(COL.ACTION, readCellState(COL.ACTION), normalized.action, links.action ? links.action.url : "");
+    writeLinkedField(COL.ACTION, readCellState(COL.ACTION), normalized.action, links.action ? links.action.url : "", links.action ? links.action.text : "");
     writeIfChanged(COL.RESPONSIBILITY, sheet.getRange(row, COL.RESPONSIBILITY).getValue(), normalized.responsibility);
     writeIfChanged(COL.REVIEW_DATE, sheet.getRange(row, COL.REVIEW_DATE).getValue(), normalized.reviewDate);
 
@@ -240,9 +253,39 @@ function markReviewDone_(row, token) {
   });
 }
 
+/**
+ * Reopens a record's review by resetting the review-date cell background to
+ * the normal colour, converting it back to "review due" (or unflagged when the
+ * review date is further out).
+ * @param {number} row The physical sheet row.
+ * @param {string} token Session token (admin required).
+ * @returns {{items: Object[], summary: Object}} Updated items + summary.
+ */
+function markReviewNotDone_(row, token) {
+  const admin = requireAdmin_(token);
+
+  return runWithLock_(function () {
+    const sheet = getSheet_();
+    sheet.getRange(row, COL.REVIEW_DATE).setBackground(CONFIG.COLORS.NORMAL);
+    logAudit_(ACTIONS.REVIEW_NOT_DONE, String(row), 'Marked review as not done');
+    invalidateDataCache_();
+
+    try {
+      notifyStaffLocked_(NOTIFICATION_TYPES.RECORD, 'Review reopened', 'Review for record #' + (row - CONFIG.SHEET.START_ROW + 1) + ' was marked as not done (review due again).', '', admin.email);
+    } catch (err) {}
+
+    const data = getData();
+    return {
+      items: data.items || [],
+      summary: buildSummaryFromItems(data.items || [])
+    };
+  });
+}
+
 const RecordService = Object.freeze({
   add: addRecord_,
   update: updateRecord_,
   remove: deleteRecord_,
-  markReviewDone: markReviewDone_
+  markReviewDone: markReviewDone_,
+  markReviewNotDone: markReviewNotDone_
 });

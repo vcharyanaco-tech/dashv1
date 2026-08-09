@@ -76,6 +76,7 @@ const ApiService = {
   updateItem: function (item) { return apiCall_('updateItem', item, getAuthToken()); },
   deleteItem: function (row) { return apiCall_('deleteItem', row, getAuthToken()); },
   markReviewDone: function (row) { return apiCall_('markReviewDone', row, getAuthToken()); },
+  markReviewNotDone: function (row) { return apiCall_('markReviewNotDone', row, getAuthToken()); },
   login: function (email, password) { return apiCall_('login', email, password); },
   logout: function () { return apiCall_('logout', getAuthToken()); },
   validateSession: function () { return apiCall_('validateSession', getAuthToken()); },
@@ -2123,7 +2124,13 @@ function buildCardHtml(item) {
           </span>
         </span>` : ''}</span>`
     : item.reviewStatus === 'done'
-      ? `<span class="review-badge review-done">Review done</span>`
+      ? `<span class="review-badge review-done">Review done${appState.isAdmin ? `
+        <span class="review-dropdown">
+          <button type="button" class="review-dropdown-toggle" aria-label="Review actions" onclick="event.stopPropagation(); toggleReviewDropdown(this);">&#9662;</button>
+          <span class="review-dropdown-menu">
+            <button type="button" class="review-dropdown-item" onclick="event.stopPropagation(); markReviewNotDone('${escAttr(item.row)}');">Mark as not done</button>
+          </span>
+        </span>` : ''}</span>`
       : '';
 
   const actionsHtml = `
@@ -2206,9 +2213,21 @@ function sortedItems() {
 function buildTableRowHtml(item) {
   const subCount = (appState.submissionCounts || {})[item.row] || 0;
   const statusBadge = item.reviewStatus === 'due'
-    ? '<span class="review-badge review-due">Review due</span>'
+    ? `<span class="review-badge review-due">Review due${appState.isAdmin ? `
+      <span class="review-dropdown">
+        <button type="button" class="review-dropdown-toggle" aria-label="Review actions" onclick="event.stopPropagation(); toggleReviewDropdown(this);">&#9662;</button>
+        <span class="review-dropdown-menu">
+          <button type="button" class="review-dropdown-item" onclick="event.stopPropagation(); markReviewDone('${escAttr(item.row)}');">Mark as review done</button>
+        </span>
+      </span>` : ''}</span>`
     : item.reviewStatus === 'done'
-      ? '<span class="review-badge review-done">Review done</span>'
+      ? `<span class="review-badge review-done">Review done${appState.isAdmin ? `
+      <span class="review-dropdown">
+        <button type="button" class="review-dropdown-toggle" aria-label="Review actions" onclick="event.stopPropagation(); toggleReviewDropdown(this);">&#9662;</button>
+        <span class="review-dropdown-menu">
+          <button type="button" class="review-dropdown-item" onclick="event.stopPropagation(); markReviewNotDone('${escAttr(item.row)}');">Mark as not done</button>
+        </span>
+      </span>` : ''}</span>`
       : '';
   const actions = `
     <div class="row-actions">
@@ -4305,7 +4324,7 @@ function openLinkModal(fieldKey) {
   appState.linkField = fieldKey;
   const existing = (appState.fieldLinks && appState.fieldLinks[fieldKey]) || null;
   getEl('linkField').value = fieldKey;
-  getEl('linkText').value = existing ? existing.text : (getEl(inputId) ? getEl(inputId).value : '');
+  getEl('linkText').value = existing ? existing.text : '';
   getEl('linkUrl').value = existing ? existing.url : '';
   const status = getEl('linkStatus');
   if (status) { status.textContent = ''; status.classList.remove('success', 'error'); }
@@ -4420,7 +4439,7 @@ function editItem(row) {
   Object.keys(linkFields_).forEach(function (fieldKey) {
     const url = item.linkUrls && item.linkUrls[fieldKey];
     if (url) {
-      const text = item[fieldKey] || '';
+      const text = (item.linkTexts && item.linkTexts[fieldKey]) || item[fieldKey] || '';
       appState.fieldLinks[fieldKey] = { text: text, url: url };
     }
     updateFieldLinkButton(fieldKey);
