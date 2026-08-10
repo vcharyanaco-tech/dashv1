@@ -150,14 +150,7 @@
           <svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M10.29 3.86L1.82 18a2 2 0 0 0 1.71 3h16.94a2 2 0 0 0 1.71-3L13.71 3.86a2 2 0 0 0-3.42 0z"></path><line x1="12" y1="9" x2="12" y2="13"></line><line x1="12" y1="17" x2="12.01" y2="17"></line></svg>
           You appear to be offline. Some actions may not work until your connection returns.
         </div>
-        <div id="messagePanel" class="banner banner-danger hidden"></div>
-        <div id="reminderBanner" class="reminder-banner hidden" role="status" aria-live="polite">
-          <span class="reminder-banner-title">Review reminders</span>
-          <div id="reminderBannerList" class="reminder-banner-list"></div>
-          <button class="icon-btn reminder-banner-close" type="button" onclick="dismissReminderBanner()" aria-label="Dismiss reminder" title="Dismiss reminder">
-            <svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><line x1="18" y1="6" x2="6" y2="18"></line><line x1="6" y1="6" x2="18" y2="18"></line></svg>
-          </button>
-        </div>
+        <div id="messagePanel" class="banner banner-danger hidden"></div>>
 
         <!-- ============================ DASHBOARD ============================ -->
         <section id="dashboard" class="tab-panel active" aria-labelledby="dashboardTitle">
@@ -920,7 +913,9 @@
         <div class="form-row">
           <div class="field">
             <label for="taskAssignee">Assignee</label>
-            <input id="taskAssignee" type="email" class="input" autocomplete="off">
+            <select id="taskAssignee" class="select" required>
+              <option value="">Select assignee...</option>
+            </select>
           </div>
           <div class="field">
             <label for="taskPriority">Priority</label>

@@ -161,6 +161,8 @@ const appState = {
   submissionEditingId: '',
   submissionCounts: {},
   submissionFlash: {},
+  editingTaskId: null,
+  allUsers: null,
   displayedSubmissions: [],
   responsibilities: [],
   reminders: [],
@@ -2938,6 +2940,432 @@ function markReviewNotDone(row) {
     });
   });
 }
+
+/* ---------------------------------- Tasks ---------------------------------- */
+
+function renderTasks() {
+  const statusFilter = getEl('taskStatusFilter');
+  const priorityFilter = getEl('taskPriorityFilter');
+  const filters = {};
+  if (statusFilter && statusFilter.value) filters.status = statusFilter.value;
+  if (priorityFilter && priorityFilter.value) filters.priority = priorityFilter.value;
+
+  showOverlay('Loading tasks…');
+  ApiService.getTasks(filters).then(function (tasks) {
+    hideOverlay();
+    appState.tasks = tasks || [];
+    renderTaskList();
+  }).catch(function (err) {
+    hideOverlay();
+    if (handleServerFailure(err)) return;
+    showToast('Could not load tasks: ' + (err.message || err), 'error');
+  });
+}
+
+function renderTaskList() {
+  const tasks = appState.tasks || [];
+  const tbody = getEl('tasksBody');
+  const empty = getEl('tasksEmpty');
+  const user = appState.user;
+  const isAdminOrEditor = user && (user.role === 'ADMIN' || user.role === 'EDITOR');
+  const hasEnterpriseAddons = typeof window !== 'undefined' && window.EnterpriseAddons && window.EnterpriseAddons.downloadTaskIcs;
+
+  if (tbody) {
+    tbody.innerHTML = tasks.map(function (t) {
+      const statusClass = t.status === 'DONE' ? 'badge-success' : t.status === 'IN_PROGRESS' ? 'badge-warning' : t.status === 'CANCELLED' ? 'badge-muted' : 'badge-danger';
+      const priorityClass = t.priority === 'URGENT' ? 'badge-danger' : t.priority === 'HIGH' ? 'badge-warning' : t.priority === 'MEDIUM' ? 'badge-info' : 'badge-muted';
+
+      // Build action buttons
+      let actionButtons = '';
+      if (t.status !== 'DONE' && t.status !== 'CANCELLED') {
+        actionButtons += '<button class="btn btn-ghost btn-small" type="button" onclick="completeTask(\'' + escAttr(t.id) + '\')">Complete</button>';
+        if (hasEnterpriseAddons) {
+          actionButtons += '<button class="btn btn-ghost btn-small" type="button" data-download-ics="' + escAttr(t.id) + '" style="margin-left:4px;">ICS</button>';
+          actionButtons += '<button class="btn btn-ghost btn-small" type="button" data-complete-task-offline="' + escAttr(t.id) + '" style="margin-left:4px;">Complete offline</button>';
+        }
+      }
+      if (isAdminOrEditor) {
+        actionButtons += '<button class="btn btn-ghost btn-small" type="button" onclick="editTask(\'' + escAttr(t.id) + '\')" style="margin-left:4px;">Edit</button>';
+        actionButtons += '<button class="btn btn-ghost btn-small" type="button" onclick="deleteTaskConfirm(\'' + escAttr(t.id) + '\')" style="margin-left:4px;color:var(--danger,#dc3545);">Delete</button>';
+      }
+
+      return '<tr data-task-id="' + escAttr(t.id) + '">' +
+        '<td class="preserve-whitespace">' + escapeHtml(t.title || '') + '</td>' +
+        '<td>' + escapeHtml(t.assignee || '') + '</td>' +
+        '<td><span class="badge ' + statusClass + '" id="task-status-' + escAttr(t.id) + '">' + escapeHtml(t.status || '') + '</span></td>' +
+        '<td><span class="badge ' + priorityClass + '">' + escapeHtml(t.priority || '') + '</span></td>' +
+        '<td>' + (t.dueDate ? escapeHtml(formatDate(t.dueDate)) : '') + '</td>' +
+        '<td>' + actionButtons + '</td>' +
+        '</tr>';
+    }).join('') || '<tr><td colspan="6">No tasks found.</td></tr>';
+  }
+  if (empty) empty.classList.toggle('hidden', !!tasks.length);
+}
+
+function populateTaskAssigneeDropdown() {
+  const select = getEl('taskAssignee');
+  if (!select) return;
+
+  const users = appState.allUsers || [];
+  select.innerHTML = '<option value="">Select assignee...</option>' +
+    users.map(function (u) {
+      return '<option value="' + escAttr(u.email) + '">' + escapeHtml(u.email) + (u.username ? ' (' + escapeHtml(u.username) + ')' : '') + '</option>';
+    }).join('');
+}
+
+function openTaskModal() {
+  // Reset editing state if opening fresh
+  if (!appState.editingTaskId) {
+    getEl('taskModalTitle').textContent = 'New task';
+    closeTaskModal(); // Clear all fields
+  }
+
+  // Load and populate users dropdown
+  if (!appState.allUsers) {
+    ApiService.getAssignableUsers().then(function (users) {
+      appState.allUsers = users;
+      populateTaskAssigneeDropdown();
+    }).catch(function (err) {
+      console.error('Could not load users for assignee dropdown:', err);
+      showToast('Could not load users list.', 'warning');
+    });
+  } else {
+    populateTaskAssigneeDropdown();
+  }
+
+  openDialog('taskModal');
+  const modal = getEl('taskModal');
+  const firstInput = modal.querySelector('input:not([type=hidden]):not([readonly])');
+  if (firstInput) firstInput.focus();
+}
+
+function closeTaskModal() {
+  closeDialog('taskModal');
+  appState.editingTaskId = null;
+  getEl('taskModalTitle').textContent = 'New task';
+  getEl('taskTitle').value = '';
+  getEl('taskDescription').value = '';
+  getEl('taskAssignee').value = '';
+  getEl('taskPriority').value = 'MEDIUM';
+  getEl('taskDueDate').value = '';
+  getEl('taskRecordRow').value = '';
+}
+
+function saveTask() {
+  const title = getEl('taskTitle').value.trim();
+  if (!title) {
+    showToast('Task title is required.', 'error');
+    return;
+  }
+
+  const assignee = getEl('taskAssignee').value.trim();
+  // Only require an assignee when the assignee list actually loaded. If the
+  // users API failed (empty/failed dropdown), fall back to allowing an empty
+  // assignee so task creation is never blocked by an unavailable user list.
+  if (!assignee && appState.allUsers && appState.allUsers.length) {
+    showToast('Please select an assignee.', 'error');
+    return;
+  }
+
+  const params = {
+    title: title,
+    description: getEl('taskDescription').value.trim(),
+    assignee: assignee,
+    priority: getEl('taskPriority').value,
+    dueDate: dmyToIso(getEl('taskDueDate').value),
+    recordRow: getEl('taskRecordRow').value ? Number(getEl('taskRecordRow').value) : 0
+  };
+
+  // Check if we're editing or creating
+  if (appState.editingTaskId) {
+    ApiService.updateTask(appState.editingTaskId, params).then(function () {
+      closeTaskModal();
+      showToast('Task updated.', 'success');
+      renderTasks();
+      refreshCounts();
+    }).catch(function (err) {
+      if (handleServerFailure(err)) return;
+      showToast('Could not update task: ' + (err.message || err), 'error');
+    });
+  } else {
+    ApiService.createTask(params).then(function () {
+      closeTaskModal();
+      showToast('Task created.', 'success');
+      renderTasks();
+      refreshCounts();
+    }).catch(function (err) {
+      if (handleServerFailure(err)) return;
+      showToast('Could not create task: ' + (err.message || err), 'error');
+    });
+  }
+}
+
+function completeTask(id) {
+  showConfirm({
+    title: 'Mark task complete',
+    message: 'Mark this task as done?',
+    okLabel: 'Done'
+  }).then(function (confirmed) {
+    if (!confirmed) return;
+    completeTaskOptimistic(id);
+  });
+}
+
+function completeTaskOptimistic(id) {
+  const row = document.querySelector('tr[data-task-id="' + String(id).replace(/["\\]/g, '\\$&') + '"]');
+  if (!row) { renderTasks(); return; }
+
+  const statusEl = row.querySelector('.badge');
+  const buttons = Array.prototype.slice.call(row.querySelectorAll('button'));
+  const snapshot = row.innerHTML; // cheap rollback image (a single row)
+  const prevText = statusEl ? statusEl.textContent : '';
+
+  // 1) Apply the optimistic state BEFORE the network call resolves
+  if (statusEl) {
+    statusEl.textContent = 'DONE';
+    statusEl.className = 'badge badge-success';
+  }
+  row.classList.add('task-pending');
+  buttons.forEach(function (b) { b.disabled = true; });
+
+  // 2) Fire the real call — partial update with optimistic locking +
+  //    a one-time idempotency key so retries never double-apply.
+  const known = (appState.tasks || []).find(function (t) { return String(t.id) === String(id); });
+  const rowVersion = known && known.rowVersion ? Number(known.rowVersion) : 1;
+  const idempotencyKey = newClientId_();
+  ApiService.updateTaskField(id, 'status', 'DONE', rowVersion, idempotencyKey).then(function (res) {
+    if (res && res.conflict) {
+      // RowVersion conflict — the task changed elsewhere. Do NOT overwrite:
+      // revert this row's optimistic state and refetch the fresh list.
+      row.innerHTML = snapshot;
+      if (statusEl) statusEl.textContent = prevText;
+      row.classList.remove('task-pending');
+      buttons.forEach(function (b) { b.disabled = false; });
+      showToast('This task changed elsewhere. Reloading…', 'warning');
+      renderTasks();
+      return;
+    }
+    const task = (appState.tasks || []).find(function (t) { return String(t.id) === String(id); });
+    if (task) {
+      task.status = 'DONE';
+      task.completedAt = Date.now();
+      if (res && res.task && res.task.rowVersion) task.rowVersion = res.task.rowVersion;
+    }
+    row.classList.remove('task-pending');
+    buttons.forEach(function (b) { b.disabled = false; });
+    if (typeof refreshCounts === 'function') refreshCounts();
+    showToast('Task marked complete.', 'success');
+  }).catch(function (err) {
+    // 3) ROLLBACK: restore the exact prior DOM + re-enable buttons
+    row.innerHTML = snapshot;
+    if (statusEl) statusEl.textContent = prevText;
+    row.classList.remove('task-pending');
+    if (handleServerFailure(err)) return;
+    showToast('Could not update task: ' + (err.message || err), 'error');
+  });
+}
+
+function editTask(id) {
+  const task = (appState.tasks || []).find(function (t) { return t.id === id; });
+  if (!task) {
+    showToast('Task not found.', 'error');
+    return;
+  }
+
+  // Store the task ID for editing
+  appState.editingTaskId = id;
+
+  // Populate the modal
+  getEl('taskTitle').value = task.title || '';
+  getEl('taskDescription').value = task.description || '';
+  getEl('taskPriority').value = task.priority || 'MEDIUM';
+  getEl('taskDueDate').value = task.dueDate ? formatDate(task.dueDate) : '';
+  getEl('taskRecordRow').value = task.recordRow || '';
+
+  // Update modal title
+  getEl('taskModalTitle').textContent = 'Edit task';
+
+  // Populate assignee (will be populated after users are loaded)
+  if (appState.allUsers) {
+    populateTaskAssigneeDropdown();
+    getEl('taskAssignee').value = task.assignee || '';
+  } else {
+    // Load users if not already loaded
+    ApiService.getAssignableUsers().then(function (users) {
+      appState.allUsers = users;
+      populateTaskAssigneeDropdown();
+      getEl('taskAssignee').value = task.assignee || '';
+    }).catch(function (err) {
+      console.error('Could not load users:', err);
+    });
+  }
+
+  openTaskModal();
+}
+
+function deleteTaskConfirm(id) {
+  showConfirm({
+    title: 'Delete task',
+    message: 'Permanently delete this task?',
+    okLabel: 'Delete',
+    danger: true
+  }).then(function (confirmed) {
+    if (!confirmed) return;
+    ApiService.deleteTask(id).then(function () {
+      showToast('Task deleted.', 'success');
+      renderTasks();
+      refreshCounts();
+    }).catch(function (err) {
+      if (handleServerFailure(err)) return;
+      showToast('Could not delete task: ' + (err.message || err), 'error');
+    });
+  });
+}
+
+/* ------------------------------ Notifications ------------------------------ */
+
+function generateReviewNotifications() {
+  ApiService.generateReviewNotifications().then(function () {
+    return loadNotifications(true);
+  }).catch(function () {
+    loadNotifications(true);
+  });
+}
+
+/* --------------------------------- Session --------------------------------- */
+
+function logout() {
+  stopAutoRefresh();
+  // Point 9: queued offline mutations belong to this session. Clearing them
+  // here prevents replay under a different identity after re-login.
+  try { if (window.OfflineQueue && window.OfflineQueue.clear) window.OfflineQueue.clear(); } catch (e) {}
+  ApiService.logout().then(function () {
+    setAuthToken('');
+    window.location.href = window.location.href.split('?')[0];
+  }).catch(function () {
+    setAuthToken('');
+    window.location.reload();
+  });
+}
+
+function refreshData() {
+  showOverlay('Refreshing data…');
+  ApiService.getAppData().then(function (data) {
+    hideOverlay();
+    applyAppData(data);
+    populateFilters();
+    populateResponsibilitySelect();
+    appState.page = 1;
+    renderDashboard();
+    generateReviewNotifications();
+    auditLoaded = false;
+    const auditPanel = getEl('audit');
+    if (auditPanel && !auditPanel.classList.contains('hidden')) {
+      renderAuditPanel();
+    }
+    EventBus.emit('DataRefreshed');
+    showToast('Dashboard refreshed', 'success');
+  }).catch(function (err) {
+    hideOverlay();
+    if (handleServerFailure(err)) return;
+    showToast('Refresh failed: ' + (err.message || err), 'error');
+  });
+}
+
+function autoRefreshTick() {
+  if (autoRefreshInFlight) return;
+  if (!getAuthToken()) return;
+  if (typeof document !== 'undefined' && document.hidden) return;
+  if (document.body.classList.contains('modal-open')) return;
+  autoRefreshInFlight = true;
+  ApiService.getAppData().then(function (data) {
+    autoRefreshInFlight = false;
+    if (!data || !data.user || !data.user.loggedIn) {
+      setAuthToken('');
+      return;
+    }
+    applyAppData(data);
+    populateFilters();
+    populateResponsibilitySelect();
+    renderDashboard();
+    generateReviewNotifications();
+    EventBus.emit('DataRefreshed');
+  }).catch(function (err) {
+    autoRefreshInFlight = false;
+    if (handleServerFailure(err)) return;
+  });
+}
+
+function handleDocUpload(row, input) {
+  const file = input.files && input.files[0];
+  if (!file) return;
+  const reader = new FileReader();
+  reader.onload = function (e) {
+    const bytes = e.target.result;
+    const base64 = btoa(String.fromCharCode.apply(null, new Uint8Array(bytes)));
+    showOverlay('Uploading document…');
+    ApiService.uploadDocument(row, '', file.name, base64, file.type || 'application/octet-stream').then(function () {
+      hideOverlay();
+      showToast('Document uploaded.', 'success');
+      loadRecordDocuments(row);
+      refreshCounts();
+    }).catch(function (err) {
+      hideOverlay();
+      if (handleServerFailure(err)) return;
+      showToast('Upload failed: ' + (err.message || err), 'error');
+    });
+  };
+  reader.readAsArrayBuffer(file);
+}
+
+function updateOfflineBanner() {
+  const banner = getEl('offlineBanner');
+  if (!banner) return;
+  let hasPending = false;
+  try {
+    if (window.OfflineQueue && window.OfflineQueue.needsAttention) {
+      hasPending = window.OfflineQueue.needsAttention();
+    }
+  } catch (e) {}
+  banner.classList.toggle('hidden', navigator.onLine && !hasPending);
+}
+
+function saveEditModal(e) {
+  e.preventDefault();
+  if (!appState.isEditor) { showToast('Admin/editor access required', 'warning'); return; }
+
+  const sectorEl = getEl('editSector');
+  const descEl = getEl('editDescription');
+  let valid = true;
+  valid = setFieldInvalid(sectorEl, sectorEl.value.trim() ? '' : 'Sector is required.') && valid;
+  valid = setFieldInvalid(descEl, descEl.value.trim() ? '' : 'Description is required.') && valid;
+  if (!valid) return;
+
+  const item = {
+    row: Number(getEl('editRow').value || 0),
+    id: getEl('editId').value,
+    sector: sectorEl.value.trim(),
+    description: descEl.value,
+    entryDate: getEl('editEntryDate').value.trim(),
+    action: getEl('editAction').value,
+    responsibility: getEl('editResponsibility').value.trim(),
+    reviewDate: getEl('editReviewDate').value.trim(),
+    flagged: getEl('editFlagged').checked,
+    links: {
+      sector: appState.fieldLinks && appState.fieldLinks.sector ? appState.fieldLinks.sector : null,
+      description: appState.fieldLinks && appState.fieldLinks.description ? appState.fieldLinks.description : null,
+      action: appState.fieldLinks && appState.fieldLinks.action ? appState.fieldLinks.action : null
+    }
+  };
+
+  if (appState.editMode === 'add') {
+    submitNewItem(item);
+  } else if (item.row) {
+    saveItem(item);
+  }
+}
+
+
 function initApp() {
   startLiveClock();
   initDatePicker();
@@ -3063,23 +3491,7 @@ function handleForgotPassword(e) {
     hideOverlay();
     showAuthMessage('forgotMessage', err && err.message ? err.message : 'Could not submit the reset request.');
   });
-}
-
-function logout() {
-  stopAutoRefresh();
-  // Point 9: queued offline mutations belong to this session. Clearing them
-  // here prevents replay under a different identity after re-login.
-  try { if (window.OfflineQueue && window.OfflineQueue.clear) window.OfflineQueue.clear(); } catch (e) {}
-  ApiService.logout().then(function () {
-    setAuthToken('');
-    window.location.href = window.location.href.split('?')[0];
-  }).catch(function () {
-    setAuthToken('');
-    window.location.reload();
-  });
-}
-
-/* ---------------------------------- Form validation ---------------------------------- */
+}/* ---------------------------------- Form validation ---------------------------------- */
 
 function setFieldInvalid(inputEl, message) {
   if (!inputEl) return !message;
@@ -3126,46 +3538,7 @@ function populateResponsibilitySelect() {
 }
 
 /* Generate review-due in-app notifications for the signed-in user, then load
-   the notification center so the unread bell reflects any new entries. */
-function generateReviewNotifications() {
-  ApiService.generateReviewNotifications().then(function () {
-    return loadNotifications(true);
-  }).catch(function () {
-    loadNotifications(true);
-  });
-}
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-/* ---------------------------------- Dashboard: KPI cards ---------------------------------- */
-
-
-
-
-
-
-
-
-
-
-
-
+   the notification center so the unread bell reflects any new entries. *//* ---------------------------------- Dashboard: KPI cards ---------------------------------- */
 
 /* Incremental card renderer. Renders the first N cards, then appends the
    next batch only when a sentinel div scrolls into view. No libraries:
@@ -3173,65 +3546,9 @@ function generateReviewNotifications() {
 /* ---------------------------------- Dashboard: table view ---------------------------------- */
 /* Enterprise-style sortable table, additive alongside the card view. Rows use
    the same filters + pagination as the cards; clicking a row opens the record
-   detail dialog (S8). */
-
-
-
-
-
-
-
-
-
-function refreshData() {
-  showOverlay('Refreshing data…');
-  ApiService.getAppData().then(function (data) {
-    hideOverlay();
-    applyAppData(data);
-    populateFilters();
-    populateResponsibilitySelect();
-    appState.page = 1;
-    renderDashboard();
-    generateReviewNotifications();
-    auditLoaded = false;
-    const auditPanel = getEl('audit');
-    if (auditPanel && !auditPanel.classList.contains('hidden')) {
-      renderAuditPanel();
-    }
-    EventBus.emit('DataRefreshed');
-    showToast('Dashboard refreshed', 'success');
-  }).catch(function (err) {
-    hideOverlay();
-    if (handleServerFailure(err)) return;
-    showToast('Refresh failed: ' + (err.message || err), 'error');
-  });
-}
-
-/* ---------------------------------- Analytics ---------------------------------- */
-
-
+   detail dialog (S8). *//* ---------------------------------- Analytics ---------------------------------- */
 
 /* ---------------------------------- Audit ---------------------------------- */
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
 
 function copyText(text) {
   if (navigator.clipboard && navigator.clipboard.writeText) {
@@ -4143,31 +4460,7 @@ function loadRecordDocuments(row) {
   }).catch(function (err) {
     if (handleServerFailure(err)) return;
   });
-}
-
-function handleDocUpload(row, input) {
-  const file = input.files && input.files[0];
-  if (!file) return;
-  const reader = new FileReader();
-  reader.onload = function (e) {
-    const bytes = e.target.result;
-    const base64 = btoa(String.fromCharCode.apply(null, new Uint8Array(bytes)));
-    showOverlay('Uploading document…');
-    ApiService.uploadDocument(row, '', file.name, base64, file.type || 'application/octet-stream').then(function () {
-      hideOverlay();
-      showToast('Document uploaded.', 'success');
-      loadRecordDocuments(row);
-      refreshCounts();
-    }).catch(function (err) {
-      hideOverlay();
-      if (handleServerFailure(err)) return;
-      showToast('Upload failed: ' + (err.message || err), 'error');
-    });
-  };
-  reader.readAsArrayBuffer(file);
-}
-
-function deleteRecordDoc(docId, row) {
+}function deleteRecordDoc(docId, row) {
   showConfirm({
     title: 'Delete document',
     body: 'Remove this document permanently?',
@@ -4191,284 +4484,8 @@ function closeRecordDetail() {
   closeDialog('recordDetailModal');
 }
 
-/* ---------------------------------- Tasks ---------------------------------- */
-
-function renderTasks() {
-  const statusFilter = getEl('taskStatusFilter');
-  const priorityFilter = getEl('taskPriorityFilter');
-  const filters = {};
-  if (statusFilter && statusFilter.value) filters.status = statusFilter.value;
-  if (priorityFilter && priorityFilter.value) filters.priority = priorityFilter.value;
-
-  showOverlay('Loading tasks…');
-  ApiService.getTasks(filters).then(function (tasks) {
-    hideOverlay();
-    appState.tasks = tasks || [];
-    renderTaskList();
-  }).catch(function (err) {
-    hideOverlay();
-    if (handleServerFailure(err)) return;
-    showToast('Could not load tasks: ' + (err.message || err), 'error');
-  });
-}
-
-function renderTaskList() {
-  const tasks = appState.tasks || [];
-  const tbody = getEl('tasksBody');
-  const empty = getEl('tasksEmpty');
-  const user = appState.user;
-  const isAdminOrEditor = user && (user.role === 'ADMIN' || user.role === 'EDITOR');
-  
-  if (tbody) {
-    tbody.innerHTML = tasks.map(function (t) {
-      const statusClass = t.status === 'DONE' ? 'badge-success' : t.status === 'IN_PROGRESS' ? 'badge-warning' : t.status === 'CANCELLED' ? 'badge-muted' : 'badge-danger';
-      const priorityClass = t.priority === 'URGENT' ? 'badge-danger' : t.priority === 'HIGH' ? 'badge-warning' : t.priority === 'MEDIUM' ? 'badge-info' : 'badge-muted';
-      
-      // Build action buttons
-      let actionButtons = '';
-      if (t.status !== 'DONE' && t.status !== 'CANCELLED') {
-        actionButtons += '<button class="btn btn-ghost btn-small" type="button" onclick="completeTask(\'' + escAttr(t.id) + '\')">Complete</button>';
-        actionButtons += '<button class="btn btn-ghost btn-small" type="button" data-download-ics="' + escAttr(t.id) + '" style="margin-left:4px;">ICS</button>';
-        actionButtons += '<button class="btn btn-ghost btn-small" type="button" data-complete-task-offline="' + escAttr(t.id) + '" style="margin-left:4px;">Complete offline</button>';
-      }
-      if (isAdminOrEditor) {
-        actionButtons += '<button class="btn btn-ghost btn-small" type="button" onclick="editTask(\'' + escAttr(t.id) + '\')" style="margin-left:4px;">Edit</button>';
-        actionButtons += '<button class="btn btn-ghost btn-small" type="button" onclick="deleteTaskConfirm(\'' + escAttr(t.id) + '\')" style="margin-left:4px;color:var(--danger,#dc3545);">Delete</button>';
-      }
-      
-      return '<tr data-task-id="' + escAttr(t.id) + '">' +
-        '<td class="preserve-whitespace">' + escapeHtml(t.title || '') + '</td>' +
-        '<td>' + escapeHtml(t.assignee || '') + '</td>' +
-        '<td><span class="badge ' + statusClass + '" id="task-status-' + escAttr(t.id) + '">' + escapeHtml(t.status || '') + '</span></td>' +
-        '<td><span class="badge ' + priorityClass + '">' + escapeHtml(t.priority || '') + '</span></td>' +
-        '<td>' + (t.dueDate ? escapeHtml(formatDate(t.dueDate)) : '') + '</td>' +
-        '<td>' + actionButtons + '</td>' +
-        '</tr>';
-    }).join('') || '<tr><td colspan="6">No tasks found.</td></tr>';
-  }
-  if (empty) empty.classList.toggle('hidden', !!tasks.length);
-}
-
-function populateTaskAssigneeDropdown() {
-  const select = getEl('taskAssignee');
-  if (!select) return;
-  
-  const users = appState.allUsers || [];
-  select.innerHTML = '<option value="">Select assignee...</option>' +
-    users.map(function (u) {
-      return '<option value="' + escAttr(u.email) + '">' + escapeHtml(u.email) + (u.username ? ' (' + escapeHtml(u.username) + ')' : '') + '</option>';
-    }).join('');
-}
-
-function openTaskModal() {
-  // Reset editing state if opening fresh
-  if (!appState.editingTaskId) {
-    getEl('taskModalTitle').textContent = 'New task';
-    closeTaskModal(); // Clear all fields
-  }
-  
-  // Load and populate users dropdown
-  if (!appState.allUsers) {
-    ApiService.getAssignableUsers().then(function (users) {
-      appState.allUsers = users;
-      populateTaskAssigneeDropdown();
-    }).catch(function (err) {
-      console.error('Could not load users for assignee dropdown:', err);
-      showToast('Could not load users list.', 'warning');
-    });
-  } else {
-    populateTaskAssigneeDropdown();
-  }
-  
-  openDialog('taskModal');
-  const modal = getEl('taskModal');
-  const firstInput = modal.querySelector('input:not([type=hidden]):not([readonly])');
-  if (firstInput) firstInput.focus();
-}
-
-function closeTaskModal() {
-  closeDialog('taskModal');
-  appState.editingTaskId = null;
-  getEl('taskModalTitle').textContent = 'New task';
-  getEl('taskTitle').value = '';
-  getEl('taskDescription').value = '';
-  getEl('taskAssignee').value = '';
-  getEl('taskPriority').value = 'MEDIUM';
-  getEl('taskDueDate').value = '';
-  getEl('taskRecordRow').value = '';
-}
-
-function saveTask() {
-  const title = getEl('taskTitle').value.trim();
-  if (!title) {
-    showToast('Task title is required.', 'error');
-    return;
-  }
-  
-  const assignee = getEl('taskAssignee').value.trim();
-  if (!assignee) {
-    showToast('Please select an assignee.', 'error');
-    return;
-  }
-  
-  const params = {
-    title: title,
-    description: getEl('taskDescription').value.trim(),
-    assignee: assignee,
-    priority: getEl('taskPriority').value,
-    dueDate: dmyToIso(getEl('taskDueDate').value),
-    recordRow: getEl('taskRecordRow').value ? Number(getEl('taskRecordRow').value) : 0
-  };
-  
-  // Check if we're editing or creating
-  if (appState.editingTaskId) {
-    ApiService.updateTask(appState.editingTaskId, params).then(function () {
-      closeTaskModal();
-      showToast('Task updated.', 'success');
-      renderTasks();
-      refreshCounts();
-    }).catch(function (err) {
-      if (handleServerFailure(err)) return;
-      showToast('Could not update task: ' + (err.message || err), 'error');
-    });
-  } else {
-    ApiService.createTask(params).then(function () {
-      closeTaskModal();
-      showToast('Task created.', 'success');
-      renderTasks();
-      refreshCounts();
-    }).catch(function (err) {
-      if (handleServerFailure(err)) return;
-      showToast('Could not create task: ' + (err.message || err), 'error');
-    });
-  }
-}
-
-function completeTask(id) {
-  showConfirm({
-    title: 'Mark task complete',
-    message: 'Mark this task as done?',
-    okLabel: 'Done'
-  }).then(function (confirmed) {
-    if (!confirmed) return;
-    completeTaskOptimistic(id);
-  });
-}
-
-/** Optimistically toggles a task to DONE. DOM flips instantly; on server
- *  failure the row is rolled back and a Toast explains the problem. */
-function completeTaskOptimistic(id) {
-  const row = document.querySelector('tr[data-task-id="' + String(id).replace(/["\\]/g, '\\$&') + '"]');
-  if (!row) { renderTasks(); return; }
-
-  const statusEl = row.querySelector('.badge');
-  const buttons = Array.prototype.slice.call(row.querySelectorAll('button'));
-  const snapshot = row.innerHTML; // cheap rollback image (a single row)
-  const prevText = statusEl ? statusEl.textContent : '';
-
-  // 1) Apply the optimistic state BEFORE the network call resolves
-  if (statusEl) {
-    statusEl.textContent = 'DONE';
-    statusEl.className = 'badge badge-success';
-  }
-  row.classList.add('task-pending');
-  buttons.forEach(function (b) { b.disabled = true; });
-
-  // 2) Fire the real call — partial update with optimistic locking +
-  //    a one-time idempotency key so retries never double-apply.
-  const known = (appState.tasks || []).find(function (t) { return String(t.id) === String(id); });
-  const rowVersion = known && known.rowVersion ? Number(known.rowVersion) : 1;
-  const idempotencyKey = newClientId_();
-  ApiService.updateTaskField(id, 'status', 'DONE', rowVersion, idempotencyKey).then(function (res) {
-    if (res && res.conflict) {
-      // RowVersion conflict — the task changed elsewhere. Do NOT overwrite:
-      // revert this row's optimistic state and refetch the fresh list.
-      row.innerHTML = snapshot;
-      if (statusEl) statusEl.textContent = prevText;
-      row.classList.remove('task-pending');
-      buttons.forEach(function (b) { b.disabled = false; });
-      showToast('This task changed elsewhere. Reloading…', 'warning');
-      renderTasks();
-      return;
-    }
-    const task = (appState.tasks || []).find(function (t) { return String(t.id) === String(id); });
-    if (task) {
-      task.status = 'DONE';
-      task.completedAt = Date.now();
-      if (res && res.task && res.task.rowVersion) task.rowVersion = res.task.rowVersion;
-    }
-    row.classList.remove('task-pending');
-    buttons.forEach(function (b) { b.disabled = false; });
-    if (typeof refreshCounts === 'function') refreshCounts();
-    showToast('Task marked complete.', 'success');
-  }).catch(function (err) {
-    // 3) ROLLBACK: restore the exact prior DOM + re-enable buttons
-    row.innerHTML = snapshot;
-    if (statusEl) statusEl.textContent = prevText;
-    row.classList.remove('task-pending');
-    if (handleServerFailure(err)) return;
-    showToast('Could not update task: ' + (err.message || err), 'error');
-  });
-}
-
-function editTask(id) {
-  const task = (appState.tasks || []).find(function (t) { return t.id === id; });
-  if (!task) {
-    showToast('Task not found.', 'error');
-    return;
-  }
-  
-  // Store the task ID for editing
-  appState.editingTaskId = id;
-  
-  // Populate the modal
-  getEl('taskTitle').value = task.title || '';
-  getEl('taskDescription').value = task.description || '';
-  getEl('taskPriority').value = task.priority || 'MEDIUM';
-  getEl('taskDueDate').value = task.dueDate ? formatDate(task.dueDate) : '';
-  getEl('taskRecordRow').value = task.recordRow || '';
-  
-  // Update modal title
-  getEl('taskModalTitle').textContent = 'Edit task';
-  
-  // Populate assignee (will be populated after users are loaded)
-  if (appState.allUsers) {
-    populateTaskAssigneeDropdown();
-    getEl('taskAssignee').value = task.assignee || '';
-  } else {
-    // Load users if not already loaded
-    ApiService.getAssignableUsers().then(function (users) {
-      appState.allUsers = users;
-      populateTaskAssigneeDropdown();
-      getEl('taskAssignee').value = task.assignee || '';
-    }).catch(function (err) {
-      console.error('Could not load users:', err);
-    });
-  }
-  
-  openTaskModal();
-}
-
-function deleteTaskConfirm(id) {
-  showConfirm({
-    title: 'Delete task',
-    message: 'Permanently delete this task?',
-    okLabel: 'Delete',
-    danger: true
-  }).then(function (confirmed) {
-    if (!confirmed) return;
-    ApiService.deleteTask(id).then(function () {
-      showToast('Task deleted.', 'success');
-      renderTasks();
-      refreshCounts();
-    }).catch(function (err) {
-      if (handleServerFailure(err)) return;
-      showToast('Could not delete task: ' + (err.message || err), 'error');
-    });
-  });
-}
-
-function formatDate(ts) {
+/* ---------------------------------- Tasks ---------------------------------- *//** Optimistically toggles a task to DONE. DOM flips instantly; on server
+ *  failure the row is rolled back and a Toast explains the problem. */function formatDate(ts) {
   if (!ts) return '';
   const d = new Date(ts);
   if (isNaN(d.getTime())) return '';
@@ -4705,33 +4722,7 @@ function startAutoRefresh(intervalMs) {
 
 function stopAutoRefresh() {
   if (autoRefreshTimerId) { clearInterval(autoRefreshTimerId); autoRefreshTimerId = null; }
-}
-
-function autoRefreshTick() {
-  if (autoRefreshInFlight) return;
-  if (!getAuthToken()) return;
-  if (typeof document !== 'undefined' && document.hidden) return;
-  if (document.body.classList.contains('modal-open')) return;
-  autoRefreshInFlight = true;
-  ApiService.getAppData().then(function (data) {
-    autoRefreshInFlight = false;
-    if (!data || !data.user || !data.user.loggedIn) {
-      setAuthToken('');
-      return;
-    }
-    applyAppData(data);
-    populateFilters();
-    populateResponsibilitySelect();
-    renderDashboard();
-    generateReviewNotifications();
-    EventBus.emit('DataRefreshed');
-  }).catch(function (err) {
-    autoRefreshInFlight = false;
-    if (handleServerFailure(err)) return;
-  });
-}
-
-/* ---------------------------------- Dashboard Studio ---------------------------------- */
+}/* ---------------------------------- Dashboard Studio ---------------------------------- */
 
 function loadDashboardPreferences() {
   return ApiService.getDashboardPreferences().then(function (prefs) {
@@ -5030,42 +5021,7 @@ function editItem(row) {
     if (el) setFieldInvalid(el, '');
   });
   openEditModal();
-}
-
-function saveEditModal(e) {
-  e.preventDefault();
-  if (!appState.isEditor) { showToast('Admin/editor access required', 'warning'); return; }
-
-  const sectorEl = getEl('editSector');
-  const descEl = getEl('editDescription');
-  let valid = true;
-  valid = setFieldInvalid(sectorEl, sectorEl.value.trim() ? '' : 'Sector is required.') && valid;
-  valid = setFieldInvalid(descEl, descEl.value.trim() ? '' : 'Description is required.') && valid;
-  if (!valid) return;
-
-  const item = {
-    row: Number(getEl('editRow').value || 0),
-    id: getEl('editId').value,
-    sector: sectorEl.value.trim(),
-    description: descEl.value,
-    entryDate: getEl('editEntryDate').value.trim(),
-    action: getEl('editAction').value,
-    responsibility: getEl('editResponsibility').value.trim(),
-    reviewDate: getEl('editReviewDate').value.trim(),
-    flagged: getEl('editFlagged').checked,
-    links: {
-      action: appState.fieldLinks && appState.fieldLinks.action ? appState.fieldLinks.action : null
-    }
-  };
-
-  if (appState.editMode === 'add') {
-    submitNewItem(item);
-  } else if (item.row) {
-    saveItem(item);
-  }
-}
-
-/* Builds a local display copy of a brand-new record so it can be shown
+}/* Builds a local display copy of a brand-new record so it can be shown
    immediately while the server round trip is in flight. The temp row key is
    replaced by the authoritative data returned by addItem. */
 function optimisticNewItem_(item) {
@@ -5323,8 +5279,6 @@ function markReviewDone(row) {
   });
 }
 
-
-
 /* ---------------------------------- Submissions modal ---------------------------------- */
 
 function openSubmissionsModal(row, cardId, onlyMine) {
@@ -5580,21 +5534,7 @@ function closeAbout() {
   closeDialog('aboutModal');
 }
 
-/* ---------------------------------- Offline ---------------------------------- */
-
-function updateOfflineBanner() {
-  const banner = getEl('offlineBanner');
-  if (!banner) return;
-  let hasPending = false;
-  try {
-    if (window.OfflineQueue && window.OfflineQueue.needsAttention) {
-      hasPending = window.OfflineQueue.needsAttention();
-    }
-  } catch (e) {}
-  banner.classList.toggle('hidden', navigator.onLine && !hasPending);
-}
-
-wireGlobalEvents();
+/* ---------------------------------- Offline ---------------------------------- */wireGlobalEvents();
 wireEmbeddedLinkPreview();
 wirePreviewPinch();
 window.addEventListener('load', initApp);
