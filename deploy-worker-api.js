@@ -149,6 +149,9 @@ function purgeCache(zoneId) {
         console.log('      Give the API token the "Zone > Cache Purge" permission to enable auto-purge.');
       }
     });
+    // Guard the response stream too — an unhandled 'error' event here would
+    // crash the whole deploy script after the worker was already uploaded.
+    res.on('error', e => console.log('WARN  Cache purge response error: ' + e.message));
   });
   req.on('error', e => console.log('WARN  Cache purge failed: ' + e.message));
   req.write(payload);
