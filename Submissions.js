@@ -88,10 +88,10 @@ function readSubmissionRows_() {
   return out;
 }
 
-function findSubmissionRecord_(id) {
-  const rows = readSubmissionRows_();
-  for (let i = 0; i < rows.length; i++) {
-    if (String(rows[i].id) === String(id)) return rows[i];
+function findSubmissionRecord_(id, rows) {
+  const all = rows || readSubmissionRows_();
+  for (let i = 0; i < all.length; i++) {
+    if (String(all[i].id) === String(id)) return all[i];
   }
   return null;
 }
@@ -157,12 +157,12 @@ function visibleSubmission_(rec, user) {
   };
 }
 
-function submissionsForCard_(cardRow, user) {
-  const rows = readSubmissionRows_();
+function submissionsForCard_(cardRow, user, rows) {
+  const all = rows || readSubmissionRows_();
 
   const filtered = (cardRow !== undefined && cardRow !== null && cardRow !== '')
-    ? rows.filter(function (r) { return Number(r.cardRow) === Number(cardRow); })
-    : rows;
+    ? all.filter(function (r) { return Number(r.cardRow) === Number(cardRow); })
+    : all;
 
   return filtered
     .slice()
@@ -283,19 +283,33 @@ function updateSubmission(submissionId, text, token) {
   }
 
   return runWithLock_(function () {
-    const rec = findSubmissionRecord_(submissionId);
+    // Read the submissions sheet once and reuse those rows for the lookup,
+    // the batched write and the response list — this avoids a second full
+    // sheet re-read on every edit.
+    const rows = readSubmissionRows_();
+    const rec = findSubmissionRecord_(submissionId, rows);
     if (!rec) throw clientError_('Submission not found.');
     assertCanEditSubmission_(user, rec);
 
     const sh = submissionsSheet_();
     const now = new Date();
-    sh.getRange(rec.row, SUBMISSION_COL.TEXT).setValue(content);
-    sh.getRange(rec.row, SUBMISSION_COL.UPDATED_AT).setValue(now);
-    sh.getRange(rec.row, SUBMISSION_COL.UPDATED_BY).setValue(user.email);
-    sh.getRange(rec.row, SUBMISSION_COL.ROW_VERSION).setValue(Number(rec.rowVersion || 1) + 1);
+    const nextVersion = Number(rec.rowVersion || 1) + 1;
+    // Columns 5-12 in ONE call (TEXT, CREATED_AT, UPDATED_AT, LOCKED_BY,
+    // LOCKED_AT, DISPLAYED, ROW_VERSION, UPDATED_BY) instead of four separate
+    // setValue round-trips. The unchanged columns are written back as-is from
+    // the in-memory record so nothing is lost.
+    sh.getRange(rec.row, SUBMISSION_COL.TEXT, 1, 8).setValues([[
+      content, rec.createdAt, now, rec.lockedBy, rec.lockedAt, rec.displayed, nextVersion, user.email
+    ]]);
+
+    // Patch the in-memory record so the response reflects the save.
+    rec.text = content;
+    rec.updatedAt = now;
+    rec.updatedBy = user.email;
+    rec.rowVersion = nextVersion;
 
     try { logAudit_(ACTIONS.SUBMISSION_UPDATE, rec.cardRow, { id: submissionId, text: content }, user.email); } catch (err) {}
-    return submissionsForCard_(rec.cardRow, user);
+    return submissionsForCard_(rec.cardRow, user, rows);
   });
 }
 
