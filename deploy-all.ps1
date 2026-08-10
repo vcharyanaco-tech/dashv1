@@ -202,8 +202,10 @@ if (-not $cfToken) {
             $nodeOut | ForEach-Object { Write-Host "      $_" -ForegroundColor Gray }
             Write-Host "      Live: https://dashboardharyana.site/app.html" -ForegroundColor Cyan
         } elseif ($LASTEXITCODE -eq 2) {
-            # Deployed, but cache purge was skipped (token lacks Zone > Cache Purge).
-            Write-Host "  WARN  Worker deployed, but cache purge FAILED (token permission):" -ForegroundColor Yellow
+            # Deployed + smoke passed, but cache purge was skipped (token lacks
+            # Zone > Cache Purge). Count the worker as deployed.
+            $workerOk = $true
+            Write-Host "  OK  Worker deployed (cache purge pending token permission)" -ForegroundColor Yellow
             $nodeOut | ForEach-Object { Write-Host "      $_" -ForegroundColor DarkYellow }
             Write-Host "      Add Zone > Cache Purge to the token (same value, no env change):" -ForegroundColor DarkYellow
             Write-Host "      https://dash.cloudflare.com/profile/api-tokens" -ForegroundColor DarkYellow
