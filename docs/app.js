@@ -2185,6 +2185,680 @@ function renderDashboard() {
 
 /* ---------------------------------- Auth flows ---------------------------------- */
 
+
+
+/* ---------------------------------- Dashboard: infinite scroll state ---------------------------------- */
+var dashScroll = { sentinel: null, io: null, rendered: 0, BATCH: 15 };
+
+/* ---------------------------------- Dashboard: filters, KPI, cards, analytics & audit ---------------------------------- */
+function applyFilters(resetPage) {
+  const query = appState.searchQuery.toLowerCase();
+  const sector = appState.sector;
+  appState.filtered = appState.items.filter(function (item) {
+    const haystack = [item.sector, item.id, item.description, item.action, item.responsibility, item.reviewDate]
+      .join(' ').toLowerCase();
+    return (!query || haystack.indexOf(query) !== -1) && (!sector || item.sector === sector);
+  });
+  const pages = Math.max(1, Math.ceil(appState.filtered.length / PAGE_SIZE));
+  if (resetPage) appState.page = 1;
+  if (!appState.page || appState.page > pages) appState.page = pages;
+}
+
+function handleSectorFilterChange() {
+  appState.sector = getEl('sectorFilter').value;
+  appState.page = 1;
+  updateFilterChips();
+  renderDashboard();
+}
+
+function updateSortControls() {
+  const select = getEl('sortFilter');
+  if (select) select.value = appState.dashSortKey === 'id' ? '' : appState.dashSortKey;
+  const btn = getEl('sortDirBtn');
+  if (btn) {
+    const asc = appState.dashSortDir !== 'desc';
+    btn.textContent = asc ? '\u2191' : '\u2193';
+    btn.setAttribute('aria-label', asc ? 'Sort ascending' : 'Sort descending');
+    btn.title = asc ? 'Ascending' : 'Descending';
+  }
+}
+
+function sortLabel(key) {
+  const labels = { id: 'Default', sector: 'Sector', entryDate: 'Entry date', reviewDate: 'Review date', responsibility: 'Responsibility' };
+  return labels[key] || key;
+}
+
+function handleSortChange() {
+  const value = getEl('sortFilter').value;
+  appState.dashSortKey = value || 'id';
+  appState.dashSortDir = 'asc';
+  appState.page = 1;
+  updateSortControls();
+  updateFilterChips();
+  renderDashboard();
+}
+
+function toggleSortDir() {
+  appState.dashSortDir = appState.dashSortDir === 'desc' ? 'asc' : 'desc';
+  appState.page = 1;
+  updateSortControls();
+  updateFilterChips();
+  renderDashboard();
+}
+
+function resetFilters() {
+  appState.searchQuery = '';
+  appState.sector = '';
+  appState.dashSortKey = 'id';
+  appState.dashSortDir = 'asc';
+  appState.page = 1;
+  const search = getEl('searchInput');
+  if (search) search.value = '';
+  const filter = getEl('sectorFilter');
+  if (filter) filter.value = '';
+  updateSortControls();
+  updateFilterChips();
+  renderDashboard();
+}
+
+function updateFilterChips() {
+  const chips = getEl('filterChips');
+  if (!chips) return;
+  const parts = [];
+  if (appState.searchQuery) {
+    parts.push(`<span class="filter-chip">Search: ${escapeHtml(appState.searchQuery)} <button type="button" aria-label="Remove search filter" onclick="removeChip('search')">✕</button></span>`);
+  }
+  if (appState.sector) {
+    parts.push(`<span class="filter-chip">Sector: ${escapeHtml(appState.sector)} <button type="button" aria-label="Remove sector filter" onclick="removeChip('sector')">✕</button></span>`);
+  }
+  if (appState.dashSortKey !== 'id') {
+    const dirLabel = appState.dashSortDir === 'desc' ? 'descending' : 'ascending';
+    parts.push(`<span class="filter-chip">Sort: ${escapeHtml(sortLabel(appState.dashSortKey))} (${dirLabel}) <button type="button" aria-label="Remove sort" onclick="removeChip('sort')">✕</button></span>`);
+  }
+  chips.innerHTML = parts.join('');
+  const resetBtn = getEl('resetFiltersBtn');
+  if (resetBtn) resetBtn.classList.toggle('hidden', parts.length === 0);
+}
+
+function removeChip(kind) {
+  if (kind === 'search') appState.searchQuery = '';
+  if (kind === 'sector') appState.sector = '';
+  if (kind === 'sort') {
+    appState.dashSortKey = 'id';
+    appState.dashSortDir = 'asc';
+    updateSortControls();
+  }
+  appState.page = 1;
+  const search = getEl('searchInput');
+  if (search) search.value = appState.searchQuery;
+  const filter = getEl('sectorFilter');
+  if (filter) filter.value = appState.sector;
+  updateFilterChips();
+  renderDashboard();
+}
+
+function monthlyTrendArray() {
+  const trend = (appState.analytics && appState.analytics.trend) || [];
+  if (Array.isArray(trend)) {
+    return trend.slice().sort(function (a, b) {
+      return String(a && a.key).localeCompare(String(b && b.key));
+    });
+  }
+  return Object.keys(trend).sort().map(function (key) {
+    return { key: key, value: trend[key] };
+  });
+}
+
+function trendPill() {
+  const points = monthlyTrendArray();
+  if (points.length < 2) return '';
+  const last = points[points.length - 1].value;
+  const prev = points[points.length - 2].value;
+  const diff = last - prev;
+  const cls = diff > 0 ? 'up' : (diff < 0 ? 'down' : 'flat');
+  const arrow = diff > 0 ? '↑' : (diff < 0 ? '↓' : '—');
+  const label = diff !== 0 ? `${arrow} ${Math.abs(diff)} this month` : 'Flat this month';
+  return `<span class="kpi-trend ${cls}">${label}</span>`;
+}
+
+function renderKpiCards() {
+  const grid = getEl('summaryCards');
+  if (!grid) return;
+  const summary = appState.summary || {};
+  const counts = appState.counts || {};
+  const hasCounts = !!appState.counts;
+  const sectorCount = Object.keys(summary.sectors || {}).length;
+  const total = hasCounts && counts.totalRecords !== undefined ? counts.totalRecords : (summary.total || 0);
+  const flagged = hasCounts && counts.flaggedRecords !== undefined ? counts.flaggedRecords : (summary.flagged || 0);
+  const trend = trendPill();
+  const dash = function (v) { return (v === undefined || v === null) ? '—' : v; };
+
+  grid.innerHTML =
+    `<div class="kpi-card">
+      <div class="kpi-top">
+        <span class="kpi-icon tone-secondary">${svgIcon('database')}</span>
+        ${trend}
+      </div>
+      <div class="kpi-label">Total records</div>
+      <div class="kpi-value">${total}</div>
+      <div class="kpi-subtitle">Across ${sectorCount} sector${sectorCount === 1 ? '' : 's'}</div>
+    </div>
+    <div class="kpi-card">
+      <div class="kpi-top">
+        <span class="kpi-icon tone-warning">${svgIcon('flag')}</span>
+      </div>
+      <div class="kpi-label">Review due</div>
+      <div class="kpi-value">${flagged}</div>
+      <div class="kpi-subtitle">Flagged for follow-up</div>
+    </div>
+    <div class="kpi-card">
+      <div class="kpi-top">
+        <span class="kpi-icon tone-success">${svgIcon('layers')}</span>
+      </div>
+      <div class="kpi-label">Open sectors</div>
+      <div class="kpi-value">${sectorCount}</div>
+      <div class="kpi-subtitle">Active operations</div>
+    </div>
+    <div class="kpi-card">
+      <div class="kpi-top">
+        <span class="kpi-icon tone-warning">${svgIcon('check')}</span>
+      </div>
+      <div class="kpi-label">Open tasks</div>
+      <div class="kpi-value">${dash(counts.openTasks)}</div>
+      <div class="kpi-subtitle">Not yet completed</div>
+    </div>
+    <div class="kpi-card">
+      <div class="kpi-top">
+        <span class="kpi-icon tone-secondary">${svgIcon('calendar')}</span>
+      </div>
+      <div class="kpi-label">Due today</div>
+      <div class="kpi-value">${dash(counts.dueToday)}</div>
+      <div class="kpi-subtitle">Tasks due today</div>
+    </div>
+    <div class="kpi-card">
+      <div class="kpi-top">
+        <span class="kpi-icon tone-warning">${svgIcon('clock')}</span>
+      </div>
+      <div class="kpi-label">Overdue</div>
+      <div class="kpi-value">${dash(counts.overdue)}</div>
+      <div class="kpi-subtitle">Past due date</div>
+    </div>
+    <div class="kpi-card">
+      <div class="kpi-top">
+        <span class="kpi-icon tone-success">${svgIcon('bell')}</span>
+      </div>
+      <div class="kpi-label">Unread</div>
+      <div class="kpi-value">${dash(counts.unreadNotifications)}</div>
+      <div class="kpi-subtitle">Notifications</div>
+    </div>`;
+}
+
+function buildCardHtml(item) {
+  const fieldsHtml = (item.displayFields || []).filter(function (field) {
+    const key = dashboardColumnKey_(field && field.label);
+    if (key === 'id') return false;
+    return dashboardColumnVisible_(field && field.label);
+  }).map(function (field) {
+    const isHeaderRowValue = field && field.label && String(field.label).trim() !== '';
+    const valueHtml = field.html
+      ? `<div class="field-value preserve-whitespace field-html">${field.html}</div>`
+      : `<div class="field-value preserve-whitespace">${escapeHtml(field.value)}</div>`;
+    return `
+      <div class="card-field ${isHeaderRowValue ? 'card-field-highlight' : ''}">
+        <span class="field-label ${isHeaderRowValue ? 'field-label-highlight' : ''}">${escapeHtml(field.label || 'Value')}</span>
+        ${valueHtml}
+      </div>`;
+  }).join('');
+
+  const subCount = (appState.submissionCounts || {})[item.row] || 0;
+  const subFlash = !!(appState.submissionFlash || {})[item.row];
+
+  const updateFieldsHtml = (appState.displayedSubmissions || [])
+    .filter(function (s) { return Number(s.cardRow) === Number(item.row); })
+    .map(function (s) {
+      return `
+        <div class="card-field submission-display">
+          <span class="field-label submission-display-label">Update by ${escapeHtml(s.email)} <span class="submission-display-time">${escapeHtml(s.createdAt || '')}</span></span>
+          <div class="field-value preserve-whitespace">${escapeHtml(s.text || '')}</div>
+        </div>`;
+    }).join('');
+
+  const reviewBadgeHtml = item.reviewStatus === 'due'
+    ? `<span class="review-badge review-due">Review due${appState.isAdmin ? `
+        <span class="review-dropdown">
+          <button type="button" class="review-dropdown-toggle" aria-label="Review actions" onclick="event.stopPropagation(); toggleReviewDropdown(this);">&#9662;</button>
+          <span class="review-dropdown-menu">
+            <button type="button" class="review-dropdown-item" onclick="event.stopPropagation(); markReviewDone('${escAttr(item.row)}');">Mark as review done</button>
+          </span>
+        </span>` : ''}</span>`
+    : item.reviewStatus === 'done'
+      ? `<span class="review-badge review-done">Review done${appState.isAdmin ? `
+        <span class="review-dropdown">
+          <button type="button" class="review-dropdown-toggle" aria-label="Review actions" onclick="event.stopPropagation(); toggleReviewDropdown(this);">&#9662;</button>
+          <span class="review-dropdown-menu">
+            <button type="button" class="review-dropdown-item" onclick="event.stopPropagation(); markReviewNotDone('${escAttr(item.row)}');">Mark as not done</button>
+          </span>
+        </span>` : ''}</span>`
+      : '';
+
+  const actionsHtml = `
+    <div class="submit-update-wrap">
+      <button class="btn btn-secondary btn-small" onclick="openSubmissionsModal('${escAttr(item.row)}','${escAttr(item.id)}')">Submit update</button>
+      ${subCount > 0 ? `<span class="submission-badge${subFlash ? ' flash' : ''}">${subCount}</span>` : ''}
+    </div>
+    <div class="menu-dropdown">
+      <button class="btn btn-secondary btn-small" type="button" onclick="event.stopPropagation(); toggleDropdown(this);">Print</button>
+      <span class="menu-dropdown-menu">
+        <button class="menu-dropdown-item" type="button" onclick="event.stopPropagation(); closeDropdowns(); printCard('${escAttr(item.row)}', true);">With submissions</button>
+        <button class="menu-dropdown-item" type="button" onclick="event.stopPropagation(); closeDropdowns(); printCard('${escAttr(item.row)}', false);">Without submissions</button>
+      </span>
+    </div>
+    ${appState.isEditor ? `<button class="btn btn-secondary btn-small" onclick="toggleCardAi('${escAttr(item.row)}', this)">AI insight</button>` : ''}
+    ${appState.isEditor && itemHasLink_(item) ? `<button class="btn btn-secondary btn-small" onclick="toggleCardLink('${escAttr(item.row)}', this)">Analyze link</button>` : ''}
+    ${appState.isEditor ? `<button class="btn btn-secondary btn-small" onclick="editItem('${escAttr(item.row)}')">Edit</button>` : ''}
+    ${appState.isEditor ? `<button class="btn btn-danger btn-small" onclick="deleteItem('${escAttr(item.row)}')">Delete</button>` : ''}`;
+
+  const showId = dashboardColumnVisible_('id');
+  const showActions = dashboardColumnVisible_('actions');
+  return `
+    <article class="card ${item.reviewStatus === 'due' ? 'review-due' : ''}" data-row="${escAttr(item.row)}">
+      ${reviewBadgeHtml}
+      ${showId ? '<div class="card-title preserve-whitespace"><span class="id-badge">#' + escapeHtml(item.id) + '</span></div>' : ''}
+      <div class="card-fields">${fieldsHtml || '<div class="card-field"><span class="field-label">Details</span><div class="field-value preserve-whitespace">No details available</div></div>'}${updateFieldsHtml}</div>
+      ${showActions ? '<div class="card-footer"><div class="actions">' + actionsHtml + '</div></div>' : ''}
+    </article>`;
+}
+
+function emptyStateHtml() {
+  return `
+    <div class="empty-state">
+      <div class="empty-state-icon">${svgIcon('search')}</div>
+      <div class="empty-state-title">No records found</div>
+      <div class="empty-state-subtitle">Try adjusting your search or clearing the active filters.</div>
+    </div>`;
+}
+
+function renderDashboardCards() {
+  const grid = getEl('dashboardCards');
+  if (!grid) return;
+  const start = (appState.page - 1) * PAGE_SIZE;
+  const pageItems = sortedItems().slice(start, start + PAGE_SIZE);
+
+  if (!pageItems.length) { grid.innerHTML = emptyStateHtml(); teardownDashScroller_(); return; }
+
+  // Batch 1 synchronously (keeps above-the-fold instant)
+  grid.innerHTML = pageItems.slice(0, dashScroll.BATCH).map(buildCardHtml).join('');
+  dashScroll.rendered = dashScroll.BATCH;
+  ensureDashSentinel_(grid, pageItems);
+}
+
+function ensureDashSentinel_(grid, pageItems) {
+  const rendered = dashScroll.rendered;
+  teardownDashScroller_();
+  dashScroll.rendered = rendered;
+  if (dashScroll.rendered >= pageItems.length) return; // all rendered
+
+  dashScroll.sentinel = document.createElement('div');
+  dashScroll.sentinel.className = 'cards-sentinel';
+  grid.appendChild(dashScroll.sentinel);
+
+  dashScroll.io = new IntersectionObserver(function (entries) {
+    if (!entries[0].isIntersecting) return;
+    const next = pageItems.slice(dashScroll.rendered, dashScroll.rendered + dashScroll.BATCH);
+    if (!next.length) { teardownDashScroller_(); return; }
+
+    const frag = document.createDocumentFragment();
+    next.forEach(function (item) { frag.appendChild(htmlToNode_(buildCardHtml(item))); });
+    if (dashScroll.sentinel && dashScroll.sentinel.parentNode) {
+      dashScroll.sentinel.parentNode.insertBefore(frag, dashScroll.sentinel);
+    }
+    dashScroll.rendered += next.length;
+    if (dashScroll.rendered >= pageItems.length) teardownDashScroller_();
+  }, { rootMargin: '300px 0px' }); // lookahead so there is no visible blank gap
+
+  dashScroll.io.observe(dashScroll.sentinel);
+}
+
+function teardownDashScroller_() {
+  if (dashScroll.io) { dashScroll.io.disconnect(); dashScroll.io = null; }
+  if (dashScroll.sentinel && dashScroll.sentinel.parentNode) {
+    dashScroll.sentinel.parentNode.removeChild(dashScroll.sentinel);
+  }
+  dashScroll.sentinel = null;
+  dashScroll.rendered = 0;
+}
+
+function htmlToNode_(html) {
+  const tpl = document.createElement('template');
+  tpl.innerHTML = html.trim();
+  return tpl.content.firstChild;
+}
+
+function toggleDashboardView(view) {
+  appState.dashboardView = view === 'table' ? 'table' : 'cards';
+  renderDashboard();
+}
+
+function setDashSort(key) {
+  if (key === appState.dashSortKey) {
+    appState.dashSortDir = appState.dashSortDir === 'asc' ? 'desc' : 'asc';
+  } else {
+    appState.dashSortKey = key;
+    appState.dashSortDir = 'asc';
+  }
+  appState.page = 1;
+  updateSortControls();
+  renderDashboard();
+}
+
+function renderPagination() {
+  const bar = getEl('paginationBar');
+  if (!bar) return;
+  const total = appState.filtered.length;
+  const pages = Math.max(1, Math.ceil(total / PAGE_SIZE));
+  if (appState.page > pages) appState.page = pages;
+  if (total <= PAGE_SIZE) {
+    bar.innerHTML = '';
+    return;
+  }
+  let html = `<button class="page-btn" type="button" onclick="setPage(${appState.page - 1})" ${appState.page <= 1 ? 'disabled' : ''} aria-label="Previous page">‹</button>`;
+  const start = Math.max(1, appState.page - 2);
+  const end = Math.min(pages, start + 4);
+  for (let p = start; p <= end; p++) {
+    html += `<button class="page-btn ${p === appState.page ? 'active' : ''}" type="button" onclick="setPage(${p})" ${p === appState.page ? 'aria-current="page"' : ''}>${p}</button>`;
+  }
+  html += `<button class="page-btn" type="button" onclick="setPage(${appState.page + 1})" ${appState.page >= pages ? 'disabled' : ''} aria-label="Next page">›</button>`;
+  html += `<span class="page-info">${total} record${total === 1 ? '' : 's'}</span>`;
+  bar.innerHTML = html;
+}
+
+function setPage(page) {
+  const pages = Math.max(1, Math.ceil(appState.filtered.length / PAGE_SIZE));
+  appState.page = Math.min(Math.max(1, page), pages);
+  renderDashboardCards();
+  renderDashboardTable();
+  renderPagination();
+  const target = appState.dashboardView === 'table' ? getEl('dashboardTableWrap') : getEl('dashboardCards');
+  if (target) target.scrollIntoView({ behavior: 'smooth', block: 'start' });
+}
+
+function renderAnalytics() {
+  const summary = appState.summary || {};
+  const analytics = appState.analytics || {};
+  const trendPrev = (analytics.trendPrev && analytics.trendPrev.length) ? analytics.trendPrev[analytics.trendPrev.length - 1].value : 0;
+  const trendCurr = (analytics.trend && analytics.trend.length) ? analytics.trend[analytics.trend.length - 1].value : 0;
+  const trendDir = trendCurr > trendPrev ? 'up' : trendCurr < trendPrev ? 'down' : 'flat';
+  const trendLabel = trendDir === 'up' ? '↑' : trendDir === 'down' ? '↓' : '→';
+  const trendClass = trendDir === 'up' ? 'trend-up' : trendDir === 'down' ? 'trend-down' : 'trend-flat';
+
+  const cards = [
+    { title: 'Total records', value: summary.total || 0, trend: '' },
+    { title: 'Review due', value: summary.flagged || 0, trend: '' },
+    { title: 'Normal items', value: summary.normal || 0, trend: '' },
+    { title: 'This month', value: trendCurr, trend: trendLabel, trendClass: trendClass }
+  ].map(function (item) {
+    return `<div class="analytics-card"><h3>${item.title}</h3><p>${item.value}${item.trend ? ' <span class="' + item.trendClass + '">' + item.trend + '</span>' : ''}</p></div>`;
+  }).join('');
+  getEl('analyticsCards').innerHTML = cards;
+
+  const sectors = (analytics.sectors) || [];
+  const offices = (analytics.offices) || [];
+  const flagged = (analytics.flaggedItems) || [];
+  const trend = (analytics.trend) || [];
+
+  let reportHtml = `
+    <div class="card">
+      <h3>Records by sector</h3>
+      <ul>${sectors.length ? sectors.map(function (s) {
+        return `<li>${escapeHtml(s.sector)}: ${s.total}</li>`;
+      }).join('') : '<li>No sector data</li>'}</ul>
+    </div>`;
+
+  if (offices.length) {
+    reportHtml += `
+    <div class="card">
+      <h3>Records by office</h3>
+      <ul>${offices.map(function (o) {
+        return `<li>${escapeHtml(o.office)}: ${o.total}</li>`;
+      }).join('')}</ul>
+    </div>`;
+  }
+
+  if (trend.length) {
+    reportHtml += `
+    <div class="card">
+      <h3>New records by month</h3>
+      <ul>${trend.slice(-12).map(function (t) {
+        return `<li>${escapeHtml(t.key)}: ${t.value}</li>`;
+      }).join('')}</ul>
+    </div>`;
+  }
+
+  reportHtml += `
+    <div class="card">
+      <h3>Flagged items (review due)</h3>
+      <ul>${flagged.length ? flagged.slice(0, 50).map(function (item) {
+        return `<li>#${escapeHtml(item.id)} — ${escapeHtml(item.sector)}${item.reviewDate ? ' · due ' + escapeHtml(item.reviewDate) : ''}</li>`;
+      }).join('') : '<li>No flagged items</li>'}</ul>
+    </div>`;
+
+  getEl('analyticsReport').innerHTML = reportHtml;
+}
+
+function auditValue(row, key) {
+  if (key === 'timestamp' && row.timestampMs != null) {
+    return String(row.timestampMs).padStart(16, '0');
+  }
+  return row[key] == null ? '' : String(row[key]);
+}
+
+function renderAudit() {
+  const table = getEl('auditTable');
+  if (!table) return;
+  const key = appState.auditSortKey;
+  const dir = appState.auditSortDir;
+  const rows = appState.audit.slice().sort(function (a, b) {
+    const av = auditValue(a, key).toLowerCase();
+    const bv = auditValue(b, key).toLowerCase();
+    if (av < bv) return dir === 'asc' ? -1 : 1;
+    if (av > bv) return dir === 'asc' ? 1 : -1;
+    return 0;
+  });
+
+  table.querySelectorAll('thead th[data-sort]').forEach(function (th) {
+    const sortKey = th.getAttribute('data-sort');
+    if (sortKey === key) {
+      th.setAttribute('aria-sort', dir === 'asc' ? 'ascending' : 'descending');
+    } else {
+      th.removeAttribute('aria-sort');
+    }
+  });
+
+  const selected = {};
+  appState.selectedAuditRows.forEach(function (r) { selected[r] = true; });
+
+  const tbody = table.querySelector('tbody');
+  const totalRows = rows.length;
+  const pages = Math.max(1, Math.ceil(totalRows / AUDIT_PAGE_SIZE));
+  if (appState.auditPage > pages) appState.auditPage = pages;
+  const start = (appState.auditPage - 1) * AUDIT_PAGE_SIZE;
+  const pageRows = rows.slice(start, start + AUDIT_PAGE_SIZE);
+
+  tbody.innerHTML = pageRows.length ? pageRows.map(function (row) {
+    const rowNum = Number(row.row);
+    const selectable = isFinite(rowNum) && rowNum >= 2;
+    const checkbox = appState.isAdmin && selectable
+      ? `<input type="checkbox" class="audit-row-check" data-row="${rowNum}"${selected[rowNum] ? ' checked' : ''} onchange="updateAuditSelection()" aria-label="Select this audit entry">`
+      : '';
+    return `
+      <tr>
+        <td class="audit-check-col">${checkbox}</td>
+        <td class="preserve-whitespace">${escapeHtml(row.timestamp)}</td>
+        <td class="preserve-whitespace">${escapeHtml(row.user)}</td>
+        <td class="preserve-whitespace">${renderLinkableText(row.action)}</td>
+        <td class="preserve-whitespace">${renderLinkableText(row.recordId)}</td>
+        <td class="details-cell preserve-whitespace">${renderLinkableText(row.details)}</td>
+      </tr>`;
+  }).join('') : '<tr><td colspan="6">No audit entries yet.</td></tr>';
+
+  updateAuditSelection();
+
+  const summaryEl = getEl('auditSummary');
+  if (summaryEl) summaryEl.textContent = totalRows
+    ? (start + 1) + '–' + Math.min(start + AUDIT_PAGE_SIZE, totalRows) + ' of ' + totalRows + ' entries'
+    : 'No entries';
+  renderAuditPager();
+}
+
+function renderAuditPager() {
+  const pager = getEl('auditPager');
+  if (!pager) return;
+  const total = appState.audit.length;
+  const pages = Math.max(1, Math.ceil(total / AUDIT_PAGE_SIZE));
+  pager.innerHTML = pages <= 1 ? '' : `
+    <button class="page-btn" type="button" onclick="setAuditPage(${appState.auditPage - 1})" ${appState.auditPage <= 1 ? 'disabled' : ''} aria-label="Previous page">‹</button>
+    <span class="page-info">Page ${appState.auditPage} of ${pages}</span>
+    <button class="page-btn" type="button" onclick="setAuditPage(${appState.auditPage + 1})" ${appState.auditPage >= pages ? 'disabled' : ''} aria-label="Next page">›</button>`;
+}
+
+function setAuditPage(page) {
+  const pages = Math.max(1, Math.ceil(appState.audit.length / AUDIT_PAGE_SIZE));
+  appState.auditPage = Math.min(Math.max(1, page), pages);
+  renderAudit();
+}
+
+function auditSelectedRows() {
+  const selected = [];
+  document.querySelectorAll('#auditTable .audit-row-check:checked').forEach(function (cb) {
+    selected.push(Number(cb.getAttribute('data-row')));
+  });
+  return selected;
+}
+
+function updateAuditSelection() {
+  appState.selectedAuditRows = auditSelectedRows();
+  const boxes = document.querySelectorAll('#auditTable .audit-row-check');
+  const selectAll = getEl('auditSelectAll');
+  if (selectAll) {
+    selectAll.checked = boxes.length > 0 && appState.selectedAuditRows.length === boxes.length;
+    selectAll.disabled = !appState.isAdmin || boxes.length === 0;
+  }
+  const deleteBtn = getEl('deleteAuditBtn');
+  if (deleteBtn) deleteBtn.disabled = appState.selectedAuditRows.length === 0;
+  const clearBtn = getEl('clearAuditBtn');
+  if (clearBtn) clearBtn.classList.toggle('hidden', !appState.isAdmin);
+}
+
+function toggleAuditSelectAll() {
+  const selectAll = getEl('auditSelectAll');
+  const checked = !!selectAll && selectAll.checked;
+  document.querySelectorAll('#auditTable .audit-row-check').forEach(function (cb) {
+    cb.checked = checked;
+  });
+  updateAuditSelection();
+}
+
+function deleteAuditRows() {
+  const rows = appState.selectedAuditRows.slice().sort(function (a, b) { return a - b; });
+  if (!rows.length) { showToast('Select audit entries to delete', 'warning'); return; }
+  showConfirm({
+    title: 'Delete audit entries',
+    message: 'Delete ' + rows.length + ' selected audit entr' + (rows.length === 1 ? 'y' : 'ies') + '?',
+    okLabel: 'Delete',
+    danger: true
+  }).then(function (ok) {
+    if (!ok) return;
+    showOverlay('Deleting audit entries…');
+    ApiService.adminDeleteAuditRows(rows).then(function (result) {
+      hideOverlay();
+      appState.audit = result || [];
+      appState.selectedAuditRows = [];
+      appState.auditPage = 1;
+      auditLoaded = true;
+      renderAudit();
+      showToast('Deleted ' + rows.length + ' audit entr' + (rows.length === 1 ? 'y' : 'ies'), 'success');
+    }).catch(function (err) {
+      hideOverlay();
+      if (handleServerFailure(err)) return;
+      showToast('Could not delete audit entries: ' + (err.message || err), 'error');
+    });
+  });
+}
+
+function clearAuditLog() {
+  showConfirm({
+    title: 'Clear audit log',
+    message: 'Delete the ENTIRE audit log? This cannot be undone.',
+    okLabel: 'Clear log',
+    danger: true
+  }).then(function (ok) {
+    if (!ok) return;
+    showOverlay('Clearing audit log…');
+    ApiService.adminClearAudit().then(function (result) {
+      hideOverlay();
+      appState.audit = result || [];
+      appState.selectedAuditRows = [];
+      appState.auditPage = 1;
+      auditLoaded = true;
+      renderAudit();
+      showToast('Audit log cleared', 'success');
+    }).catch(function (err) {
+      hideOverlay();
+      if (handleServerFailure(err)) return;
+      showToast('Could not clear audit log: ' + (err.message || err), 'error');
+    });
+  });
+}
+
+function setAuditSort(key) {
+  if (key === appState.auditSortKey) {
+    appState.auditSortDir = appState.auditSortDir === 'asc' ? 'desc' : 'asc';
+  } else {
+    appState.auditSortKey = key;
+    appState.auditSortDir = key === 'timestamp' ? 'desc' : 'asc';
+  }
+  appState.auditPage = 1;
+  renderAudit();
+}
+
+function markReviewNotDone(row) {
+  if (!appState.isAdmin) { showToast('Admin access required', 'warning'); return; }
+  showConfirm({
+    title: 'Mark as not done',
+    message: 'Reopen this record so it returns to review due?',
+    okLabel: 'Mark not done'
+  }).then(function (ok) {
+    if (!ok) return;
+    const snapshotItems = (appState.items || []).slice();
+    const snapshotSummary = appState.summary;
+    let patched = null;
+    (appState.items || []).forEach(function (it) {
+      if (String(it.row) === String(row)) {
+        it.reviewStatus = 'due';
+        it.flagged = true;
+        patched = it;
+      }
+    });
+    appState.summary = optimisticSummary_();
+    renderKpiCards();
+    if (!patched || !paintItem_(patched)) renderDashboard();
+    ApiService.markReviewNotDone(row).then(function (data) {
+      appState.items = data.items || [];
+      appState.summary = data.summary || {};
+      if (data.analytics) appState.analytics = data.analytics;
+      const fresh = (appState.items || []).find(function (it) { return String(it.row) === String(row); });
+      if (!fresh || !paintItem_(fresh)) renderDashboard();
+      refreshCounts();
+      showToast('Review reopened — record is review due', 'success');
+    }).catch(function (err) {
+      appState.items = snapshotItems;
+      appState.summary = snapshotSummary;
+      renderDashboard();
+      if (handleServerFailure(err)) return;
+      showToast('Failed: ' + (err.message || err), 'error');
+    });
+  });
+}
 function initApp() {
   startLiveClock();
   initDatePicker();
@@ -2382,410 +3056,53 @@ function generateReviewNotifications() {
   });
 }
 
-function applyFilters(resetPage) {
-  const query = appState.searchQuery.toLowerCase();
-  const sector = appState.sector;
-  appState.filtered = appState.items.filter(function (item) {
-    const haystack = [item.sector, item.id, item.description, item.action, item.responsibility, item.reviewDate]
-      .join(' ').toLowerCase();
-    return (!query || haystack.indexOf(query) !== -1) && (!sector || item.sector === sector);
-  });
-  const pages = Math.max(1, Math.ceil(appState.filtered.length / PAGE_SIZE));
-  if (resetPage) appState.page = 1;
-  if (!appState.page || appState.page > pages) appState.page = pages;
-}
 
-function handleSectorFilterChange() {
-  appState.sector = getEl('sectorFilter').value;
-  appState.page = 1;
-  updateFilterChips();
-  renderDashboard();
-}
 
-function sortLabel(key) {
-  const labels = { id: 'Default', sector: 'Sector', entryDate: 'Entry date', reviewDate: 'Review date', responsibility: 'Responsibility' };
-  return labels[key] || key;
-}
 
-function updateSortControls() {
-  const select = getEl('sortFilter');
-  if (select) select.value = appState.dashSortKey === 'id' ? '' : appState.dashSortKey;
-  const btn = getEl('sortDirBtn');
-  if (btn) {
-    const asc = appState.dashSortDir !== 'desc';
-    btn.textContent = asc ? '\u2191' : '\u2193';
-    btn.setAttribute('aria-label', asc ? 'Sort ascending' : 'Sort descending');
-    btn.title = asc ? 'Ascending' : 'Descending';
-  }
-}
 
-function handleSortChange() {
-  const value = getEl('sortFilter').value;
-  appState.dashSortKey = value || 'id';
-  appState.dashSortDir = 'asc';
-  appState.page = 1;
-  updateSortControls();
-  updateFilterChips();
-  renderDashboard();
-}
 
-function toggleSortDir() {
-  appState.dashSortDir = appState.dashSortDir === 'desc' ? 'asc' : 'desc';
-  appState.page = 1;
-  updateSortControls();
-  updateFilterChips();
-  renderDashboard();
-}
 
-function resetFilters() {
-  appState.searchQuery = '';
-  appState.sector = '';
-  appState.dashSortKey = 'id';
-  appState.dashSortDir = 'asc';
-  appState.page = 1;
-  const search = getEl('searchInput');
-  if (search) search.value = '';
-  const filter = getEl('sectorFilter');
-  if (filter) filter.value = '';
-  updateSortControls();
-  updateFilterChips();
-  renderDashboard();
-}
 
-function updateFilterChips() {
-  const chips = getEl('filterChips');
-  if (!chips) return;
-  const parts = [];
-  if (appState.searchQuery) {
-    parts.push(`<span class="filter-chip">Search: ${escapeHtml(appState.searchQuery)} <button type="button" aria-label="Remove search filter" onclick="removeChip('search')">✕</button></span>`);
-  }
-  if (appState.sector) {
-    parts.push(`<span class="filter-chip">Sector: ${escapeHtml(appState.sector)} <button type="button" aria-label="Remove sector filter" onclick="removeChip('sector')">✕</button></span>`);
-  }
-  if (appState.dashSortKey !== 'id') {
-    const dirLabel = appState.dashSortDir === 'desc' ? 'descending' : 'ascending';
-    parts.push(`<span class="filter-chip">Sort: ${escapeHtml(sortLabel(appState.dashSortKey))} (${dirLabel}) <button type="button" aria-label="Remove sort" onclick="removeChip('sort')">✕</button></span>`);
-  }
-  chips.innerHTML = parts.join('');
-  const resetBtn = getEl('resetFiltersBtn');
-  if (resetBtn) resetBtn.classList.toggle('hidden', parts.length === 0);
-}
 
-function removeChip(kind) {
-  if (kind === 'search') appState.searchQuery = '';
-  if (kind === 'sector') appState.sector = '';
-  if (kind === 'sort') {
-    appState.dashSortKey = 'id';
-    appState.dashSortDir = 'asc';
-    updateSortControls();
-  }
-  appState.page = 1;
-  const search = getEl('searchInput');
-  if (search) search.value = appState.searchQuery;
-  const filter = getEl('sectorFilter');
-  if (filter) filter.value = appState.sector;
-  updateFilterChips();
-  renderDashboard();
-}
+
+
+
+
+
+
+
+
+
 
 /* ---------------------------------- Dashboard: KPI cards ---------------------------------- */
 
-function monthlyTrendArray() {
-  const trend = (appState.analytics && appState.analytics.trend) || [];
-  if (Array.isArray(trend)) {
-    return trend.slice().sort(function (a, b) {
-      return String(a && a.key).localeCompare(String(b && b.key));
-    });
-  }
-  return Object.keys(trend).sort().map(function (key) {
-    return { key: key, value: trend[key] };
-  });
-}
 
-function trendPill() {
-  const points = monthlyTrendArray();
-  if (points.length < 2) return '';
-  const last = points[points.length - 1].value;
-  const prev = points[points.length - 2].value;
-  const diff = last - prev;
-  const cls = diff > 0 ? 'up' : (diff < 0 ? 'down' : 'flat');
-  const arrow = diff > 0 ? '↑' : (diff < 0 ? '↓' : '—');
-  const label = diff !== 0 ? `${arrow} ${Math.abs(diff)} this month` : 'Flat this month';
-  return `<span class="kpi-trend ${cls}">${label}</span>`;
-}
 
-function renderKpiCards() {
-  const grid = getEl('summaryCards');
-  if (!grid) return;
-  const summary = appState.summary || {};
-  const counts = appState.counts || {};
-  const hasCounts = !!appState.counts;
-  const sectorCount = Object.keys(summary.sectors || {}).length;
-  const total = hasCounts && counts.totalRecords !== undefined ? counts.totalRecords : (summary.total || 0);
-  const flagged = hasCounts && counts.flaggedRecords !== undefined ? counts.flaggedRecords : (summary.flagged || 0);
-  const trend = trendPill();
-  const dash = function (v) { return (v === undefined || v === null) ? '—' : v; };
 
-  grid.innerHTML =
-    `<div class="kpi-card">
-      <div class="kpi-top">
-        <span class="kpi-icon tone-secondary">${svgIcon('database')}</span>
-        ${trend}
-      </div>
-      <div class="kpi-label">Total records</div>
-      <div class="kpi-value">${total}</div>
-      <div class="kpi-subtitle">Across ${sectorCount} sector${sectorCount === 1 ? '' : 's'}</div>
-    </div>
-    <div class="kpi-card">
-      <div class="kpi-top">
-        <span class="kpi-icon tone-warning">${svgIcon('flag')}</span>
-      </div>
-      <div class="kpi-label">Review due</div>
-      <div class="kpi-value">${flagged}</div>
-      <div class="kpi-subtitle">Flagged for follow-up</div>
-    </div>
-    <div class="kpi-card">
-      <div class="kpi-top">
-        <span class="kpi-icon tone-success">${svgIcon('layers')}</span>
-      </div>
-      <div class="kpi-label">Open sectors</div>
-      <div class="kpi-value">${sectorCount}</div>
-      <div class="kpi-subtitle">Active operations</div>
-    </div>
-    <div class="kpi-card">
-      <div class="kpi-top">
-        <span class="kpi-icon tone-warning">${svgIcon('check')}</span>
-      </div>
-      <div class="kpi-label">Open tasks</div>
-      <div class="kpi-value">${dash(counts.openTasks)}</div>
-      <div class="kpi-subtitle">Not yet completed</div>
-    </div>
-    <div class="kpi-card">
-      <div class="kpi-top">
-        <span class="kpi-icon tone-secondary">${svgIcon('calendar')}</span>
-      </div>
-      <div class="kpi-label">Due today</div>
-      <div class="kpi-value">${dash(counts.dueToday)}</div>
-      <div class="kpi-subtitle">Tasks due today</div>
-    </div>
-    <div class="kpi-card">
-      <div class="kpi-top">
-        <span class="kpi-icon tone-warning">${svgIcon('clock')}</span>
-      </div>
-      <div class="kpi-label">Overdue</div>
-      <div class="kpi-value">${dash(counts.overdue)}</div>
-      <div class="kpi-subtitle">Past due date</div>
-    </div>
-    <div class="kpi-card">
-      <div class="kpi-top">
-        <span class="kpi-icon tone-success">${svgIcon('bell')}</span>
-      </div>
-      <div class="kpi-label">Unread</div>
-      <div class="kpi-value">${dash(counts.unreadNotifications)}</div>
-      <div class="kpi-subtitle">Notifications</div>
-    </div>`;
-}
 
-/* ---------------------------------- Dashboard: cards ---------------------------------- */
 
-function buildCardHtml(item) {
-  const fieldsHtml = (item.displayFields || []).filter(function (field) {
-    const key = dashboardColumnKey_(field && field.label);
-    if (key === 'id') return false;
-    return dashboardColumnVisible_(field && field.label);
-  }).map(function (field) {
-    const isHeaderRowValue = field && field.label && String(field.label).trim() !== '';
-    const valueHtml = field.html
-      ? `<div class="field-value preserve-whitespace field-html">${field.html}</div>`
-      : `<div class="field-value preserve-whitespace">${escapeHtml(field.value)}</div>`;
-    return `
-      <div class="card-field ${isHeaderRowValue ? 'card-field-highlight' : ''}">
-        <span class="field-label ${isHeaderRowValue ? 'field-label-highlight' : ''}">${escapeHtml(field.label || 'Value')}</span>
-        ${valueHtml}
-      </div>`;
-  }).join('');
 
-  const subCount = (appState.submissionCounts || {})[item.row] || 0;
-  const subFlash = !!(appState.submissionFlash || {})[item.row];
 
-  const updateFieldsHtml = (appState.displayedSubmissions || [])
-    .filter(function (s) { return Number(s.cardRow) === Number(item.row); })
-    .map(function (s) {
-      return `
-        <div class="card-field submission-display">
-          <span class="field-label submission-display-label">Update by ${escapeHtml(s.email)} <span class="submission-display-time">${escapeHtml(s.createdAt || '')}</span></span>
-          <div class="field-value preserve-whitespace">${escapeHtml(s.text || '')}</div>
-        </div>`;
-    }).join('');
 
-  const reviewBadgeHtml = item.reviewStatus === 'due'
-    ? `<span class="review-badge review-due">Review due${appState.isAdmin ? `
-        <span class="review-dropdown">
-          <button type="button" class="review-dropdown-toggle" aria-label="Review actions" onclick="event.stopPropagation(); toggleReviewDropdown(this);">&#9662;</button>
-          <span class="review-dropdown-menu">
-            <button type="button" class="review-dropdown-item" onclick="event.stopPropagation(); markReviewDone('${escAttr(item.row)}');">Mark as review done</button>
-          </span>
-        </span>` : ''}</span>`
-    : item.reviewStatus === 'done'
-      ? `<span class="review-badge review-done">Review done${appState.isAdmin ? `
-        <span class="review-dropdown">
-          <button type="button" class="review-dropdown-toggle" aria-label="Review actions" onclick="event.stopPropagation(); toggleReviewDropdown(this);">&#9662;</button>
-          <span class="review-dropdown-menu">
-            <button type="button" class="review-dropdown-item" onclick="event.stopPropagation(); markReviewNotDone('${escAttr(item.row)}');">Mark as not done</button>
-          </span>
-        </span>` : ''}</span>`
-      : '';
 
-  const actionsHtml = `
-    <div class="submit-update-wrap">
-      <button class="btn btn-secondary btn-small" onclick="openSubmissionsModal('${escAttr(item.row)}','${escAttr(item.id)}')">Submit update</button>
-      ${subCount > 0 ? `<span class="submission-badge${subFlash ? ' flash' : ''}">${subCount}</span>` : ''}
-    </div>
-    <div class="menu-dropdown">
-      <button class="btn btn-secondary btn-small" type="button" onclick="event.stopPropagation(); toggleDropdown(this);">Print</button>
-      <span class="menu-dropdown-menu">
-        <button class="menu-dropdown-item" type="button" onclick="event.stopPropagation(); closeDropdowns(); printCard('${escAttr(item.row)}', true);">With submissions</button>
-        <button class="menu-dropdown-item" type="button" onclick="event.stopPropagation(); closeDropdowns(); printCard('${escAttr(item.row)}', false);">Without submissions</button>
-      </span>
-    </div>
-    ${appState.isEditor ? `<button class="btn btn-secondary btn-small" onclick="toggleCardAi('${escAttr(item.row)}', this)">AI insight</button>` : ''}
-    ${appState.isEditor && itemHasLink_(item) ? `<button class="btn btn-secondary btn-small" onclick="toggleCardLink('${escAttr(item.row)}', this)">Analyze link</button>` : ''}
-    ${appState.isEditor ? `<button class="btn btn-secondary btn-small" onclick="editItem('${escAttr(item.row)}')">Edit</button>` : ''}
-    ${appState.isEditor ? `<button class="btn btn-danger btn-small" onclick="deleteItem('${escAttr(item.row)}')">Delete</button>` : ''}`;
 
-  const showId = dashboardColumnVisible_('id');
-  const showActions = dashboardColumnVisible_('actions');
-  return `
-    <article class="card ${item.reviewStatus === 'due' ? 'review-due' : ''}" data-row="${escAttr(item.row)}">
-      ${reviewBadgeHtml}
-      ${showId ? '<div class="card-title preserve-whitespace"><span class="id-badge">#' + escapeHtml(item.id) + '</span></div>' : ''}
-      <div class="card-fields">${fieldsHtml || '<div class="card-field"><span class="field-label">Details</span><div class="field-value preserve-whitespace">No details available</div></div>'}${updateFieldsHtml}</div>
-      ${showActions ? '<div class="card-footer"><div class="actions">' + actionsHtml + '</div></div>' : ''}
-    </article>`;
-}
 
-function emptyStateHtml() {
-  return `
-    <div class="empty-state">
-      <div class="empty-state-icon">${svgIcon('search')}</div>
-      <div class="empty-state-title">No records found</div>
-      <div class="empty-state-subtitle">Try adjusting your search or clearing the active filters.</div>
-    </div>`;
-}
 
 /* Incremental card renderer. Renders the first N cards, then appends the
    next batch only when a sentinel div scrolls into view. No libraries:
    IntersectionObserver is native in every modern browser. */
-var dashScroll = { sentinel: null, io: null, rendered: 0, BATCH: 15 };
-
-function renderDashboardCards() {
-  const grid = getEl('dashboardCards');
-  if (!grid) return;
-  const start = (appState.page - 1) * PAGE_SIZE;
-  const pageItems = sortedItems().slice(start, start + PAGE_SIZE);
-
-  if (!pageItems.length) { grid.innerHTML = emptyStateHtml(); teardownDashScroller_(); return; }
-
-  // Batch 1 synchronously (keeps above-the-fold instant)
-  grid.innerHTML = pageItems.slice(0, dashScroll.BATCH).map(buildCardHtml).join('');
-  dashScroll.rendered = dashScroll.BATCH;
-  ensureDashSentinel_(grid, pageItems);
-}
-
-function ensureDashSentinel_(grid, pageItems) {
-  const rendered = dashScroll.rendered;
-  teardownDashScroller_();
-  dashScroll.rendered = rendered;
-  if (dashScroll.rendered >= pageItems.length) return; // all rendered
-
-  dashScroll.sentinel = document.createElement('div');
-  dashScroll.sentinel.className = 'cards-sentinel';
-  grid.appendChild(dashScroll.sentinel);
-
-  dashScroll.io = new IntersectionObserver(function (entries) {
-    if (!entries[0].isIntersecting) return;
-    const next = pageItems.slice(dashScroll.rendered, dashScroll.rendered + dashScroll.BATCH);
-    if (!next.length) { teardownDashScroller_(); return; }
-
-    const frag = document.createDocumentFragment();
-    next.forEach(function (item) { frag.appendChild(htmlToNode_(buildCardHtml(item))); });
-    if (dashScroll.sentinel && dashScroll.sentinel.parentNode) {
-      dashScroll.sentinel.parentNode.insertBefore(frag, dashScroll.sentinel);
-    }
-    dashScroll.rendered += next.length;
-    if (dashScroll.rendered >= pageItems.length) teardownDashScroller_();
-  }, { rootMargin: '300px 0px' }); // lookahead so there is no visible blank gap
-
-  dashScroll.io.observe(dashScroll.sentinel);
-}
-
-function teardownDashScroller_() {
-  if (dashScroll.io) { dashScroll.io.disconnect(); dashScroll.io = null; }
-  if (dashScroll.sentinel && dashScroll.sentinel.parentNode) {
-    dashScroll.sentinel.parentNode.removeChild(dashScroll.sentinel);
-  }
-  dashScroll.sentinel = null;
-  dashScroll.rendered = 0;
-}
-
-function htmlToNode_(html) {
-  const tpl = document.createElement('template');
-  tpl.innerHTML = html.trim();
-  return tpl.content.firstChild;
-}
-
 /* ---------------------------------- Dashboard: table view ---------------------------------- */
 /* Enterprise-style sortable table, additive alongside the card view. Rows use
    the same filters + pagination as the cards; clicking a row opens the record
    detail dialog (S8). */
 
-function toggleDashboardView(view) {
-  appState.dashboardView = view === 'table' ? 'table' : 'cards';
-  renderDashboard();
-}
 
-function setDashSort(key) {
-  if (key === appState.dashSortKey) {
-    appState.dashSortDir = appState.dashSortDir === 'asc' ? 'desc' : 'asc';
-  } else {
-    appState.dashSortKey = key;
-    appState.dashSortDir = 'asc';
-  }
-  appState.page = 1;
-  updateSortControls();
-  renderDashboard();
-}
 
-function renderPagination() {
-  const bar = getEl('paginationBar');
-  if (!bar) return;
-  const total = appState.filtered.length;
-  const pages = Math.max(1, Math.ceil(total / PAGE_SIZE));
-  if (appState.page > pages) appState.page = pages;
-  if (total <= PAGE_SIZE) {
-    bar.innerHTML = '';
-    return;
-  }
-  let html = `<button class="page-btn" type="button" onclick="setPage(${appState.page - 1})" ${appState.page <= 1 ? 'disabled' : ''} aria-label="Previous page">‹</button>`;
-  const start = Math.max(1, appState.page - 2);
-  const end = Math.min(pages, start + 4);
-  for (let p = start; p <= end; p++) {
-    html += `<button class="page-btn ${p === appState.page ? 'active' : ''}" type="button" onclick="setPage(${p})" ${p === appState.page ? 'aria-current="page"' : ''}>${p}</button>`;
-  }
-  html += `<button class="page-btn" type="button" onclick="setPage(${appState.page + 1})" ${appState.page >= pages ? 'disabled' : ''} aria-label="Next page">›</button>`;
-  html += `<span class="page-info">${total} record${total === 1 ? '' : 's'}</span>`;
-  bar.innerHTML = html;
-}
 
-function setPage(page) {
-  const pages = Math.max(1, Math.ceil(appState.filtered.length / PAGE_SIZE));
-  appState.page = Math.min(Math.max(1, page), pages);
-  renderDashboardCards();
-  renderDashboardTable();
-  renderPagination();
-  const target = appState.dashboardView === 'table' ? getEl('dashboardTableWrap') : getEl('dashboardCards');
-  if (target) target.scrollIntoView({ behavior: 'smooth', block: 'start' });
-}
+
+
+
+
 
 function refreshData() {
   showOverlay('Refreshing data…');
@@ -2813,246 +3130,29 @@ function refreshData() {
 
 /* ---------------------------------- Analytics ---------------------------------- */
 
-function renderAnalytics() {
-  const summary = appState.summary || {};
-  const analytics = appState.analytics || {};
-  const trendPrev = (analytics.trendPrev && analytics.trendPrev.length) ? analytics.trendPrev[analytics.trendPrev.length - 1].value : 0;
-  const trendCurr = (analytics.trend && analytics.trend.length) ? analytics.trend[analytics.trend.length - 1].value : 0;
-  const trendDir = trendCurr > trendPrev ? 'up' : trendCurr < trendPrev ? 'down' : 'flat';
-  const trendLabel = trendDir === 'up' ? '↑' : trendDir === 'down' ? '↓' : '→';
-  const trendClass = trendDir === 'up' ? 'trend-up' : trendDir === 'down' ? 'trend-down' : 'trend-flat';
 
-  const cards = [
-    { title: 'Total records', value: summary.total || 0, trend: '' },
-    { title: 'Review due', value: summary.flagged || 0, trend: '' },
-    { title: 'Normal items', value: summary.normal || 0, trend: '' },
-    { title: 'This month', value: trendCurr, trend: trendLabel, trendClass: trendClass }
-  ].map(function (item) {
-    return `<div class="analytics-card"><h3>${item.title}</h3><p>${item.value}${item.trend ? ' <span class="' + item.trendClass + '">' + item.trend + '</span>' : ''}</p></div>`;
-  }).join('');
-  getEl('analyticsCards').innerHTML = cards;
-
-  const sectors = (analytics.sectors) || [];
-  const offices = (analytics.offices) || [];
-  const flagged = (analytics.flaggedItems) || [];
-  const trend = (analytics.trend) || [];
-
-  let reportHtml = `
-    <div class="card">
-      <h3>Records by sector</h3>
-      <ul>${sectors.length ? sectors.map(function (s) {
-        return `<li>${escapeHtml(s.sector)}: ${s.total}</li>`;
-      }).join('') : '<li>No sector data</li>'}</ul>
-    </div>`;
-
-  if (offices.length) {
-    reportHtml += `
-    <div class="card">
-      <h3>Records by office</h3>
-      <ul>${offices.map(function (o) {
-        return `<li>${escapeHtml(o.office)}: ${o.total}</li>`;
-      }).join('')}</ul>
-    </div>`;
-  }
-
-  if (trend.length) {
-    reportHtml += `
-    <div class="card">
-      <h3>New records by month</h3>
-      <ul>${trend.slice(-12).map(function (t) {
-        return `<li>${escapeHtml(t.key)}: ${t.value}</li>`;
-      }).join('')}</ul>
-    </div>`;
-  }
-
-  reportHtml += `
-    <div class="card">
-      <h3>Flagged items (review due)</h3>
-      <ul>${flagged.length ? flagged.slice(0, 50).map(function (item) {
-        return `<li>#${escapeHtml(item.id)} — ${escapeHtml(item.sector)}${item.reviewDate ? ' · due ' + escapeHtml(item.reviewDate) : ''}</li>`;
-      }).join('') : '<li>No flagged items</li>'}</ul>
-    </div>`;
-
-  getEl('analyticsReport').innerHTML = reportHtml;
-}
 
 /* ---------------------------------- Audit ---------------------------------- */
 
-function auditValue(row, key) {
-  if (key === 'timestamp' && row.timestampMs != null) {
-    return String(row.timestampMs).padStart(16, '0');
-  }
-  return row[key] == null ? '' : String(row[key]);
-}
 
-function renderAudit() {
-  const table = getEl('auditTable');
-  if (!table) return;
-  const key = appState.auditSortKey;
-  const dir = appState.auditSortDir;
-  const rows = appState.audit.slice().sort(function (a, b) {
-    const av = auditValue(a, key).toLowerCase();
-    const bv = auditValue(b, key).toLowerCase();
-    if (av < bv) return dir === 'asc' ? -1 : 1;
-    if (av > bv) return dir === 'asc' ? 1 : -1;
-    return 0;
-  });
 
-  table.querySelectorAll('thead th[data-sort]').forEach(function (th) {
-    const sortKey = th.getAttribute('data-sort');
-    if (sortKey === key) {
-      th.setAttribute('aria-sort', dir === 'asc' ? 'ascending' : 'descending');
-    } else {
-      th.removeAttribute('aria-sort');
-    }
-  });
 
-  const selected = {};
-  appState.selectedAuditRows.forEach(function (r) { selected[r] = true; });
 
-  const tbody = table.querySelector('tbody');
-  const totalRows = rows.length;
-  const pages = Math.max(1, Math.ceil(totalRows / AUDIT_PAGE_SIZE));
-  if (appState.auditPage > pages) appState.auditPage = pages;
-  const start = (appState.auditPage - 1) * AUDIT_PAGE_SIZE;
-  const pageRows = rows.slice(start, start + AUDIT_PAGE_SIZE);
 
-  tbody.innerHTML = pageRows.length ? pageRows.map(function (row) {
-    const rowNum = Number(row.row);
-    const selectable = isFinite(rowNum) && rowNum >= 2;
-    const checkbox = appState.isAdmin && selectable
-      ? `<input type="checkbox" class="audit-row-check" data-row="${rowNum}"${selected[rowNum] ? ' checked' : ''} onchange="updateAuditSelection()" aria-label="Select this audit entry">`
-      : '';
-    return `
-      <tr>
-        <td class="audit-check-col">${checkbox}</td>
-        <td class="preserve-whitespace">${escapeHtml(row.timestamp)}</td>
-        <td class="preserve-whitespace">${escapeHtml(row.user)}</td>
-        <td class="preserve-whitespace">${renderLinkableText(row.action)}</td>
-        <td class="preserve-whitespace">${renderLinkableText(row.recordId)}</td>
-        <td class="details-cell preserve-whitespace">${renderLinkableText(row.details)}</td>
-      </tr>`;
-  }).join('') : '<tr><td colspan="6">No audit entries yet.</td></tr>';
 
-  updateAuditSelection();
 
-  const summaryEl = getEl('auditSummary');
-  if (summaryEl) summaryEl.textContent = totalRows
-    ? (start + 1) + '–' + Math.min(start + AUDIT_PAGE_SIZE, totalRows) + ' of ' + totalRows + ' entries'
-    : 'No entries';
-  renderAuditPager();
-}
 
-function renderAuditPager() {
-  const pager = getEl('auditPager');
-  if (!pager) return;
-  const total = appState.audit.length;
-  const pages = Math.max(1, Math.ceil(total / AUDIT_PAGE_SIZE));
-  pager.innerHTML = pages <= 1 ? '' : `
-    <button class="page-btn" type="button" onclick="setAuditPage(${appState.auditPage - 1})" ${appState.auditPage <= 1 ? 'disabled' : ''} aria-label="Previous page">‹</button>
-    <span class="page-info">Page ${appState.auditPage} of ${pages}</span>
-    <button class="page-btn" type="button" onclick="setAuditPage(${appState.auditPage + 1})" ${appState.auditPage >= pages ? 'disabled' : ''} aria-label="Next page">›</button>`;
-}
 
-function setAuditPage(page) {
-  const pages = Math.max(1, Math.ceil(appState.audit.length / AUDIT_PAGE_SIZE));
-  appState.auditPage = Math.min(Math.max(1, page), pages);
-  renderAudit();
-}
 
-function auditSelectedRows() {
-  const selected = [];
-  document.querySelectorAll('#auditTable .audit-row-check:checked').forEach(function (cb) {
-    selected.push(Number(cb.getAttribute('data-row')));
-  });
-  return selected;
-}
 
-function updateAuditSelection() {
-  appState.selectedAuditRows = auditSelectedRows();
-  const boxes = document.querySelectorAll('#auditTable .audit-row-check');
-  const selectAll = getEl('auditSelectAll');
-  if (selectAll) {
-    selectAll.checked = boxes.length > 0 && appState.selectedAuditRows.length === boxes.length;
-    selectAll.disabled = !appState.isAdmin || boxes.length === 0;
-  }
-  const deleteBtn = getEl('deleteAuditBtn');
-  if (deleteBtn) deleteBtn.disabled = appState.selectedAuditRows.length === 0;
-  const clearBtn = getEl('clearAuditBtn');
-  if (clearBtn) clearBtn.classList.toggle('hidden', !appState.isAdmin);
-}
 
-function toggleAuditSelectAll() {
-  const selectAll = getEl('auditSelectAll');
-  const checked = !!selectAll && selectAll.checked;
-  document.querySelectorAll('#auditTable .audit-row-check').forEach(function (cb) {
-    cb.checked = checked;
-  });
-  updateAuditSelection();
-}
 
-function deleteAuditRows() {
-  const rows = appState.selectedAuditRows.slice().sort(function (a, b) { return a - b; });
-  if (!rows.length) { showToast('Select audit entries to delete', 'warning'); return; }
-  showConfirm({
-    title: 'Delete audit entries',
-    message: 'Delete ' + rows.length + ' selected audit entr' + (rows.length === 1 ? 'y' : 'ies') + '?',
-    okLabel: 'Delete',
-    danger: true
-  }).then(function (ok) {
-    if (!ok) return;
-    showOverlay('Deleting audit entries…');
-    ApiService.adminDeleteAuditRows(rows).then(function (result) {
-      hideOverlay();
-      appState.audit = result || [];
-      appState.selectedAuditRows = [];
-      appState.auditPage = 1;
-      auditLoaded = true;
-      renderAudit();
-      showToast('Deleted ' + rows.length + ' audit entr' + (rows.length === 1 ? 'y' : 'ies'), 'success');
-    }).catch(function (err) {
-      hideOverlay();
-      if (handleServerFailure(err)) return;
-      showToast('Could not delete audit entries: ' + (err.message || err), 'error');
-    });
-  });
-}
 
-function clearAuditLog() {
-  showConfirm({
-    title: 'Clear audit log',
-    message: 'Delete the ENTIRE audit log? This cannot be undone.',
-    okLabel: 'Clear log',
-    danger: true
-  }).then(function (ok) {
-    if (!ok) return;
-    showOverlay('Clearing audit log…');
-    ApiService.adminClearAudit().then(function (result) {
-      hideOverlay();
-      appState.audit = result || [];
-      appState.selectedAuditRows = [];
-      appState.auditPage = 1;
-      auditLoaded = true;
-      renderAudit();
-      showToast('Audit log cleared', 'success');
-    }).catch(function (err) {
-      hideOverlay();
-      if (handleServerFailure(err)) return;
-      showToast('Could not clear audit log: ' + (err.message || err), 'error');
-    });
-  });
-}
 
-function setAuditSort(key) {
-  if (key === appState.auditSortKey) {
-    appState.auditSortDir = appState.auditSortDir === 'asc' ? 'desc' : 'asc';
-  } else {
-    appState.auditSortKey = key;
-    appState.auditSortDir = key === 'timestamp' ? 'desc' : 'asc';
-  }
-  appState.auditPage = 1;
-  renderAudit();
-}
+
+
+
+
 
 function copyText(text) {
   if (navigator.clipboard && navigator.clipboard.writeText) {
@@ -5095,44 +5195,7 @@ function markReviewDone(row) {
   });
 }
 
-function markReviewNotDone(row) {
-  if (!appState.isAdmin) { showToast('Admin access required', 'warning'); return; }
-  showConfirm({
-    title: 'Mark as not done',
-    message: 'Reopen this record so it returns to review due?',
-    okLabel: 'Mark not done'
-  }).then(function (ok) {
-    if (!ok) return;
-    const snapshotItems = (appState.items || []).slice();
-    const snapshotSummary = appState.summary;
-    let patched = null;
-    (appState.items || []).forEach(function (it) {
-      if (String(it.row) === String(row)) {
-        it.reviewStatus = 'due';
-        it.flagged = true;
-        patched = it;
-      }
-    });
-    appState.summary = optimisticSummary_();
-    renderKpiCards();
-    if (!patched || !paintItem_(patched)) renderDashboard();
-    ApiService.markReviewNotDone(row).then(function (data) {
-      appState.items = data.items || [];
-      appState.summary = data.summary || {};
-      if (data.analytics) appState.analytics = data.analytics;
-      const fresh = (appState.items || []).find(function (it) { return String(it.row) === String(row); });
-      if (!fresh || !paintItem_(fresh)) renderDashboard();
-      refreshCounts();
-      showToast('Review reopened — record is review due', 'success');
-    }).catch(function (err) {
-      appState.items = snapshotItems;
-      appState.summary = snapshotSummary;
-      renderDashboard();
-      if (handleServerFailure(err)) return;
-      showToast('Failed: ' + (err.message || err), 'error');
-    });
-  });
-}
+
 
 /* ---------------------------------- Submissions modal ---------------------------------- */
 
