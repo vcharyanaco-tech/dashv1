@@ -3366,6 +3366,247 @@ function saveEditModal(e) {
 }
 
 
+
+/* ------------------------------- Submissions ------------------------------ */
+
+function openSubmissionsModal(row, cardId, onlyMine) {
+  appState.submissionCardRow = row;
+  appState.submissionCardId = cardId;
+  appState.submissionEditingId = '';
+  getEl('submissionText').value = '';
+  resetSubmissionCompose();
+  getEl('submissionStatus').textContent = '';
+  getEl('submissionsOnlyMine').checked = !!onlyMine;
+  getEl('submissionText').placeholder = 'Write your update for record #' + cardId + '…';
+  getEl('submissionsModal').classList.remove('hidden');
+  loadSubmissions();
+}
+
+function closeSubmissionsModal() {
+  closeDialog('submissionsModal');
+}
+
+function resetSubmissionCompose() {
+  getEl('submitSubmissionBtn').textContent = 'Submit update';
+  getEl('cancelSubmissionBtn').classList.add('hidden');
+}
+
+function loadSubmissions() {
+  ApiService.getSubmissions(Number(appState.submissionCardRow)).then(function (list) {
+    appState.submissions = list || [];
+    renderSubmissionList();
+  }).catch(function (err) {
+    if (handleServerFailure(err)) return;
+    showToast('Could not load submissions: ' + (err.message || err), 'error');
+  });
+}
+
+function renderSubmissionList() {
+  const onlyMine = getEl('submissionsOnlyMine').checked;
+  const all = appState.submissions || [];
+  const list = all.filter(function (s) { return !onlyMine || s.isOwner; });
+  getEl('submissionsCount').textContent = list.length + ' shown / ' + all.length + ' total';
+  getEl('submissionsList').innerHTML = list.length
+    ? list.map(renderSubmissionCard).join('')
+    : '<div class="empty-state"><div class="empty-state-icon">' + svgIcon('inbox') + '</div><div class="empty-state-title">No submissions yet</div><div class="empty-state-subtitle">Submissions for this record will appear here.</div></div>';
+}
+
+function renderSubmissionCard(s) {
+  const lockedBadge = s.locked ? '<span class="badge badge-locked">Locked</span>' : '';
+  const displayedBadge = s.displayed ? '<span class="badge badge-displayed">On card</span>' : '';
+  const ownerTag = s.isOwner ? ' <em>(you)</em>' : '';
+  const editBtn = s.editable
+    ? `<button class="btn btn-secondary btn-small" type="button" onclick="editSubmission('${escAttr(s.id)}')">Edit</button>`
+    : '';
+  let lockBtn = '';
+  if (s.canUnlock) {
+    lockBtn = `<button class="btn btn-secondary btn-small" type="button" onclick="unlockSubmission('${escAttr(s.id)}')">Unlock</button>`;
+  } else if (s.canLock) {
+    lockBtn = `<button class="btn btn-secondary btn-small" type="button" onclick="lockSubmission('${escAttr(s.id)}')">Lock</button>`;
+  }
+  const deleteBtn = appState.isAdmin
+    ? `<button class="btn btn-danger btn-small" type="button" onclick="deleteSubmission('${escAttr(s.id)}')">Delete</button>`
+    : '';
+  const displayBtn = appState.isAdmin
+    ? `<button class="btn btn-secondary btn-small" type="button" onclick="toggleDisplaySubmission('${escAttr(s.id)}')">${s.displayed ? 'Hide from card' : 'Display on card'}</button>`
+    : '';
+  const lockRoleTag = s.lockRole ? ` (${escapeHtml(s.lockRole.toLowerCase())})` : '';
+  const lockNote = s.lockedBy
+    ? `<span class="submission-note">Locked by ${escapeHtml(s.lockedBy)}${lockRoleTag}${s.lockedAt ? ' on ' + escapeHtml(s.lockedAt) : ''}</span>`
+    : '';
+  return `
+    <div class="submission-card">
+      <div class="submission-meta">
+        <span>${escapeHtml(s.email)}${ownerTag} ${lockedBadge} ${displayedBadge}</span>
+        <span>${escapeHtml(s.createdAt || '')}</span>
+      </div>
+      <div class="submission-text preserve-whitespace">${escapeHtml(s.text || '')}</div>
+      <div class="submission-actions">${editBtn}${lockBtn}${deleteBtn}${displayBtn}${lockNote}</div>
+    </div>`;
+}
+
+function editSubmission(id) {
+  const s = (appState.submissions || []).find(function (x) { return String(x.id) === String(id); });
+  if (!s) return;
+  appState.submissionEditingId = s.id;
+  getEl('submissionText').value = s.text;
+  getEl('submitSubmissionBtn').textContent = 'Save changes';
+  getEl('cancelSubmissionBtn').classList.remove('hidden');
+  getEl('submissionStatus').textContent = 'Editing your submission';
+}
+
+function cancelSubmissionEdit() {
+  appState.submissionEditingId = '';
+  getEl('submissionText').value = '';
+  getEl('submissionStatus').textContent = '';
+  resetSubmissionCompose();
+}
+
+function submitSubmission() {
+  const text = getEl('submissionText').value;
+  if (!text || !text.trim()) {
+    getEl('submissionStatus').textContent = 'Write your update before submitting.';
+    return;
+  }
+  const editingId = appState.submissionEditingId;
+  if (editingId) {
+    // Optimistic: patch the text locally so the list updates instantly, then
+    // reconcile with the authoritative server response.
+    const local = (appState.submissions || []).find(function (s) { return String(s.id) === String(editingId); });
+    if (local) {
+      local.text = text;
+      renderSubmissionList();
+    }
+    ApiService.updateSubmission(editingId, text).then(function (list) {
+      appState.submissions = list || [];
+      appState.submissionEditingId = '';
+      getEl('submissionText').value = '';
+      resetSubmissionCompose();
+      getEl('submissionStatus').textContent = '';
+      renderSubmissionList();
+      showToast('Submission updated', 'success');
+    }).catch(function (err) {
+      if (handleServerFailure(err)) return;
+      loadSubmissions();
+      getEl('submissionStatus').textContent = err.message || 'Could not save submission';
+    });
+  } else {
+    ApiService.addSubmission(Number(appState.submissionCardRow), appState.submissionCardId, text).then(function (list) {
+      appState.submissions = list || [];
+      appState.submissionCounts[Number(appState.submissionCardRow)] = (list || []).length;
+      appState.submissionFlash[Number(appState.submissionCardRow)] = true;
+      getEl('submissionText').value = '';
+      resetSubmissionCompose();
+      getEl('submissionStatus').textContent = '';
+      renderSubmissionList();
+      renderDashboard();
+      refreshCounts();
+      showToast('Update submitted', 'success');
+    }).catch(function (err) {
+      if (handleServerFailure(err)) return;
+      getEl('submissionStatus').textContent = err.message || 'Could not submit update';
+    });
+  }
+}
+
+function lockSubmission(id) {
+  if (!appState.isEditor) { showToast('Editor access required', 'warning'); return; }
+  ApiService.lockSubmission(id).then(function (list) {
+    appState.submissions = list || [];
+    renderSubmissionList();
+    showToast('Submission locked', 'success');
+  }).catch(function (err) {
+    if (handleServerFailure(err)) return;
+    showToast('Could not lock submission: ' + (err.message || err), 'error');
+  });
+}
+
+function unlockSubmission(id) {
+  if (!appState.isEditor) { showToast('Editor access required', 'warning'); return; }
+  ApiService.unlockSubmission(id).then(function (list) {
+    appState.submissions = list || [];
+    renderSubmissionList();
+    showToast('Submission unlocked', 'success');
+  }).catch(function (err) {
+    if (handleServerFailure(err)) return;
+    showToast('Could not unlock submission: ' + (err.message || err), 'error');
+  });
+}
+
+function deleteSubmission(id) {
+  if (!appState.isAdmin) { showToast('Admin access required', 'warning'); return; }
+  showConfirm({
+    title: 'Delete submission',
+    message: 'Delete this submission permanently?',
+    okLabel: 'Delete',
+    danger: true
+  }).then(function (ok) {
+    if (!ok) return;
+    ApiService.deleteSubmission(id).then(function (list) {
+      appState.submissions = list || [];
+      renderSubmissionList();
+      showToast('Submission deleted', 'success');
+      refreshData();
+    }).catch(function (err) {
+      if (handleServerFailure(err)) return;
+      showToast('Could not delete submission: ' + (err.message || err), 'error');
+    });
+  });
+}
+
+function toggleDisplaySubmission(id) {
+  if (!appState.isAdmin) { showToast('Admin access required', 'warning'); return; }
+  const current = (appState.submissions || []).find(function (s) { return String(s.id) === String(id); });
+  if (!current) { showToast('Submission not found', 'error'); return; }
+  // Optimistic: flip the flag locally and repaint only the affected card +
+  // the list, then reconcile with the server response.
+  const next = !current.displayed;
+  current.displayed = next;
+  patchDisplayedSubmissions_(current);
+  renderSubmissionList();
+  paintSubmissionCard_(current.cardRow);
+  ApiService.toggleSubmissionDisplay(id).then(function (list) {
+    appState.submissions = list || [];
+    const updated = (list || []).find(function (s) { return String(s.id) === String(id); });
+    if (updated) {
+      // Rebuild the displayed-on-card set from the authoritative response.
+      const cardRow = Number(updated.cardRow);
+      appState.displayedSubmissions = (appState.displayedSubmissions || []).filter(function (s) {
+        return Number(s.cardRow) !== cardRow;
+      }).concat((list || []).filter(function (s) {
+        return Number(s.cardRow) === cardRow && s.displayed;
+      }).map(function (s) {
+        return { cardRow: Number(s.cardRow), email: s.email, text: s.text, createdAt: s.createdAt };
+      }));
+      paintSubmissionCard_(cardRow);
+    }
+    renderSubmissionList();
+    showToast('Display updated', 'success');
+  }).catch(function (err) {
+    current.displayed = !next;
+    patchDisplayedSubmissions_(current);
+    renderSubmissionList();
+    paintSubmissionCard_(current.cardRow);
+    if (handleServerFailure(err)) return;
+    showToast('Could not update display: ' + (err.message || err), 'error');
+  });
+}
+
+function patchDisplayedSubmissions_(s) {
+  const cardRow = Number(s.cardRow);
+  appState.displayedSubmissions = (appState.displayedSubmissions || []).filter(function (x) {
+    return !(Number(x.cardRow) === cardRow && String(x.email) === String(s.email) && String(x.text) === String(s.text));
+  });
+  if (s.displayed) {
+    appState.displayedSubmissions.push({ cardRow: cardRow, email: s.email, text: s.text, createdAt: s.createdAt });
+  }
+}
+
+function paintSubmissionCard_(cardRow) {
+  const item = (appState.items || []).find(function (i) { return String(i.row) === String(cardRow); });
+  if (!item || !paintItem_(item)) renderDashboard();
+}
+
 function initApp() {
   startLiveClock();
   initDatePicker();
@@ -5279,249 +5520,7 @@ function markReviewDone(row) {
   });
 }
 
-/* ---------------------------------- Submissions modal ---------------------------------- */
-
-function openSubmissionsModal(row, cardId, onlyMine) {
-  appState.submissionCardRow = row;
-  appState.submissionCardId = cardId;
-  appState.submissionEditingId = '';
-  getEl('submissionText').value = '';
-  resetSubmissionCompose();
-  getEl('submissionStatus').textContent = '';
-  getEl('submissionsOnlyMine').checked = !!onlyMine;
-  getEl('submissionText').placeholder = 'Write your update for record #' + cardId + '…';
-  getEl('submissionsModal').classList.remove('hidden');
-  loadSubmissions();
-}
-
-function closeSubmissionsModal() {
-  closeDialog('submissionsModal');
-}
-
-function resetSubmissionCompose() {
-  getEl('submitSubmissionBtn').textContent = 'Submit update';
-  getEl('cancelSubmissionBtn').classList.add('hidden');
-}
-
-function loadSubmissions() {
-  ApiService.getSubmissions(Number(appState.submissionCardRow)).then(function (list) {
-    appState.submissions = list || [];
-    renderSubmissionList();
-  }).catch(function (err) {
-    if (handleServerFailure(err)) return;
-    showToast('Could not load submissions: ' + (err.message || err), 'error');
-  });
-}
-
-function renderSubmissionList() {
-  const onlyMine = getEl('submissionsOnlyMine').checked;
-  const all = appState.submissions || [];
-  const list = all.filter(function (s) { return !onlyMine || s.isOwner; });
-  getEl('submissionsCount').textContent = list.length + ' shown / ' + all.length + ' total';
-  getEl('submissionsList').innerHTML = list.length
-    ? list.map(renderSubmissionCard).join('')
-    : '<div class="empty-state"><div class="empty-state-icon">' + svgIcon('inbox') + '</div><div class="empty-state-title">No submissions yet</div><div class="empty-state-subtitle">Submissions for this record will appear here.</div></div>';
-}
-
-function renderSubmissionCard(s) {
-  const lockedBadge = s.locked ? '<span class="badge badge-locked">Locked</span>' : '';
-  const displayedBadge = s.displayed ? '<span class="badge badge-displayed">On card</span>' : '';
-  const ownerTag = s.isOwner ? ' <em>(you)</em>' : '';
-  const editBtn = s.editable
-    ? `<button class="btn btn-secondary btn-small" type="button" onclick="editSubmission('${escAttr(s.id)}')">Edit</button>`
-    : '';
-  let lockBtn = '';
-  if (s.canUnlock) {
-    lockBtn = `<button class="btn btn-secondary btn-small" type="button" onclick="unlockSubmission('${escAttr(s.id)}')">Unlock</button>`;
-  } else if (s.canLock) {
-    lockBtn = `<button class="btn btn-secondary btn-small" type="button" onclick="lockSubmission('${escAttr(s.id)}')">Lock</button>`;
-  }
-  const deleteBtn = appState.isAdmin
-    ? `<button class="btn btn-danger btn-small" type="button" onclick="deleteSubmission('${escAttr(s.id)}')">Delete</button>`
-    : '';
-  const displayBtn = appState.isAdmin
-    ? `<button class="btn btn-secondary btn-small" type="button" onclick="toggleDisplaySubmission('${escAttr(s.id)}')">${s.displayed ? 'Hide from card' : 'Display on card'}</button>`
-    : '';
-  const lockRoleTag = s.lockRole ? ` (${escapeHtml(s.lockRole.toLowerCase())})` : '';
-  const lockNote = s.lockedBy
-    ? `<span class="submission-note">Locked by ${escapeHtml(s.lockedBy)}${lockRoleTag}${s.lockedAt ? ' on ' + escapeHtml(s.lockedAt) : ''}</span>`
-    : '';
-  return `
-    <div class="submission-card">
-      <div class="submission-meta">
-        <span>${escapeHtml(s.email)}${ownerTag} ${lockedBadge} ${displayedBadge}</span>
-        <span>${escapeHtml(s.createdAt || '')}</span>
-      </div>
-      <div class="submission-text preserve-whitespace">${escapeHtml(s.text || '')}</div>
-      <div class="submission-actions">${editBtn}${lockBtn}${deleteBtn}${displayBtn}${lockNote}</div>
-    </div>`;
-}
-
-function editSubmission(id) {
-  const s = (appState.submissions || []).find(function (x) { return String(x.id) === String(id); });
-  if (!s) return;
-  appState.submissionEditingId = s.id;
-  getEl('submissionText').value = s.text;
-  getEl('submitSubmissionBtn').textContent = 'Save changes';
-  getEl('cancelSubmissionBtn').classList.remove('hidden');
-  getEl('submissionStatus').textContent = 'Editing your submission';
-}
-
-function cancelSubmissionEdit() {
-  appState.submissionEditingId = '';
-  getEl('submissionText').value = '';
-  getEl('submissionStatus').textContent = '';
-  resetSubmissionCompose();
-}
-
-function submitSubmission() {
-  const text = getEl('submissionText').value;
-  if (!text || !text.trim()) {
-    getEl('submissionStatus').textContent = 'Write your update before submitting.';
-    return;
-  }
-  const editingId = appState.submissionEditingId;
-  if (editingId) {
-    // Optimistic: patch the text locally so the list updates instantly, then
-    // reconcile with the authoritative server response.
-    const local = (appState.submissions || []).find(function (s) { return String(s.id) === String(editingId); });
-    if (local) {
-      local.text = text;
-      renderSubmissionList();
-    }
-    ApiService.updateSubmission(editingId, text).then(function (list) {
-      appState.submissions = list || [];
-      appState.submissionEditingId = '';
-      getEl('submissionText').value = '';
-      resetSubmissionCompose();
-      getEl('submissionStatus').textContent = '';
-      renderSubmissionList();
-      showToast('Submission updated', 'success');
-    }).catch(function (err) {
-      if (handleServerFailure(err)) return;
-      loadSubmissions();
-      getEl('submissionStatus').textContent = err.message || 'Could not save submission';
-    });
-  } else {
-    ApiService.addSubmission(Number(appState.submissionCardRow), appState.submissionCardId, text).then(function (list) {
-      appState.submissions = list || [];
-      appState.submissionCounts[Number(appState.submissionCardRow)] = (list || []).length;
-      appState.submissionFlash[Number(appState.submissionCardRow)] = true;
-      getEl('submissionText').value = '';
-      resetSubmissionCompose();
-      getEl('submissionStatus').textContent = '';
-      renderSubmissionList();
-      renderDashboard();
-      refreshCounts();
-      showToast('Update submitted', 'success');
-    }).catch(function (err) {
-      if (handleServerFailure(err)) return;
-      getEl('submissionStatus').textContent = err.message || 'Could not submit update';
-    });
-  }
-}
-
-function lockSubmission(id) {
-  if (!appState.isEditor) { showToast('Editor access required', 'warning'); return; }
-  ApiService.lockSubmission(id).then(function (list) {
-    appState.submissions = list || [];
-    renderSubmissionList();
-    showToast('Submission locked', 'success');
-  }).catch(function (err) {
-    if (handleServerFailure(err)) return;
-    showToast('Could not lock submission: ' + (err.message || err), 'error');
-  });
-}
-
-function unlockSubmission(id) {
-  if (!appState.isEditor) { showToast('Editor access required', 'warning'); return; }
-  ApiService.unlockSubmission(id).then(function (list) {
-    appState.submissions = list || [];
-    renderSubmissionList();
-    showToast('Submission unlocked', 'success');
-  }).catch(function (err) {
-    if (handleServerFailure(err)) return;
-    showToast('Could not unlock submission: ' + (err.message || err), 'error');
-  });
-}
-
-function deleteSubmission(id) {
-  if (!appState.isAdmin) { showToast('Admin access required', 'warning'); return; }
-  showConfirm({
-    title: 'Delete submission',
-    message: 'Delete this submission permanently?',
-    okLabel: 'Delete',
-    danger: true
-  }).then(function (ok) {
-    if (!ok) return;
-    ApiService.deleteSubmission(id).then(function (list) {
-      appState.submissions = list || [];
-      renderSubmissionList();
-      showToast('Submission deleted', 'success');
-      refreshData();
-    }).catch(function (err) {
-      if (handleServerFailure(err)) return;
-      showToast('Could not delete submission: ' + (err.message || err), 'error');
-    });
-  });
-}
-
-function toggleDisplaySubmission(id) {
-  if (!appState.isAdmin) { showToast('Admin access required', 'warning'); return; }
-  const current = (appState.submissions || []).find(function (s) { return String(s.id) === String(id); });
-  if (!current) { showToast('Submission not found', 'error'); return; }
-  // Optimistic: flip the flag locally and repaint only the affected card +
-  // the list, then reconcile with the server response.
-  const next = !current.displayed;
-  current.displayed = next;
-  patchDisplayedSubmissions_(current);
-  renderSubmissionList();
-  paintSubmissionCard_(current.cardRow);
-  ApiService.toggleSubmissionDisplay(id).then(function (list) {
-    appState.submissions = list || [];
-    const updated = (list || []).find(function (s) { return String(s.id) === String(id); });
-    if (updated) {
-      // Rebuild the displayed-on-card set from the authoritative response.
-      const cardRow = Number(updated.cardRow);
-      appState.displayedSubmissions = (appState.displayedSubmissions || []).filter(function (s) {
-        return Number(s.cardRow) !== cardRow;
-      }).concat((list || []).filter(function (s) {
-        return Number(s.cardRow) === cardRow && s.displayed;
-      }).map(function (s) {
-        return { cardRow: Number(s.cardRow), email: s.email, text: s.text, createdAt: s.createdAt };
-      }));
-      paintSubmissionCard_(cardRow);
-    }
-    renderSubmissionList();
-    showToast('Display updated', 'success');
-  }).catch(function (err) {
-    current.displayed = !next;
-    patchDisplayedSubmissions_(current);
-    renderSubmissionList();
-    paintSubmissionCard_(current.cardRow);
-    if (handleServerFailure(err)) return;
-    showToast('Could not update display: ' + (err.message || err), 'error');
-  });
-}
-
-/* Rebuilds the local displayed-on-card set for one submission record. */
-function patchDisplayedSubmissions_(s) {
-  const cardRow = Number(s.cardRow);
-  appState.displayedSubmissions = (appState.displayedSubmissions || []).filter(function (x) {
-    return !(Number(x.cardRow) === cardRow && String(x.email) === String(s.email) && String(x.text) === String(s.text));
-  });
-  if (s.displayed) {
-    appState.displayedSubmissions.push({ cardRow: cardRow, email: s.email, text: s.text, createdAt: s.createdAt });
-  }
-}
-
-/* Repaints just the card for a record instead of re-rendering the whole dashboard. */
-function paintSubmissionCard_(cardRow) {
-  const item = (appState.items || []).find(function (i) { return String(i.row) === String(cardRow); });
-  if (!item || !paintItem_(item)) renderDashboard();
-}
-
-/* ---------------------------------- About ---------------------------------- */
+/* ---------------------------------- Submissions modal ---------------------------------- *//* Rebuilds the local displayed-on-card set for one submission record. *//* Repaints just the card for a record instead of re-rendering the whole dashboard. *//* ---------------------------------- About ---------------------------------- */
 
 function openAbout() {
   getEl('aboutVersion').textContent = APP_VERSION;
