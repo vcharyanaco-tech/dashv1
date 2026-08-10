@@ -3362,7 +3362,9 @@ function autoRefreshTick() {
     populateFilters();
     populateResponsibilitySelect();
     renderDashboard();
-    generateReviewNotifications();
+    // Review-reminder generation is daily-deduped server-side and runs on login
+    // + manual refresh; NOT on every 60s auto-refresh (it iterates all records
+    // under a lock, so per-tick calls add server load without new notifications).
     EventBus.emit('DataRefreshed');
   }).catch(function (err) {
     autoRefreshInFlight = false;

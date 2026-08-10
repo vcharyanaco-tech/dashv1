@@ -175,6 +175,13 @@ node C:\Users\vikph\AppData\Local\Temp\opencode\cmp-fns.js script.html docs/app.
 
 Run these from the Apps Script editor.
 
+> ⚡ **Keep-warm trigger:** `installTriggers()` also creates a `warmup`
+> trigger every 5 minutes (a cheap no-op execution) to stop GAS container
+> cold-starts from slowing login/`getAppData`. After deploying a version that
+> includes it, run `reinstallTriggers()` once from the Apps Script editor so
+> the trigger is created on the live project (`clasp push` deploys code but
+> not triggers).
+
 ## Rollback
 
 `clasp deploy` keeps version history. To roll back, find a prior version and

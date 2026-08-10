@@ -40,6 +40,24 @@ function installTriggers() {
     .atHour(10)
     .create();
 
+  // Keep-warm: a lightweight execution every 5 minutes prevents the GAS
+  // container from idling out, so the first user request after a lull (login,
+  // getAppData) does not pay the multi-second cold-start penalty.
+  ScriptApp.newTrigger("warmup")
+    .timeBased()
+    .everyMinutes(5)
+    .create();
+
+}
+
+/**
+ * Keep-warm handler for the every-5-minutes trigger above. Deliberately
+ * touches the same services the request path uses (script cache + properties)
+ * so the execution environment stays warm; never throws.
+ */
+function warmup() {
+  try { CacheService.getScriptCache().get('warmup'); } catch (err) {}
+  try { PropertiesService.getScriptProperties().getProperty('warmup'); } catch (err) {}
 }
 
 
@@ -55,7 +73,7 @@ function removeTriggers() {
 
   ScriptApp.getProjectTriggers().forEach(function (trigger) {
     const handler = trigger.getHandlerFunction();
-    if (handler === "dailyDateUpdate" || handler === "sendReviewReminders" || handler === "archiveAuditLog") {
+    if (handler === "dailyDateUpdate" || handler === "sendReviewReminders" || handler === "archiveAuditLog" || handler === "warmup") {
       ScriptApp.deleteTrigger(trigger);
     }
   });

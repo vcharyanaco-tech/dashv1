@@ -255,14 +255,67 @@ function usersSheet_() {
   return sh;
 }
 
+var __usersRowsCache__ = null;
+var USERS_ROWS_CACHE_KEY = 'dashv1:usersrows:v1';
+var USERS_ROWS_CACHE_TTL = 15;
+
+/* Date cells are normalized to a tagged { __d: ISO } wrapper before
+   JSON.stringify (JSON.stringify invokes Date.prototype.toJSON first, so a
+   replacer would only ever see the already-stringified ISO value) and restored
+   by the reviver on read. CacheService stores strings, so without this Dates
+   would silently become ISO strings and change the Users-table display format
+   between cache hit/miss. */
+function __usersRowsReviver_(k, v) {
+  if (v && typeof v === 'object' && typeof v.__d === 'string') return new Date(v.__d);
+  return v;
+}
+
+function getCachedUserRows_() {
+  try {
+    const raw = CacheService.getScriptCache().get(USERS_ROWS_CACHE_KEY);
+    if (!raw) return null;
+    const parsed = JSON.parse(raw, __usersRowsReviver_);
+    return Array.isArray(parsed) ? parsed : null;
+  } catch (err) { return null; }
+}
+
+function putCachedUserRows_(rows) {
+  try {
+    const normalized = rows.map(function (r) {
+      return r.map(function (c) {
+        return Object.prototype.toString.call(c) === '[object Date]' ? { __d: c.toISOString() } : c;
+      });
+    });
+    const json = JSON.stringify(normalized);
+    if (json && json !== '[]') {
+      CacheService.getScriptCache().put(USERS_ROWS_CACHE_KEY, json, USERS_ROWS_CACHE_TTL);
+    }
+  } catch (err) {}
+}
+
+/* Drops the cross-execution user cache. Called by every user write so an
+   admin edit is visible on the next request (same-execution reads still use
+   the sheet). */
+function invalidateUsersCache_() {
+  __usersRowsCache__ = null;
+  try { CacheService.getScriptCache().remove(USERS_ROWS_CACHE_KEY); } catch (err) {}
+}
+
 function readUserRecords_() {
+  if (__usersRowsCache__) return __usersRowsCache__;
+  const cached = getCachedUserRows_();
+  if (cached) { __usersRowsCache__ = cached; return cached; }
+
   const sh = usersSheet_();
   if (!sh) return [];
 
   const lastRow = sh.getLastRow();
   if (lastRow < 2) return [];
 
-  return sh.getRange(2, 1, lastRow - 1, USER_SHEET_HEADERS.length).getValues();
+  const rows = sh.getRange(2, 1, lastRow - 1, USER_SHEET_HEADERS.length).getValues();
+  __usersRowsCache__ = rows;
+  putCachedUserRows_(rows);
+  return rows;
 }
 
 function userRecordFromRow_(row) {
@@ -346,6 +399,7 @@ function resolveUserByIdentifier_(identifier) {
 }
 
 function setUserField_(email, field, value) {
+  invalidateUsersCache_();
   const rec = findUserRecord_(email);
   if (!rec) return;
 
@@ -374,6 +428,7 @@ function setUserField_(email, field, value) {
 }
 
 function addUserRecord_(email, role, salt, passwordHash, createdBy, group, department, office, username) {
+  invalidateUsersCache_();
   const sh = usersSheet_();
   if (!sh) return;
   const row = sh.getLastRow() + 1;
@@ -398,6 +453,7 @@ function addUserRecord_(email, role, salt, passwordHash, createdBy, group, depar
 }
 
 function deleteUserRecord_(email) {
+  invalidateUsersCache_();
   const rec = findUserRecord_(email);
   if (!rec) return false;
   const sh = usersSheet_();
@@ -1240,6 +1296,7 @@ function parseCsvLine_(line) {
  * @returns {{users: Object[], added: number, updated: number, errors: string[]}}
  */
 function adminImportUsers(csv, token) {
+  invalidateUsersCache_();
   const admin = AppUtils.requireAdmin(token);
   checkRateLimit_('adminuser_' + AppUtils.safeCacheKey(admin.email), CONFIG.RATE_LIMIT.ADMIN_USER_MAX, CONFIG.RATE_LIMIT.ADMIN_USER_WINDOW);
 
@@ -1421,6 +1478,7 @@ function adminDeleteUser(email, token) {
 
     if (primaryEmail_(email) === admin.email) throw AppUtils.clientError('You cannot delete your own account.');
     if (isBootstrapAdmin_(email)) throw AppUtils.clientError('The primary admin account cannot be deleted.');
+    invalidateUsersCache_();
     if (!deleteUserRecord_(email)) throw AppUtils.clientError('User not found.');
 
     try { logAudit_(ACTIONS.USER_DELETE, '', email, admin.email); } catch (err) {}

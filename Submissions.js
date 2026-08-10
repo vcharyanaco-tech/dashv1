@@ -180,9 +180,24 @@ function cardExists_(cardRow) {
 }
 
 let __submissionOverviewCache__ = null;
+var SUBMISSION_OVERVIEW_CACHE_KEY = 'dashv1:suboverview:v1';
+var SUBMISSION_OVERVIEW_CACHE_TTL = 15;
 
+/* The overview (counts/flash/displayed) is rebuilt by scanning every
+   submission row, so getAppData pays a full Submissions-sheet read on every
+   request. A short cross-execution CacheService TTL serves repeated loads
+   (page loads, auto-refresh, other users) from cache; every submission
+   mutation invalidates it immediately. */
 function getSubmissionOverview_() {
   if (__submissionOverviewCache__) return __submissionOverviewCache__;
+
+  try {
+    const raw = CacheService.getScriptCache().get(SUBMISSION_OVERVIEW_CACHE_KEY);
+    if (raw) {
+      __submissionOverviewCache__ = JSON.parse(raw);
+      return __submissionOverviewCache__;
+    }
+  } catch (err) {}
 
   const counts = {};
   const flash = {};
@@ -205,7 +220,17 @@ function getSubmissionOverview_() {
   });
 
   __submissionOverviewCache__ = { counts: counts, flash: flash, displayed: displayed };
+  try {
+    CacheService.getScriptCache().put(SUBMISSION_OVERVIEW_CACHE_KEY, JSON.stringify(__submissionOverviewCache__), SUBMISSION_OVERVIEW_CACHE_TTL);
+  } catch (err) {}
   return __submissionOverviewCache__;
+}
+
+/* Drops the submission-overview cache; called after every submission mutation
+   so counts/flash/displayed refresh on the next read. */
+function invalidateSubmissionOverviewCache_() {
+  __submissionOverviewCache__ = null;
+  try { CacheService.getScriptCache().remove(SUBMISSION_OVERVIEW_CACHE_KEY); } catch (err) {}
 }
 
 
@@ -255,6 +280,7 @@ function addSubmission(cardRow, cardId, text, token) {
       const id = Utilities.getUuid().replace(/-/g, '');
       const now = new Date();
       sh.appendRow([id, cardRow, String(cardId || ''), user.email, content, now, now, '', null, false, 1, user.email]);
+      invalidateSubmissionOverviewCache_();
       invalidateCounts_('notif'); // staff recipients get a notification
 
       try { logAudit_(ACTIONS.SUBMISSION_ADD, cardRow, { id: id, cardRow: cardRow, text: content }, user.email); } catch (err) {}
@@ -301,6 +327,7 @@ function updateSubmission(submissionId, text, token) {
     sh.getRange(rec.row, SUBMISSION_COL.TEXT, 1, 8).setValues([[
       content, rec.createdAt, now, rec.lockedBy, rec.lockedAt, rec.displayed, nextVersion, user.email
     ]]);
+    invalidateSubmissionOverviewCache_();
 
     // Patch the in-memory record so the response reflects the save.
     rec.text = content;
@@ -332,6 +359,7 @@ function lockSubmission(submissionId, token) {
     const sh = submissionsSheet_();
     sh.getRange(rec.row, SUBMISSION_COL.LOCKED_BY).setValue(editor.email);
     sh.getRange(rec.row, SUBMISSION_COL.LOCKED_AT).setValue(new Date());
+    invalidateSubmissionOverviewCache_();
 
     try { logAudit_(ACTIONS.SUBMISSION_LOCK, rec.cardRow, { id: submissionId }, editor.email); } catch (err) {}
     return submissionsForCard_(rec.cardRow, editor);
@@ -357,6 +385,7 @@ function unlockSubmission(submissionId, token) {
     const sh = submissionsSheet_();
     sh.getRange(rec.row, SUBMISSION_COL.LOCKED_BY).setValue('');
     sh.getRange(rec.row, SUBMISSION_COL.LOCKED_AT).setValue(null);
+    invalidateSubmissionOverviewCache_();
 
     try { logAudit_(ACTIONS.SUBMISSION_UNLOCK, rec.cardRow, { id: submissionId }, editor.email); } catch (err) {}
     return submissionsForCard_(rec.cardRow, editor);
@@ -378,6 +407,7 @@ function deleteSubmission(submissionId, token) {
 
     const sh = submissionsSheet_();
     sh.deleteRow(rec.row);
+    invalidateSubmissionOverviewCache_();
 
     try { logAudit_(ACTIONS.SUBMISSION_DELETE, rec.cardRow, { id: submissionId, text: rec.text }, admin.email); } catch (err) {}
     return submissionsForCard_(rec.cardRow, admin);
@@ -402,6 +432,7 @@ function toggleSubmissionDisplay(submissionId, token) {
 
     const next = !rec.displayed;
     submissionsSheet_().getRange(rec.row, SUBMISSION_COL.DISPLAYED).setValue(next);
+    invalidateSubmissionOverviewCache_();
     rec.displayed = next; // patch in-memory so the response reflects the change
 
     try { logAudit_(next ? ACTIONS.SUBMISSION_DISPLAY : ACTIONS.SUBMISSION_HIDE, rec.cardRow, { id: submissionId }, admin.email); } catch (err) {}
