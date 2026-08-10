@@ -927,6 +927,15 @@
             </select>
           </div>
         </div>
+        <div class="field hidden" id="taskStatusField">
+          <label for="taskStatus">Status</label>
+          <select id="taskStatus" class="select">
+            <option value="OPEN">Open</option>
+            <option value="IN_PROGRESS">In progress</option>
+            <option value="DONE">Done</option>
+            <option value="CANCELLED">Cancelled</option>
+          </select>
+        </div>
         <div class="field date-field">
           <label for="taskDueDate">Due date</label>
           <input id="taskDueDate" type="text" class="input" placeholder="dd.mm.yyyy" data-datepicker autocomplete="off">

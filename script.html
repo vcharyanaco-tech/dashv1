@@ -2978,6 +2978,9 @@ function renderTaskList() {
 
       // Build action buttons
       let actionButtons = '';
+      if (t.status === 'OPEN') {
+        actionButtons += '<button class="btn btn-ghost btn-small" type="button" onclick="startTask(\'' + escAttr(t.id) + '\')" style="margin-right:4px;">Start</button>';
+      }
       if (t.status !== 'DONE' && t.status !== 'CANCELLED') {
         actionButtons += '<button class="btn btn-ghost btn-small" type="button" onclick="completeTask(\'' + escAttr(t.id) + '\')">Complete</button>';
         if (hasEnterpriseAddons) {
@@ -3050,6 +3053,9 @@ function closeTaskModal() {
   getEl('taskPriority').value = 'MEDIUM';
   getEl('taskDueDate').value = '';
   getEl('taskRecordRow').value = '';
+  // Status is edit-only; new tasks always start OPEN.
+  getEl('taskStatusField').classList.add('hidden');
+  getEl('taskStatus').value = 'OPEN';
 }
 
 function saveTask() {
@@ -3079,6 +3085,8 @@ function saveTask() {
 
   // Check if we're editing or creating
   if (appState.editingTaskId) {
+    // Status can only be changed when editing (new tasks always start OPEN)
+    params.status = getEl('taskStatus').value;
     ApiService.updateTask(appState.editingTaskId, params).then(function () {
       closeTaskModal();
       showToast('Task updated.', 'success');
@@ -3166,6 +3174,67 @@ function completeTaskOptimistic(id) {
   });
 }
 
+/* Optimistic "Start" for OPEN tasks: flips the badge to IN_PROGRESS
+   immediately, disables the row while in flight, and rolls back on conflict /
+   failure — mirroring completeTaskOptimistic. The server accepts OPEN ->
+   IN_PROGRESS via updateTaskField (validated state machine). */
+function startTask(id) {
+  const row = document.querySelector('tr[data-task-id="' + String(id).replace(/["\\]/g, '\\$&') + '"]');
+  if (!row) { renderTasks(); return; }
+
+  const statusEl = row.querySelector('.badge');
+  const buttons = Array.prototype.slice.call(row.querySelectorAll('button'));
+  const snapshot = row.innerHTML; // cheap rollback image (a single row)
+  const prevText = statusEl ? statusEl.textContent : '';
+
+  // 1) Apply the optimistic state BEFORE the network call resolves
+  if (statusEl) {
+    statusEl.textContent = 'IN_PROGRESS';
+    statusEl.className = 'badge badge-warning';
+  }
+  row.classList.add('task-pending');
+  buttons.forEach(function (b) { b.disabled = true; });
+
+  // 2) Fire the real call — partial update with optimistic locking +
+  //    a one-time idempotency key so retries never double-apply.
+  const known = (appState.tasks || []).find(function (t) { return String(t.id) === String(id); });
+  const rowVersion = known && known.rowVersion ? Number(known.rowVersion) : 1;
+  const idempotencyKey = newClientId_();
+  ApiService.updateTaskField(id, 'status', 'IN_PROGRESS', rowVersion, idempotencyKey).then(function (res) {
+    if (res && res.conflict) {
+      // RowVersion conflict — the task changed elsewhere. Do NOT overwrite:
+      // revert this row's optimistic state and refetch the fresh list.
+      row.innerHTML = snapshot;
+      if (statusEl) statusEl.textContent = prevText;
+      row.classList.remove('task-pending');
+      buttons.forEach(function (b) { b.disabled = false; });
+      showToast('This task changed elsewhere. Reloading…', 'warning');
+      renderTasks();
+      return;
+    }
+    const task = (appState.tasks || []).find(function (t) { return String(t.id) === String(id); });
+    if (task) {
+      task.status = 'IN_PROGRESS';
+      if (res && res.task && res.task.rowVersion) task.rowVersion = res.task.rowVersion;
+    }
+    row.classList.remove('task-pending');
+    buttons.forEach(function (b) { b.disabled = false; });
+    // The Start action only applies to OPEN tasks — drop its button now that
+    // the row shows IN_PROGRESS (Complete/Edit remain, matching the new state).
+    const startBtn = row.querySelector('button[onclick^="startTask"]');
+    if (startBtn) startBtn.remove();
+    if (typeof refreshCounts === 'function') refreshCounts();
+    showToast('Task started.', 'success');
+  }).catch(function (err) {
+    // 3) ROLLBACK: restore the exact prior DOM + re-enable buttons
+    row.innerHTML = snapshot;
+    if (statusEl) statusEl.textContent = prevText;
+    row.classList.remove('task-pending');
+    if (handleServerFailure(err)) return;
+    showToast('Could not start task: ' + (err.message || err), 'error');
+  });
+}
+
 function editTask(id) {
   const task = (appState.tasks || []).find(function (t) { return t.id === id; });
   if (!task) {
@@ -3185,6 +3254,10 @@ function editTask(id) {
 
   // Update modal title
   getEl('taskModalTitle').textContent = 'Edit task';
+
+  // Reveal the status field (hidden for new tasks) and preselect current status
+  getEl('taskStatusField').classList.remove('hidden');
+  getEl('taskStatus').value = task.status || 'OPEN';
 
   // Populate assignee (will be populated after users are loaded)
   if (appState.allUsers) {
