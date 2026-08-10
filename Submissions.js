@@ -287,17 +287,6 @@ function updateSubmission(submissionId, text, token) {
     if (!rec) throw clientError_('Submission not found.');
     assertCanEditSubmission_(user, rec);
 
-    // Point 8: optimistic-lock conflict detection (client may pass rowVersion)
-    if (rowVersion !== undefined && rowVersion !== null && Number(rowVersion) !== Number(rec.rowVersion || 1)) {
-      return {
-        success: false,
-        conflict: {
-          expectedVersion: Number(rowVersion),
-          actualVersion: Number(rec.rowVersion || 1)
-        }
-      };
-    }
-
     const sh = submissionsSheet_();
     const now = new Date();
     sh.getRange(rec.row, SUBMISSION_COL.TEXT).setValue(content);
