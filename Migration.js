@@ -86,6 +86,9 @@ function migrateTasks_(dryRun) {
   if (need && !dryRun) {
     vals.forEach(function (r) { if (r[0] === '' || r[0] === null || r[0] === undefined) r[0] = 1; });
     range.setValues(vals);
+    // Backfill mutates task rows — drop the cross-execution task cache so
+    // getTasks() does not keep serving pre-migration rowVersions.
+    try { invalidateTasksCache_(); } catch (err) {}
   }
   out.rowsBackfilled = need;
   return out;

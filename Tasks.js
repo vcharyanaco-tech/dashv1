@@ -40,6 +40,55 @@ const TASK_PRIORITY = Object.freeze({
   URGENT: 'URGENT'
 });
 
+/* ============================================================
+ * Cross-execution Tasks-sheet cache
+ * ============================================================
+ * getTasks()/getMyTasks() both funnel through readTasksUnchecked_(), which
+ * re-reads the whole Tasks sheet on every call (~1.8s live). We cache the
+ * parsed task records (already JSON-safe: every date is normalized to a millis
+ * number by taskRecordFromRow_, so a plain stringify/parse round-trip is
+ * lossless — no Date tagging needed like the users cache). Filters are applied
+ * AFTER the cache read, so one shared entry serves every filter combination.
+ * Every task write invalidates (createTask/updateTask/updateTaskField/
+ * deleteTask + the migration backfill), so a write is visible on the next
+ * request in any execution. 15s TTL matches the users cache.
+ */
+var TASKS_CACHE_KEY = 'dashv1:tasks:v1';
+var TASKS_CACHE_TTL = 15;
+var __tasksCache__ = null;
+
+function getCachedTasks_() {
+  if (__tasksCache__) return __tasksCache__;
+  try {
+    const raw = CacheService.getScriptCache().get(TASKS_CACHE_KEY);
+    if (raw) {
+      const parsed = JSON.parse(raw);
+      if (Array.isArray(parsed)) {
+        __tasksCache__ = parsed;
+        return parsed;
+      }
+    }
+  } catch (err) {}
+  return null;
+}
+
+function putCachedTasks_(tasks) {
+  try {
+    const json = JSON.stringify(tasks);
+    if (json && json !== '[]') {
+      CacheService.getScriptCache().put(TASKS_CACHE_KEY, json, TASKS_CACHE_TTL);
+    }
+  } catch (err) {}
+}
+
+/* Drops the cross-execution task cache. Called by every task write so an
+   edit is visible on the next request (same-execution reads still use the
+   sheet). */
+function invalidateTasksCache_() {
+  __tasksCache__ = null;
+  try { CacheService.getScriptCache().remove(TASKS_CACHE_KEY); } catch (err) {}
+}
+
 function tasksSheet_() {
   const ss = getSpreadsheet_();
   if (!ss) return null;
@@ -158,6 +207,7 @@ function createTask(params, token) {
       console.error('Task assignment email failed: ' + emailErr.message);
     }
     invalidateCounts_('tasks');
+    invalidateTasksCache_();
     return taskRecordFromRow_([id, recordRow, String(params.recordId || ''), title, String(params.description || ''), assignee, TASK_STATUS.OPEN, priority, dueDate ? dueDate.getTime() : 0, user.email, now, now, 0, 1, user.email]);
   });
 }
@@ -230,6 +280,7 @@ function updateTask(id, fields, token) {
     row[TASK_COL.ROW_VERSION - 1] = (existing.rowVersion || 1) + 1;
     range.setValues([row]);
     invalidateCounts_('tasks');
+    invalidateTasksCache_();
 
     if (updates.assignee && updates.assignee !== existing.assignee) {
       const taskTitle = updates.title || existing.title;
@@ -278,19 +329,38 @@ function getTasks(filters, token) {
  * getTasks. Buckets tasks by status/due date for Point 6 counts. */
 function readTasksUnchecked_(filters) {
   filters = filters || {};
-  const sh = tasksSheet_();
-  if (!sh) return [];
-  const lastRow = sh.getLastRow();
+
+  // Serve from the cross-execution cache when fresh (filters applied below,
+  // so one cached record set covers every filter combination). Falls back to
+  // a full sheet read otherwise.
+  let all = getCachedTasks_();
+  if (!all) {
+    const sh = tasksSheet_();
+    if (!sh) return [];
+    const lastRow = sh.getLastRow();
+    all = [];
+    if (lastRow >= 2) {
+      const values = sh.getRange(2, 1, lastRow - 1, TASK_SHEET_HEADERS.length).getValues();
+      for (let i = 0; i < values.length; i++) {
+        all.push(taskRecordFromRow_(values[i]));
+      }
+    }
+    __tasksCache__ = all;
+    putCachedTasks_(all);
+  }
+
   const out = [];
-  if (lastRow < 2) return out;
-  const values = sh.getRange(2, 1, lastRow - 1, TASK_SHEET_HEADERS.length).getValues();
-  for (let i = 0; i < values.length; i++) {
-    const rec = taskRecordFromRow_(values[i]);
+  for (let i = 0; i < all.length; i++) {
+    const rec = all[i];
     if (filters.assignee && rec.assignee !== String(filters.assignee).toLowerCase()) continue;
     if (filters.status && rec.status !== String(filters.status).toUpperCase()) continue;
     if (filters.recordRow && rec.recordRow !== Number(filters.recordRow)) continue;
     if (filters.recordId && rec.recordId !== String(filters.recordId)) continue;
-    out.push(rec);
+    // Shallow copy: the cached records are shared state (module memo + the
+    // serialized CacheService entry); callers must never be able to mutate the
+    // shared records and corrupt the cache for later reads. Copy is cheap
+    // (15 scalar fields) compared to the sheet read it replaces.
+    out.push(Object.assign({}, rec));
   }    out.sort(function (a, b) {
     // pending first, then by due date, then newest
     const statusOrder = { OPEN: 0, IN_PROGRESS: 1, DONE: 2, CANCELLED: 3 };
@@ -348,6 +418,7 @@ function deleteTask(id, token) {
       if (String(values[i][0]) === id) {
         sh.deleteRow(i + 2);
         invalidateCounts_('tasks');
+        invalidateTasksCache_();
         return true;
       }
     }
@@ -546,6 +617,7 @@ function updateTaskField(id, field, value, rowVersion, idempotencyKey, token) {
       }
 
       invalidateCounts_('tasks');
+      invalidateTasksCache_();
       return { success: true, task: updatedTask };
     }, function (result) {
       // Cache only successful mutations — conflicts are transient.
