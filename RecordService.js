@@ -42,7 +42,7 @@ function buildRichTextValue_(text, url, linkText) {
  * @returns {Object} Fresh getData() payload.
  */
 function addRecord_(item, token) {
-  const editor = requireEditor_(token);
+  const editor = AppUtils.requireEditor(token);
 
   return runWithLock_(function () {
     const sheet = getSheet_();
@@ -133,7 +133,7 @@ function addRecord_(item, token) {
  * @returns {Object} Fresh getData() payload.
  */
 function updateRecord_(item, token) {
-  const editor = requireEditor_(token);
+  const editor = AppUtils.requireEditor(token);
 
   return runWithLock_(function () {
     const sheet = getSheet_();
@@ -220,7 +220,7 @@ function updateRecord_(item, token) {
  * @returns {Object} Fresh getData() payload.
  */
 function deleteRecord_(row, token) {
-  const editor = requireEditor_(token);
+  const editor = AppUtils.requireEditor(token);
 
   return runWithLock_(function () {
     const sheet = getSheet_();
@@ -246,7 +246,7 @@ function deleteRecord_(row, token) {
  * @returns {{items: Object[], summary: Object}} Updated items + summary.
  */
 function markReviewDone_(row, token) {
-  const admin = requireAdmin_(token);
+  const admin = AppUtils.requireAdmin(token);
 
   return runWithLock_(function () {
     const sheet = getSheet_();
@@ -276,7 +276,7 @@ function markReviewDone_(row, token) {
  * @returns {{items: Object[], summary: Object}} Updated items + summary.
  */
 function markReviewNotDone_(row, token) {
-  const admin = requireAdmin_(token);
+  const admin = AppUtils.requireAdmin(token);
 
   return runWithLock_(function () {
     const sheet = getSheet_();

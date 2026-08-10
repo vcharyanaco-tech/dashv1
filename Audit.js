@@ -80,7 +80,7 @@ function getAuditEntries(limit) {
  * @returns {Object[]} Refreshed audit tail (80 entries).
  */
 function adminDeleteAuditRows(rowNumbers, token) {
-  requireAdmin_(token);
+  AppUtils.requireAdmin(token);
   const sheet = getAuditSheet_();
   const rows = (rowNumbers || [])
     .map(function (n) { return Number(n); })
@@ -98,7 +98,7 @@ function adminDeleteAuditRows(rowNumbers, token) {
  * @returns {Object[]} Empty audit tail.
  */
 function adminClearAudit(token) {
-  requireAdmin_(token);
+  AppUtils.requireAdmin(token);
   const sheet = getAuditSheet_();
   const lastRow = sheet.getLastRow();
   if (lastRow >= 2) sheet.deleteRows(2, lastRow - 1);

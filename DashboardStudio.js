@@ -49,7 +49,7 @@ function setUserPreferences_(email, prefs) {
 }
 
 function getDashboardPreferences(token) {
-  const user = requireLogin_(token);
+  const user = AppUtils.requireLogin(token);
   const prefs = getUserPreferences_(user.email);
   return {
     viewMode: prefs[DASHBOARD_PREF_KEYS.VIEW_MODE] || VIEW_MODES.CARDS,
@@ -59,7 +59,7 @@ function getDashboardPreferences(token) {
 }
 
 function saveDashboardPreferences(prefs, token) {
-  const user = requireLogin_(token);
+  const user = AppUtils.requireLogin(token);
   const merged = getUserPreferences_(user.email);
   merged[DASHBOARD_PREF_KEYS.VIEW_MODE] = prefs.viewMode || merged[DASHBOARD_PREF_KEYS.VIEW_MODE] || VIEW_MODES.CARDS;
   merged[DASHBOARD_PREF_KEYS.COLUMNS] = Object.assign({}, DEFAULT_COLUMNS, prefs.columns || merged[DASHBOARD_PREF_KEYS.COLUMNS] || {});

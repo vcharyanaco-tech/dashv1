@@ -42,7 +42,7 @@ var ENTERPRISE_AI_PREVIEW_MAX_CELL_CHARS = 300;
 /* Builds an .ics feed of review-due records for the caller's office scope.
    Returns {success, filename, count, ics}. */
 function exportReviewCalendarIcs(token) {
-  var user = requireLogin_(token);
+  var user = AppUtils.requireLogin(token);
   var context = getUserContext(user.email);
   var cal = (ENTERPRISE_SETTINGS || {}).CALENDAR || {};
   if (!cal.enabled) {
@@ -101,7 +101,7 @@ function buildIcs_(summary, events) {
 function getTaskIcs(tokenOrTaskId, maybeTaskId) {
   var token = maybeTaskId === undefined ? '' : tokenOrTaskId;
   var taskId = maybeTaskId === undefined ? tokenOrTaskId : maybeTaskId;
-  if (token) requireLogin_(token);
+  if (token) AppUtils.requireLogin(token);
   var tasks = getEnterpriseTasks_();
   var task = null;
   for (var i = 0; i < tasks.length; i++) {
@@ -143,7 +143,7 @@ function enterprisePick_(obj, keys) {
 
 /* Admin-triggered (web) WhatsApp reminder run. */
 function sendWhatsAppReviewReminders(token) {
-  var user = requireAdmin_(token);
+  var user = AppUtils.requireAdmin(token);
   return sendOverdueWhatsAppReminders();
 }
 
@@ -229,7 +229,7 @@ function postWhatsApp_(wa, toPhone, text) {
 /* ------------------------------------------------------------------ */
 
 function getAiInsights(token) {
-  if (token) requireAdmin_(token);
+  if (token) AppUtils.requireAdmin(token);
   if (!aiEnabled_()) {
     return { success: false, message: 'AI insights are not enabled.' };
   }
@@ -445,7 +445,7 @@ function firstLinkUrl_(item) {
 
 /* Editor/admin-gated: AI insight for one record (its own fields only). */
 function getCardAiInsight(token, row) {
-  requireEditor_(token);
+  AppUtils.requireEditor(token);
   if (!aiEnabled_()) {
     return { success: false, message: 'AI insights are not enabled.' };
   }
@@ -474,7 +474,7 @@ function getCardAiInsight(token, row) {
 /* Editor/admin-gated: fetches the record's linked file content (public URLs and
    "anyone with the link" Drive files only) and runs AI analysis over it. */
 function getLinkContentAiInsight(token, row) {
-  requireEditor_(token);
+  AppUtils.requireEditor(token);
   if (!aiEnabled_()) {
     return { success: false, message: 'AI insights are not enabled.' };
   }
@@ -712,7 +712,7 @@ function isReadableAiText_(text) {
 /* Admin-gated: stores the OpenRouter API key in Script Properties so the
    real credential is never committed to the repo. Never echoes the value back. */
 function setOpenRouterApiKey(token, apiKey) {
-  requireAdmin_(token);
+  AppUtils.requireAdmin(token);
   if (!apiKey || typeof apiKey !== 'string' || !apiKey.trim()) {
     return { ok: false, message: 'Missing API key.' };
   }
@@ -722,7 +722,7 @@ function setOpenRouterApiKey(token, apiKey) {
 
 /* Admin-gated: stores the Gemini API key in Script Properties. */
 function setGeminiApiKey(token, apiKey) {
-  requireAdmin_(token);
+  AppUtils.requireAdmin(token);
   if (!apiKey || typeof apiKey !== 'string' || !apiKey.trim()) {
     return { ok: false, message: 'Missing API key.' };
   }
@@ -733,7 +733,7 @@ function setGeminiApiKey(token, apiKey) {
 /* Admin-gated: stores the Groq API key in Script Properties so the real
    credential is never committed to the repo. Never echoes the value back. */
 function setGroqApiKey(token, apiKey) {
-  requireAdmin_(token);
+  AppUtils.requireAdmin(token);
   if (!apiKey || typeof apiKey !== 'string' || !apiKey.trim()) {
     return { ok: false, message: 'Missing API key.' };
   }
@@ -744,7 +744,7 @@ function setGroqApiKey(token, apiKey) {
 /* Admin-gated: stores the Hugging Face token in Script Properties so the
    real credential is never committed to the repo. Never echoes the value back. */
 function setHuggingFaceApiKey(token, apiKey) {
-  requireAdmin_(token);
+  AppUtils.requireAdmin(token);
   if (!apiKey || typeof apiKey !== 'string' || !apiKey.trim()) {
     return { ok: false, message: 'Missing API token.' };
   }
@@ -755,7 +755,7 @@ function setHuggingFaceApiKey(token, apiKey) {
 /* Admin-gated: stores the Kilo Gateway API key in Script Properties (optional —
    the free tier works with the keyless 'anonymous' fallback). */
 function setKiloApiKey(token, apiKey) {
-  requireAdmin_(token);
+  AppUtils.requireAdmin(token);
   if (!apiKey || typeof apiKey !== 'string' || !apiKey.trim()) {
     return { ok: false, message: 'Missing API key.' };
   }
@@ -861,7 +861,7 @@ function getMeetingDriveFolder_(name) {
    Returns {success, title, transcript, minutes, minutesText, driveAudio,
    driveMinutes}. */
 function processMeetingRecording(payload, token) {
-  var user = requireAdmin_(token);
+  var user = AppUtils.requireAdmin(token);
   if (!aiEnabled_()) return { success: false, message: 'AI insights are not enabled.' };
   var props = PropertiesService.getScriptProperties();
   var groqKey = props.getProperty('GROQ_API_KEY');
@@ -950,7 +950,7 @@ function processMeetingRecording(payload, token) {
 /* Admin-only: transcribes ONE audio segment (used by the client fallback
    that re-encodes long or undecodable recordings into ~10-minute chunks). */
 function transcribeMeetingSegment(payload, token) {
-  var user = requireAdmin_(token);
+  var user = AppUtils.requireAdmin(token);
   var props = PropertiesService.getScriptProperties();
   var groqKey = props.getProperty('GROQ_API_KEY');
   if (!groqKey) return { success: false, message: 'Groq API key not configured (required for transcription).' };
@@ -979,7 +979,7 @@ function transcribeMeetingSegment(payload, token) {
 /* Admin-only: drafts structured minutes from a full transcript (after segment
    transcription) and saves a .md copy to Drive (best effort). */
 function generateMeetingMinutes(payload, token) {
-  var user = requireAdmin_(token);
+  var user = AppUtils.requireAdmin(token);
   if (!aiEnabled_()) return { success: false, message: 'AI insights are not enabled.' };
   payload = payload || {};
   var title = String(payload.title || '').trim() || 'Review meeting';
@@ -1041,7 +1041,7 @@ function generateMeetingMinutes(payload, token) {
 /* Admin-gated: stores the Fathom API key in Script Properties so the
    real credential is never committed to the repo. Never echoes the value. */
 function setFathomApiKey(token, apiKey) {
-  requireAdmin_(token);
+  AppUtils.requireAdmin(token);
   if (!apiKey || typeof apiKey !== 'string' || !apiKey.trim()) {
     return { ok: false, message: 'Missing API key.' };
   }
@@ -1077,7 +1077,7 @@ function fathomConfig_() {
 
 /* Admin-gated: Fathom connection status for the client. */
 function getFathomStatus(token) {
-  requireAdmin_(token);
+  AppUtils.requireAdmin(token);
   return { success: true, fathom: fathomConfig_() };
 }
 
@@ -1085,7 +1085,7 @@ function getFathomStatus(token) {
    UI can pick one to pull notes from. Heavier content (transcript) is fetched
    on demand via getFathomMeetingContent. */
 function listFathomMeetings(token, opts) {
-  requireAdmin_(token);
+  AppUtils.requireAdmin(token);
   opts = opts || {};
   var cfg = fathomConfig_();
   if (!cfg.enabled) return { success: false, message: 'Fathom integration is not enabled.' };
@@ -1149,7 +1149,7 @@ function fathomMeetingToCard_(m) {
 /* Admin-gated: fetches the full transcript for one recording and combines it
    with the already-known summary/action items. */
 function getFathomMeetingContent(token, recordingId) {
-  requireAdmin_(token);
+  AppUtils.requireAdmin(token);
   var cfg = fathomConfig_();
   if (!cfg.enabled) return { success: false, message: 'Fathom integration is not enabled.' };
   if (!cfg.configured) return { success: false, message: 'Fathom API key is not configured.' };
@@ -1192,7 +1192,7 @@ function aiKeyConfigured_() {
 /* Each queued item is {fn, args} (matching apiCall_ signature).       */
 /* ------------------------------------------------------------------ */
 function processOfflineQueue(token, queueItems) {
-  var user = requireLogin_(token);
+  var user = AppUtils.requireLogin(token);
   var results = { processed: 0, failed: 0, errors: [] };
   (queueItems || []).forEach(function (item) {
     try {
@@ -1239,7 +1239,7 @@ function installEnterpriseTriggers() {
 }
 
 function getEnterpriseFrontendConfig(token) {
-  if (token) requireLogin_(token);
+  if (token) AppUtils.requireLogin(token);
   var cfg = getEnterpriseConfig_();
   return {
     enabled: cfg.enabled,

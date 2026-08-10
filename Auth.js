@@ -30,7 +30,7 @@ function bootstrapAdminPassword_() {
  *  it never needs to ship in source. Never echoes the value back. Matches the
  *  codebase convention of token-as-last-argument. */
 function setAdminBootstrapPassword(password, token) {
-  requireAdmin_(token);
+  AppUtils.requireAdmin(token);
   const pw = String(password || '').trim();
   const pwError = validatePassword_(pw);
   if (pwError) return { ok: false, message: pwError };
@@ -793,21 +793,10 @@ function authenticate_(token) {
   return { email: email, role: getUserRole(email) };
 }
 
-function requireLogin_(token) {
-  return authenticate_(token);
-}
+/* Auth guards requireLogin_/requireEditor_/requireAdmin_ now live in
+ * AppUtils (see Utils.js). isAdmin/isEditor/requireEditor()/requireViewer()
+ * stay top-level — they are referenced by name as public API. */
 
-function requireEditor_(token) {
-  const user = requireLogin_(token);
-  if (!isEditor(user.email)) throw AppUtils.clientError('Editor permission required.');
-  return user;
-}
-
-function requireAdmin_(token) {
-  const user = requireLogin_(token);
-  if (!isAdmin(user.email)) throw AppUtils.clientError('Admin permission required.');
-  return user;
-}
 function requireEditor() {
   if (!isEditor()) throw AppUtils.clientError('Editor permission required.');
 }
@@ -987,7 +976,7 @@ function requestPasswordReset(identifier) {
  * @returns {{success: boolean, message: string}}
  */
 function changePassword(currentPassword, newPassword, token) {
-  const user = requireLogin_(token);
+  const user = AppUtils.requireLogin(token);
   checkRateLimit_('chpw_' + AppUtils.safeCacheKey(user.email), CONFIG.RATE_LIMIT.PASSWORD_CHANGE_MAX, CONFIG.RATE_LIMIT.PASSWORD_CHANGE_WINDOW);
 
   if (!verifyPassword_(user.email, currentPassword)) {
@@ -1024,7 +1013,7 @@ function changePassword(currentPassword, newPassword, token) {
  * @returns {Object[]} User records without credentials.
  */
 function adminGetUsers(token) {
-  requireAdmin_(token);
+  AppUtils.requireAdmin(token);
   return listUserRecords_();
 }
 
@@ -1034,7 +1023,7 @@ function adminGetUsers(token) {
  * @returns {Object[]} User records with email and username for assignment.
  */
 function getAssignableUsers(token) {
-  requireEditor_(token);
+  AppUtils.requireEditor(token);
   return listUserRecords_().map(function (u) {
     return {
       email: u.email,
@@ -1057,7 +1046,7 @@ function getAssignableUsers(token) {
  * @returns {Object[]} Updated user list.
  */
 function adminAddUser(email, username, role, password, group, department, office, token) {
-  const admin = requireAdmin_(token);
+  const admin = AppUtils.requireAdmin(token);
   checkRateLimit_('adminuser_' + AppUtils.safeCacheKey(admin.email), CONFIG.RATE_LIMIT.ADMIN_USER_MAX, CONFIG.RATE_LIMIT.ADMIN_USER_WINDOW);
 
   return runWithLock_(function () {
@@ -1111,7 +1100,7 @@ function adminAddUser(email, username, role, password, group, department, office
  * @returns {{users: Object[], reAuth: boolean, message: string}} Updated list + flags.
  */
 function adminUpdateUser(email, fields, token) {
-  const admin = requireAdmin_(token);
+  const admin = AppUtils.requireAdmin(token);
 
   return runWithLock_(function () {
     email = String(email || '').toLowerCase().trim();
@@ -1195,7 +1184,7 @@ function adminUpdateUser(email, fields, token) {
  * @returns {string} CSV content.
  */
 function adminExportUsers(token) {
-  requireAdmin_(token);
+  AppUtils.requireAdmin(token);
   const users = listUserRecords_();
   const header = ['Email', 'Username', 'Role', 'Group', 'Department', 'Office', 'CreatedAt', 'MustChange'];
   const lines = users.map(function (u) {
@@ -1254,7 +1243,7 @@ function parseCsvLine_(line) {
  * @returns {{users: Object[], added: number, updated: number, errors: string[]}}
  */
 function adminImportUsers(csv, token) {
-  const admin = requireAdmin_(token);
+  const admin = AppUtils.requireAdmin(token);
   checkRateLimit_('adminuser_' + AppUtils.safeCacheKey(admin.email), CONFIG.RATE_LIMIT.ADMIN_USER_MAX, CONFIG.RATE_LIMIT.ADMIN_USER_WINDOW);
 
   const result = { users: listUserRecords_(), added: 0, updated: 0, errors: [] };
@@ -1364,7 +1353,7 @@ function adminImportUsers(csv, token) {
  * @returns {{users: Object[], recent: Object[], totals: Object}}
  */
 function adminGetUserActivity(token) {
-  requireAdmin_(token);
+  AppUtils.requireAdmin(token);
 
   const sheet = getAuditSheet_();
   const lastRow = sheet.getLastRow();
@@ -1428,7 +1417,7 @@ function adminGetUserActivity(token) {
  * @returns {Object[]} Updated user list.
  */
 function adminDeleteUser(email, token) {
-  const admin = requireAdmin_(token);
+  const admin = AppUtils.requireAdmin(token);
 
   return runWithLock_(function () {
     email = String(email || '').toLowerCase().trim();
@@ -1450,7 +1439,7 @@ function adminDeleteUser(email, token) {
  * @returns {Object[]} Updated user list.
  */
 function adminResetPassword(email, newPassword, token) {
-  const admin = requireAdmin_(token);
+  const admin = AppUtils.requireAdmin(token);
 
   return runWithLock_(function () {
     email = String(email || '').toLowerCase().trim();
@@ -1492,7 +1481,7 @@ function adminResetPassword(email, newPassword, token) {
  * @returns {{success: boolean, message: string, email: string, reAuth: boolean}}
  */
 function adminKillUserSessions(email, token) {
-  const admin = requireAdmin_(token);
+  const admin = AppUtils.requireAdmin(token);
   // Normalize BEFORE the rate-limit key so casing/whitespace permutations of
   // the same address share one bucket (no per-variant bypass).
   email = String(email || '').toLowerCase().trim();
@@ -1518,7 +1507,7 @@ function adminKillUserSessions(email, token) {
  * @returns {{success: boolean, sent: number, recipients: string[]}}
  */
 function adminEmailAllUsers(subject, body, token) {
-  const admin = requireAdmin_(token);
+  const admin = AppUtils.requireAdmin(token);
   subject = String(subject || '').trim();
   body = String(body || '').trim();
 

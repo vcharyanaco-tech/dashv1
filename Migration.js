@@ -65,7 +65,7 @@ function adminMigrateStableIds(mode, token) {
  *  and the real editor account when run from the editor, so the admin gate
  *  holds in both contexts. */
 function resolveAdminIdentity_(token) {
-  if (token) return requireAdmin_(token);
+  if (token) return AppUtils.requireAdmin(token);
   const email = String(getCurrentUser() || '').toLowerCase().trim();
   if (!email || !isAdmin(email)) throw AppUtils.clientError('Admin permission required.');
   return { email: email };

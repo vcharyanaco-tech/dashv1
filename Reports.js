@@ -100,7 +100,7 @@ function getPrintableReport() {
  * @returns {{filename: string, base64: string}}
  */
 function exportToSpreadsheet(token) {
-  requireLogin_(token);
+  AppUtils.requireLogin(token);
   const report = getPrintableReport();
   const xlsxMime = 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet';
   const ss = SpreadsheetApp.create('India Post Dashboard Report ' + Utilities.formatDate(new Date(), Session.getScriptTimeZone(), 'yyyy-MM-dd HH:mm'));
@@ -268,7 +268,7 @@ function buildXlsxFromItems_(items) {
  * @returns {{filename: string, base64: string}}
  */
 function createPdfReport(token) {
-  requireLogin_(token);
+  AppUtils.requireLogin(token);
   const template = HtmlService.createTemplateFromFile('ReportPdf');
   template.data = getPrintableReport();
   const html = template.evaluate().getContent();
@@ -291,7 +291,7 @@ function getReportTemplates() {
 }
 
 function getReportData(token, templateKey) {
-  requireLogin_(token);
+  AppUtils.requireLogin(token);
   const data = getData();
   const items = data.items || [];
   const key = String(templateKey || 'summary').toLowerCase();
@@ -316,7 +316,7 @@ function getReportData(token, templateKey) {
  * @returns {{success: boolean, sentTo: string, template: string}}
  */
 function emailReport(token, recipient, templateKey) {
-  requireLogin_(token);
+  AppUtils.requireLogin(token);
   if (!recipient || !/^[^@\s]+@[^@\s]+\.[^@\s]+$/.test(recipient)) {
     throw AppUtils.clientError('A valid recipient email is required.');
   }

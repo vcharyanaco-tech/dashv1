@@ -92,12 +92,12 @@ function uploadDocumentToDrive_(fileBytes, fileName, mimeType) {
 }
 
 function getRecordDocuments(recordRow, token) {
-  requireLogin_(token);
+  AppUtils.requireLogin(token);
   return getRecordDocuments_(Number(recordRow) || 0);
 }
 
 function uploadDocument(recordRow, recordId, fileName, base64, mimeType, token) {
-  const user = requireLogin_(token);
+  const user = AppUtils.requireLogin(token);
   const bytes = Utilities.base64Decode(base64);
   const drive = uploadDocumentToDrive_(bytes, fileName, mimeType);
   const doc = addDocument_(Number(recordRow) || 0, String(recordId || ''), String(fileName || ''), drive.driveFileId, String(mimeType || ''), drive.size, user.email);
@@ -106,7 +106,7 @@ function uploadDocument(recordRow, recordId, fileName, base64, mimeType, token) 
 }
 
 function deleteDocument(docId, token) {
-  const user = requireLogin_(token);
+  const user = AppUtils.requireLogin(token);
   const ok = deleteDocument_(String(docId));
   if (!ok) throw AppUtils.clientError('Document not found.');
   try { notifyStaff_(NOTIFICATION_TYPES.RECORD, 'Document removed', 'A document (' + String(docId) + ') was removed by ' + user.email + '.', '', user.email); } catch (err) {}

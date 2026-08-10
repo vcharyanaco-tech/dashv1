@@ -145,7 +145,7 @@ function notifyStaffLocked_(type, title, body, link, excludeEmail) {
  * @returns {{unread: number, recent: Object[], count: number}}
  */
 function getMyNotifications(token) {
-  const user = requireLogin_(token);
+  const user = AppUtils.requireLogin(token);
   const sh = notificationsSheet_();
   if (!sh) return { unread: 0, recent: [], count: 0 };
   const lastRow = sh.getLastRow();
@@ -176,7 +176,7 @@ function getMyNotifications(token) {
  * @returns {{unread: number, recent: Object[], count: number}} Fresh state.
  */
 function markNotificationsRead(ids, token) {
-  const user = requireLogin_(token);
+  const user = AppUtils.requireLogin(token);
   const sh = notificationsSheet_();
   if (!sh) return getMyNotifications(token);
   const idList = Array.isArray(ids) ? ids : [ids];
@@ -210,7 +210,7 @@ function markNotificationsRead(ids, token) {
  * @returns {{unread: number, recent: Object[], count: number}} Fresh state.
  */
 function clearMyNotifications(token) {
-  const user = requireLogin_(token);
+  const user = AppUtils.requireLogin(token);
   const sh = notificationsSheet_();
   if (!sh) return getMyNotifications(token);
   const lastRow = sh.getLastRow();

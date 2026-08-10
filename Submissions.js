@@ -221,7 +221,7 @@ function getSubmissionOverview_() {
  * @returns {Object[]} Visible submissions (newest first).
  */
 function getSubmissions(token, cardRow) {
-  const user = requireLogin_(token);
+  const user = AppUtils.requireLogin(token);
   return submissionsForCard_(cardRow, user);
 }
 
@@ -234,7 +234,7 @@ function getSubmissions(token, cardRow) {
  * @returns {Object[]} Submissions for the card after the add.
  */
 function addSubmission(cardRow, cardId, text, token) {
-  const user = requireLogin_(token);
+  const user = AppUtils.requireLogin(token);
   cardRow = Number(cardRow);
   if (!cardRow || isNaN(cardRow) || cardRow <= 0) throw AppUtils.clientError('Invalid record reference.');
   const content = String(text || '').trim();
@@ -275,7 +275,7 @@ function addSubmission(cardRow, cardId, text, token) {
  * @returns {Object[]} Submissions for the card after the update.
  */
 function updateSubmission(submissionId, text, token) {
-  const user = requireLogin_(token);
+  const user = AppUtils.requireLogin(token);
   const content = String(text || '').trim();
   if (!content) throw AppUtils.clientError('Write your update before saving.');
   if (content.length > CONFIG.SUBMISSIONS.MAX_TEXT_LENGTH) {
@@ -320,7 +320,7 @@ function updateSubmission(submissionId, text, token) {
  * @returns {Object[]} Submissions for the card after the lock.
  */
 function lockSubmission(submissionId, token) {
-  const editor = requireEditor_(token);
+  const editor = AppUtils.requireEditor(token);
 
   return runWithLock_(function () {
     const rec = findSubmissionRecord_(submissionId);
@@ -345,7 +345,7 @@ function lockSubmission(submissionId, token) {
  * @returns {Object[]} Submissions for the card after the unlock.
  */
 function unlockSubmission(submissionId, token) {
-  const editor = requireEditor_(token);
+  const editor = AppUtils.requireEditor(token);
 
   return runWithLock_(function () {
     const rec = findSubmissionRecord_(submissionId);
@@ -370,7 +370,7 @@ function unlockSubmission(submissionId, token) {
  * @returns {Object[]} Submissions for the card after the delete.
  */
 function deleteSubmission(submissionId, token) {
-  const admin = requireAdmin_(token);
+  const admin = AppUtils.requireAdmin(token);
 
   return runWithLock_(function () {
     const rec = findSubmissionRecord_(submissionId);
@@ -391,7 +391,7 @@ function deleteSubmission(submissionId, token) {
  * @returns {Object[]} Submissions for the card after the toggle.
  */
 function toggleSubmissionDisplay(submissionId, token) {
-  const admin = requireAdmin_(token);
+  const admin = AppUtils.requireAdmin(token);
 
   return runWithLock_(function () {
     // Single read reused for the lookup, the write and the response (same

@@ -96,7 +96,7 @@ function taskRecordFromRow_(row) {
  * @returns {Object} Created task.
  */
 function createTask(params, token) {
-  const user = requireEditor_(token);
+  const user = AppUtils.requireEditor(token);
   params = params || {};
   const title = String(params.title || '').trim();
   if (!title) throw AppUtils.clientError('Task title required.');
@@ -171,7 +171,7 @@ function createTask(params, token) {
  * @returns {Object} Updated task.
  */
 function updateTask(id, fields, token) {
-  const user = requireLogin_(token);
+  const user = AppUtils.requireLogin(token);
   id = String(id || '').trim();
   if (!id) throw AppUtils.clientError('Task id required.');
 
@@ -270,7 +270,7 @@ function updateTask(id, fields, token) {
  * @returns {Object[]} Tasks newest-first.
  */
 function getTasks(filters, token) {
-  requireLogin_(token);
+  AppUtils.requireLogin(token);
   return readTasksUnchecked_(filters);
 }
 
@@ -335,7 +335,7 @@ function computeTaskCounts_() {
  * @returns {boolean} Success.
  */
 function deleteTask(id, token) {
-  requireEditor_(token);
+  AppUtils.requireEditor(token);
   id = String(id || '').trim();
   if (!id) throw AppUtils.clientError('Task id required.');
 
@@ -403,7 +403,7 @@ function isValidTaskStatusTransition_(fromStatus, toStatus) {
  * @returns {Object} { success: boolean, task?: Object, conflict?: Object, error?: string }
  */
 function updateTaskField(id, field, value, rowVersion, idempotencyKey, token) {
-  const user = requireLogin_(token);
+  const user = AppUtils.requireLogin(token);
   id = String(id || '').trim();
   field = String(field || '').trim();
   if (!id) throw AppUtils.clientError('Task id required.');
@@ -565,6 +565,6 @@ function updateTaskField(id, field, value, rowVersion, idempotencyKey, token) {
  * @returns {Object[]} Tasks.
  */
 function getMyTasks(token) {
-  const user = requireLogin_(token);
+  const user = AppUtils.requireLogin(token);
   return getTasks({ assignee: user.email }, token);
 }

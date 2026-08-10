@@ -136,7 +136,7 @@ function getData() {
   if (cached) return cached;
 
   const sheet = getSheet_();
-  let rows = getSheetDataRows_(sheet);
+  let rows = AppUtils.getSheetDataRows(sheet);
 
   // Fallback: if no rows in dashboard sheet, try deriving items from Audit Log
   if (!rows || !rows.length) {
@@ -372,7 +372,7 @@ function getReviewReminders_(items, user) {
  * @returns {Object} The full dashboard payload.
  */
 function getAppData(token) {
-  const user = requireLogin_(token);
+  const user = AppUtils.requireLogin(token);
   try { ensureUserRecord_(user.email); } catch (err) {}
   const context = getUserContext(user.email);
   const data = getData();
@@ -423,7 +423,7 @@ function dailyDateUpdate() {
  * @returns {{success: boolean, sent: number, skipped: number, message?: string}}
  */
 function sendReviewReminders(token) {
-  if (token) requireAdmin_(token);
+  if (token) AppUtils.requireAdmin(token);
 
   const data = getData();
   const items = data.items || [];
@@ -483,7 +483,7 @@ function sendReviewReminders(token) {
  * @returns {{success: boolean, created: number, skipped: number}}
  */
 function generateReviewNotifications(token) {
-  const user = requireLogin_(token);
+  const user = AppUtils.requireLogin(token);
   const context = getUserContext(user.email);
   const data = getData();
   const items = data.items || [];
@@ -549,7 +549,7 @@ var API_ROUTES = {
   // getData() is the raw, cacheable read of all dashboard records. It is
   // intentionally NOT callable anonymously: any viewer session token is
   // accepted. (The dashboard bootstrap uses getAppData(token) anyway.)
-  getData: function (token) { requireLogin_(token); return getData(); },
+  getData: function (token) { AppUtils.requireLogin(token); return getData(); },
   getAppData: getAppData,
   validateSession: validateSession,
   login: login,

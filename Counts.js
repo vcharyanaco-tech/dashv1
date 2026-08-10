@@ -80,7 +80,7 @@ function invalidateCounts_(family) {
  * @returns {{open: number, dueToday: number, overdue: number, completed: number, total: number}}
  */
 function getTaskCounts(token) {
-  const user = requireLogin_(token);
+  const user = AppUtils.requireLogin(token);
   const key = countCacheKey_('tasks', user.email);
   const hit = countCacheRead_(key);
   if (hit) return hit;
@@ -95,7 +95,7 @@ function getTaskCounts(token) {
  * @returns {{unread: number}}
  */
 function getUnreadNotificationCount(token) {
-  const user = requireLogin_(token);
+  const user = AppUtils.requireLogin(token);
   const key = countCacheKey_('notif', user.email);
   const hit = countCacheRead_(key);
   if (hit) return hit;
@@ -113,7 +113,7 @@ function getUnreadNotificationCount(token) {
  *   overdue, completedTasks, unreadNotifications }
  */
 function getDashboardCounts(token) {
-  const user = requireLogin_(token);
+  const user = AppUtils.requireLogin(token);
   const key = countCacheKey_('dash', user.email);
   const hit = countCacheRead_(key);
   if (hit) return hit;

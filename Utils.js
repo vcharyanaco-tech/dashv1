@@ -353,6 +353,164 @@ const AppUtils = {
     const suffix = Utilities.getUuid().replace(/-/g, '').slice(0, 8).toUpperCase();
     return (p ? p + '-' : '') + day + '-' + suffix;
   },
+  buildFieldMap: function (headers) {
+    const map = {};
+  
+    headers.forEach(function (header, index) {
+      const normalized = normalizeHeaderValue_(header);
+  
+      if (!normalized) {
+        return;
+      }
+  
+      if (normalized === "id" || normalized.indexOf("id") !== -1) {
+        map.id = index;
+      } else if (normalized === "sector" || normalized.indexOf("sector") !== -1) {
+        map.sector = index;
+      } else if (normalized === "description" || normalized.indexOf("description") !== -1) {
+        map.description = index;
+      } else if (normalized === "entrydate" || normalized.indexOf("entrydate") !== -1 || normalized.indexOf("entry") !== -1) {
+        map.entryDate = index;
+      } else if (normalized === "action" || normalized.indexOf("action") !== -1) {
+        map.action = index;
+      } else if (normalized === "responsibility" || normalized.indexOf("responsibility") !== -1 || normalized.indexOf("responsible") !== -1) {
+        map.responsibility = index;
+      } else if (normalized === "reviewdate" || normalized.indexOf("reviewdate") !== -1 || normalized.indexOf("review") !== -1 || normalized.indexOf("due") !== -1) {
+        map.reviewDate = index;
+      }
+    });
+  
+    return map;
+  },
+
+  getSheetDataRows: function (sheet) {
+    if (!sheet) {
+      return [];
+    }
+  
+    // Fast path: one Advanced Sheets call for values + rich-text runs + colors
+    // (falls back to classic API when the advanced service is unavailable).
+    const advanced = readGridDataAdvanced_(sheet);
+    if (advanced) {
+      const rows = buildRowsFromAdvanced_(advanced, sheet);
+      if (rows && rows.length) return rows;
+    }
+  
+    const dataRange = sheet.getDataRange();
+    const values = dataRange.getValues();
+    let richValues = null;
+    try { richValues = dataRange.getRichTextValues(); } catch (err) { richValues = null; }
+  
+    if (!values.length) {
+      return [];
+    }
+  
+    const headerRow = getPreferredHeaderRow_(sheet);
+    const startRow = headerRow > 0 ? headerRow + 1 : 1;
+    const headerValues = getHeaderValues_(sheet);
+    const fieldMap = headerValues.length ? AppUtils.buildFieldMap(headerValues) : {};
+  
+    return values.slice(startRow - 1).reduce(function (rows, row, index) {
+      const normalizedRow = (row || []).slice(0, CONFIG.SHEET.NUM_COLS);
+      const hasContent = normalizedRow.some(function (value) {
+        return String(value || "").trim() !== "";
+      });
+  
+      if (!hasContent) {
+        return rows;
+      }
+  
+      const rowNumber = startRow + index;
+      const fieldIndexByKey = Object.keys(fieldMap).reduce(function (acc, key) {
+        acc[fieldMap[key]] = key;
+        return acc;
+      }, {});
+      const linkUrls = {};
+      const linkTexts = {};
+      const displayFields = (headerValues || []).reduce(function (fields, header, headerIndex) {
+        const label = String(header || "").trim();
+        if (!label) {
+          return fields;
+        }
+  
+        const value = normalizedRow[headerIndex] !== undefined ? normalizedRow[headerIndex] : "";
+  
+        let html = "";
+        let linkUrl = "";
+        let linkText = "";
+        const richValue = (richValues[rowNumber - 1] || [])[headerIndex];
+        if (richValue) {
+          try {
+            html = AppUtils.richToHtml(richValue, String(value === null || value === undefined ? "" : value));
+          } catch (err) {
+            html = "";
+          }
+          try {
+            linkUrl = AppUtils.extractLinkUrl(richValue);
+          } catch (err2) {
+            linkUrl = "";
+          }
+          try {
+            linkText = AppUtils.extractLinkText(richValue);
+          } catch (err2b) {
+            linkText = "";
+          }
+        }
+        if (linkUrl && fieldIndexByKey[headerIndex] !== undefined) {
+          linkUrls[fieldIndexByKey[headerIndex]] = linkUrl;
+          if (linkText) linkTexts[fieldIndexByKey[headerIndex]] = linkText;
+        }
+  
+        fields.push({
+          label: label,
+          value: value,
+          html: html,
+          linkUrl: linkUrl
+        });
+  
+        return fields;
+      }, []);
+  
+      rows.push({
+        rowNumber: rowNumber,
+        id: getFieldValue_(fieldMap, normalizedRow, "id", 0),
+        sector: getFieldValue_(fieldMap, normalizedRow, "sector", 1),
+        description: getFieldValue_(fieldMap, normalizedRow, "description", 2),
+        entryDate: getFieldValue_(fieldMap, normalizedRow, "entryDate", 3),
+        action: getFieldValue_(fieldMap, normalizedRow, "action", 4),
+        responsibility: getFieldValue_(fieldMap, normalizedRow, "responsibility", 5),
+        reviewDate: getFieldValue_(fieldMap, normalizedRow, "reviewDate", 6),
+        displayFields: displayFields,
+        linkUrls: linkUrls,
+        linkTexts: linkTexts
+      });
+  
+      return rows;
+    }, []);
+  },
+
+  /** Login guard: resolves the session token to {email, role} or throws.
+   *  Note: delegates to Auth.js's top-level authenticate_ (and requireEditor/
+   *  requireAdmin use isEditor/isAdmin) — resolved at call time, so the
+   *  Auth.js -> Utils.js load order is safe. If authenticate_ ever moves into
+   *  AppUtils, update these references to avoid a circular dependency. */
+  requireLogin: function (token) {
+    return authenticate_(token);
+  },
+
+  /** Editor-or-admin guard. */
+  requireEditor: function (token) {
+    const user = AppUtils.requireLogin(token);
+    if (!isEditor(user.email)) throw AppUtils.clientError('Editor permission required.');
+    return user;
+  },
+
+  /** Admin-only guard. */
+  requireAdmin: function (token) {
+    const user = AppUtils.requireLogin(token);
+    if (!isAdmin(user.email)) throw AppUtils.clientError('Admin permission required.');
+    return user;
+  },
 };
 
 
@@ -444,35 +602,7 @@ function getHeaderValues_(sheet) {
   return headerRow > 0 ? (values[headerRow - 1] || []) : [];
 }
 
-function buildFieldMap_(headers) {
-  const map = {};
 
-  headers.forEach(function (header, index) {
-    const normalized = normalizeHeaderValue_(header);
-
-    if (!normalized) {
-      return;
-    }
-
-    if (normalized === "id" || normalized.indexOf("id") !== -1) {
-      map.id = index;
-    } else if (normalized === "sector" || normalized.indexOf("sector") !== -1) {
-      map.sector = index;
-    } else if (normalized === "description" || normalized.indexOf("description") !== -1) {
-      map.description = index;
-    } else if (normalized === "entrydate" || normalized.indexOf("entrydate") !== -1 || normalized.indexOf("entry") !== -1) {
-      map.entryDate = index;
-    } else if (normalized === "action" || normalized.indexOf("action") !== -1) {
-      map.action = index;
-    } else if (normalized === "responsibility" || normalized.indexOf("responsibility") !== -1 || normalized.indexOf("responsible") !== -1) {
-      map.responsibility = index;
-    } else if (normalized === "reviewdate" || normalized.indexOf("reviewdate") !== -1 || normalized.indexOf("review") !== -1 || normalized.indexOf("due") !== -1) {
-      map.reviewDate = index;
-    }
-  });
-
-  return map;
-}
 
 function getDataStartRow_(sheet) {
   const headerRow = getPreferredHeaderRow_(sheet);
@@ -645,13 +775,13 @@ function cellHtmlFromRuns_(cell) {
 }
 
 /** Builds row specs from the advanced grid snapshot (same shape as the
- *  classic getSheetDataRows_ output: rowNumber, fields, linkUrls/linkTexts). */
+ *  classic AppUtils.getSheetDataRows output: rowNumber, fields, linkUrls/linkTexts). */
 function buildRowsFromAdvanced_(grid, sheet) {
   const headerRow = preferredHeaderRowInGrid_(grid);
   const startRow = headerRow > 0 ? headerRow + 1 : CONFIG.SHEET.START_ROW;
   const headerCells = grid[headerRow - 1] || [];
   const headerValues = headerCells.map(function (c) { return String(c.value || ""); });
-  const fieldMap = buildFieldMap_(headerValues);
+  const fieldMap = AppUtils.buildFieldMap(headerValues);
   const fieldIndexByKey = Object.keys(fieldMap).reduce(function (acc, key) {
     acc[fieldMap[key]] = key;
     return acc;
@@ -705,111 +835,7 @@ function buildRowsFromAdvanced_(grid, sheet) {
   return rows;
 }
 
-function getSheetDataRows_(sheet) {
-  if (!sheet) {
-    return [];
-  }
 
-  // Fast path: one Advanced Sheets call for values + rich-text runs + colors
-  // (falls back to classic API when the advanced service is unavailable).
-  const advanced = readGridDataAdvanced_(sheet);
-  if (advanced) {
-    const rows = buildRowsFromAdvanced_(advanced, sheet);
-    if (rows && rows.length) return rows;
-  }
-
-  const dataRange = sheet.getDataRange();
-  const values = dataRange.getValues();
-  let richValues = null;
-  try { richValues = dataRange.getRichTextValues(); } catch (err) { richValues = null; }
-
-  if (!values.length) {
-    return [];
-  }
-
-  const headerRow = getPreferredHeaderRow_(sheet);
-  const startRow = headerRow > 0 ? headerRow + 1 : 1;
-  const headerValues = getHeaderValues_(sheet);
-  const fieldMap = headerValues.length ? buildFieldMap_(headerValues) : {};
-
-  return values.slice(startRow - 1).reduce(function (rows, row, index) {
-    const normalizedRow = (row || []).slice(0, CONFIG.SHEET.NUM_COLS);
-    const hasContent = normalizedRow.some(function (value) {
-      return String(value || "").trim() !== "";
-    });
-
-    if (!hasContent) {
-      return rows;
-    }
-
-    const rowNumber = startRow + index;
-    const fieldIndexByKey = Object.keys(fieldMap).reduce(function (acc, key) {
-      acc[fieldMap[key]] = key;
-      return acc;
-    }, {});
-    const linkUrls = {};
-    const linkTexts = {};
-    const displayFields = (headerValues || []).reduce(function (fields, header, headerIndex) {
-      const label = String(header || "").trim();
-      if (!label) {
-        return fields;
-      }
-
-      const value = normalizedRow[headerIndex] !== undefined ? normalizedRow[headerIndex] : "";
-
-      let html = "";
-      let linkUrl = "";
-      let linkText = "";
-      const richValue = (richValues[rowNumber - 1] || [])[headerIndex];
-      if (richValue) {
-        try {
-          html = AppUtils.richToHtml(richValue, String(value === null || value === undefined ? "" : value));
-        } catch (err) {
-          html = "";
-        }
-        try {
-          linkUrl = AppUtils.extractLinkUrl(richValue);
-        } catch (err2) {
-          linkUrl = "";
-        }
-        try {
-          linkText = AppUtils.extractLinkText(richValue);
-        } catch (err2b) {
-          linkText = "";
-        }
-      }
-      if (linkUrl && fieldIndexByKey[headerIndex] !== undefined) {
-        linkUrls[fieldIndexByKey[headerIndex]] = linkUrl;
-        if (linkText) linkTexts[fieldIndexByKey[headerIndex]] = linkText;
-      }
-
-      fields.push({
-        label: label,
-        value: value,
-        html: html,
-        linkUrl: linkUrl
-      });
-
-      return fields;
-    }, []);
-
-    rows.push({
-      rowNumber: rowNumber,
-      id: getFieldValue_(fieldMap, normalizedRow, "id", 0),
-      sector: getFieldValue_(fieldMap, normalizedRow, "sector", 1),
-      description: getFieldValue_(fieldMap, normalizedRow, "description", 2),
-      entryDate: getFieldValue_(fieldMap, normalizedRow, "entryDate", 3),
-      action: getFieldValue_(fieldMap, normalizedRow, "action", 4),
-      responsibility: getFieldValue_(fieldMap, normalizedRow, "responsibility", 5),
-      reviewDate: getFieldValue_(fieldMap, normalizedRow, "reviewDate", 6),
-      displayFields: displayFields,
-      linkUrls: linkUrls,
-      linkTexts: linkTexts
-    });
-
-    return rows;
-  }, []);
-}
 
 function getAuditDerivedRows_() {
   try {
@@ -1238,7 +1264,7 @@ function invalidateDataCache_() {
 
 /**
  * Builds a full display row spec for a single physical row, mirroring the
- * classic getSheetDataRows_ logic (rich text HTML + linkUrls/linkTexts) so a
+ * classic AppUtils.getSheetDataRows logic (rich text HTML + linkUrls/linkTexts) so a
  * surgical cache patch does not strip hyperlinks or rich-text formatting.
  * @param {GoogleAppsScript.Spreadsheet.Sheet} sheet The dashboard sheet.
  * @param {number} row Physical row number.
@@ -1250,7 +1276,7 @@ function buildRowSpecForRow_(sheet, row) {
     const headerRow = getPreferredHeaderRow_(sheet);
     const startRow = headerRow > 0 ? headerRow + 1 : 1;
     const headerValues = getHeaderValues_(sheet);
-    const fieldMap = headerValues.length ? buildFieldMap_(headerValues) : {};
+    const fieldMap = headerValues.length ? AppUtils.buildFieldMap(headerValues) : {};
     const fieldIndexByKey = Object.keys(fieldMap).reduce(function (acc, key) {
       acc[fieldMap[key]] = key;
       return acc;

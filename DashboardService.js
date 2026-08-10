@@ -40,7 +40,7 @@ function isReviewDoneBackground_(background) {
  * A row is 'due' when its review-date cell is flagged by background colour OR
  * when its review date is tomorrow, today or already past (and not done).
  * @param {GoogleAppsScript.Spreadsheet.Sheet} sheet The dashboard sheet.
- * @param {Object[]} rows Row specs from getSheetDataRows_.
+ * @param {Object[]} rows Row specs from AppUtils.getSheetDataRows.
  * @returns {Object} { rowNumber: status }
  */
 function getReviewStatuses_(sheet, rows) {
@@ -108,7 +108,7 @@ function getReviewStatuses_(sheet, rows) {
 /**
  * Transforms raw sheet rows into display-ready items (formatted dates,
  * linkified/rich-text action HTML, review status flags).
- * @param {Object[]} rows Row specs from getSheetDataRows_.
+ * @param {Object[]} rows Row specs from AppUtils.getSheetDataRows.
  * @param {GoogleAppsScript.Spreadsheet.Sheet} sheet The dashboard sheet.
  * @returns {Object[]} Display-ready items.
  */
