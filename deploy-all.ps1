@@ -68,6 +68,19 @@ if (-not $syncOk) {
     throw "Frontend sync failed - aborting deploy. Fix the drift or markers, then re-run."
 }
 
+# ============================================================
+# 0b. CACHE-BUST STAMP  (bump ?v= in docs/app.html)
+#     Runs before git so the new stamp is committed and deployed
+#     together with the code it version-marks. Browsers + the GitHub
+#     raw CDN then always fetch fresh assets (js/css are long-TTL).
+# ============================================================
+try {
+    $bumpOut = node "$PSScriptRoot\bump-cache-bust.js" 2>&1
+    $bumpOut | ForEach-Object { Write-Host "  $_" -ForegroundColor Gray }
+} catch {
+    Write-Host "  WARN  bump-cache-bust.js failed: $($_.Exception.Message)" -ForegroundColor Red
+}
+
 Write-Host ""
 
 # ============================================================

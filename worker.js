@@ -150,21 +150,27 @@ async function fetchFromPages(path, search, request) {
   let filePath = path;
   if (!filePath || filePath === '/') filePath = '/index.html';
 
-  // Include query string when fetching from GitHub Raw to bypass CDN caching
-  const rawUrl = GITHUB_RAW + filePath + (search || '');
+  // HTML entry documents are never versioned (no ?v=), so append a unique
+  // query string to the raw fetch. That guarantees the GitHub raw CDN can
+  // never serve a stale copy after a push — the file is small and fetched
+  // at most once per page load, so always-fresh is the right tradeoff.
+  // js/css are already cache-busted by the client's ?v= stamps.
+  const isHtml = !filePath.match(/\.[a-z0-9]+$/i) || filePath.endsWith('.html');
+  const cb = isHtml ? ((search ? '&' : '?') + 'cb=' + Date.now()) : '';
+  const rawUrl = GITHUB_RAW + filePath + (search || '') + cb;
 
   const resp = await fetch(rawUrl, { redirect: 'follow' });
 
   if (resp.status === 404) {
     // Fallback: serve index.html for unknown paths (SPA-style)
-    const fallback = await fetch(GITHUB_RAW + '/index.html');
+    const fallback = await fetch(GITHUB_RAW + '/index.html?cb=' + Date.now());
     const html = await fallback.text();
     return new Response(html, {
       status: 200,
       headers: {
         ...headersFor(request),
         'Content-Type': 'text/html; charset=utf-8',
-        'Cache-Control': 'public, max-age=300',
+        'Cache-Control': 'public, max-age=0, must-revalidate',
       },
     });
   }
@@ -176,9 +182,14 @@ async function fetchFromPages(path, search, request) {
   const headers = {
     ...headersFor(request),
     'Content-Type': ct,
-    'Cache-Control': filePath.match(/\.(js|css|png|ico|jpg|svg|woff2?)(\?|$)/)
-      ? 'public, max-age=3600'
-      : 'public, max-age=300',
+    // HTML: browsers always revalidate, so a fresh app.html (with its new ?v=
+    // asset stamps) is picked up on the very next load. Assets stay versioned
+    // with a long TTL — each deploy bumps ?v=, giving a brand-new URL.
+    'Cache-Control': isHtml
+      ? 'public, max-age=0, must-revalidate'
+      : (filePath.match(/\.(js|css|png|ico|jpg|svg|woff2?)(\?|$)/)
+          ? 'public, max-age=3600'
+          : 'public, max-age=300'),
   };
 
   return new Response(body, { status: resp.status, headers });

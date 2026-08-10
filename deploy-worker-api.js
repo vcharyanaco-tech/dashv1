@@ -114,8 +114,45 @@ function addRoutes() {
       console.log('Zone ID:', zoneId);
       ensureRoute(zoneId, 'dashboardharyana.site/*');
       ensureRoute(zoneId, 'www.dashboardharyana.site/app*');
+      purgeCache(zoneId);
     });
   });
+}
+
+// Best-effort zone-wide cache purge so docs changes go live immediately
+// instead of waiting out the Cloudflare edge cache TTL. Deliberately never
+// fails the deploy: if the API token lacks the "Zone > Cache Purge"
+// permission (or the purge API errors), we warn and move on.
+function purgeCache(zoneId) {
+  const payload = JSON.stringify({ purge_everything: true });
+  const opts = {
+    hostname: 'api.cloudflare.com',
+    path: `/client/v4/zones/${zoneId}/purge_cache`,
+    method: 'POST',
+    headers: {
+      'Authorization': `Bearer ${TOKEN}`,
+      'Content-Type': 'application/json',
+      'Content-Length': Buffer.byteLength(payload)
+    }
+  };
+  const req = https.request(opts, (res) => {
+    let data = '';
+    res.on('data', c => data += c);
+    res.on('end', () => {
+      let r;
+      try { r = JSON.parse(data); } catch (e) { r = { errors: [{ message: data.slice(0, 200) }] }; }
+      if (r.success) {
+        console.log('Cache purged for zone ' + zoneId + ' (docs go live immediately).');
+      } else {
+        const msg = (r.errors && r.errors[0] && r.errors[0].message) || JSON.stringify(r.errors);
+        console.log('WARN  Cache purge skipped: ' + msg);
+        console.log('      Give the API token the "Zone > Cache Purge" permission to enable auto-purge.');
+      }
+    });
+  });
+  req.on('error', e => console.log('WARN  Cache purge failed: ' + e.message));
+  req.write(payload);
+  req.end();
 }
 
 function ensureRoute(zoneId, pattern) {
