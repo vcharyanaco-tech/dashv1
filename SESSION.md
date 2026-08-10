@@ -1,8 +1,10 @@
 # India Post Dashboard — Session State
 
-Last updated: 2026-08-07 17:35:30
+Last updated: 2026-08-10
 
-> Session transcript for resume: `session-ses_0259.md` (ses_025913513ffeiaXuZrL7DCm0Nw, created 2026-08-07). Latest state: AI-panel linked-file preview rendered as a table (server CSV rows), fitted/scrollable inside the panel; cache-buster `2026.08.07j`; live site = `docs/` on GitHub Pages, server = GAS deployment @162.
+> **Resume point: `SESSION_EXPORT_2026-08-10.md`** — covers the 2026-08-10 session: (1) production outage fix (`ReferenceError: require is not defined` from `bump-cache-bust.js` accidentally pushed to GAS; fixed, live @208), (2) refactor of dashboard/analytics/audit rendering (34 fns + `dashScroll`) into the synced core `src/frontend-logic.js` (commit `de9a527`), (3) five UX bug fixes (commit `e8ac196` — optimistic submission edit, optimistic display-on-card, panel cache for AI/analyze-link across auto-refresh, optimistic new-entry render, no auto-linkify of action text).
+>
+> **IMPORTANT — `e8ac196` is committed/pushed but NOT deployed to GAS/live yet.** Go-live steps: `clasp push --force`, `clasp deploy`, repoint pinned deployment, cache-bust bump for the static bundle. Older historical context below (previous sessions).
 
 
 ## Current Task (split-routing Worker: / → GitHub Pages, /app.html → GAS — DONE, deployed)
@@ -159,6 +161,9 @@ The "Edit" option in user management should allow admins to edit the full user d
 - Docs site on GitHub Pages redirects root → Worker proxy. OAuth/app-verification thread ABANDONED by user decision.
 
 ## Recent commits (git log)
+- `e8ac196` fix: 5 UX bugs — optimistic submission edit/display-toggle/new-entry render, preserve AI/analyze-link panels across auto-refresh, stop auto-linkifying action text
+- `de9a527` refactor: move dashboard/analytics/audit rendering (34 fns + dashScroll) into synced frontend core; reconcile GAS vs PWA drift (KPI sparkline, review dropdown)
+- `7e16e7b` fix: remove bump-cache-bust.js from GAS project (require crash) — live @208
 - `7b2b577` fix: stack duplicate reminder banners on homepage; fix task section (edit/delete for editors via getAssignableUsers)
 - `7b605f3` docs: note cache-busting rule for always-live dashboardharyana.site
 - `f7a6364` fix: cache-bust assets on docs bundle (versioned URLs) + no-cache meta
