@@ -794,12 +794,9 @@ function authenticate_(token) {
 }
 
 /* Auth guards requireLogin_/requireEditor_/requireAdmin_ now live in
- * AppUtils (see Utils.js). isAdmin/isEditor/requireEditor()/requireViewer()
- * stay top-level — they are referenced by name as public API. */
-
-function requireEditor() {
-  if (!isEditor()) throw AppUtils.clientError('Editor permission required.');
-}
+ * AppUtils (see Utils.js). isAdmin/isEditor/requireViewer() stay top-level —
+ * they are referenced by name as public API. (A legacy no-arg
+ * requireEditor() was removed: it had zero callers.) */
 
 function requireViewer() {
   return true;
