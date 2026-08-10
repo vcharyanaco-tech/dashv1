@@ -83,7 +83,10 @@ export default {
     const GAS_SCRIPT_URL = env.GAS_SCRIPT_URL;
 
     if (!GAS_SCRIPT_URL) {
-      return new Response('Worker not configured', { status: 500, headers: headersFor(request) });
+      // Never cache this: it's a transient misconfiguration, not a stable
+      // payload — a cached 500 here would keep failing after the config is
+      // fixed until the edge TTL expires.
+      return new Response('Worker not configured', { status: 500, headers: { ...headersFor(request), 'Cache-Control': 'no-store, max-age=0' } });
     }
 
     const path = url.pathname;
@@ -115,6 +118,14 @@ export default {
       // defeated on proxied routes.
       newHeaders.delete('Access-Control-Allow-Origin');
       newHeaders.delete('Vary');
+      // API responses must NEVER be edge-cached. GAS passes its own
+      // Cache-Control through; if that ever allows caching (or an error
+      // response is produced), the edge can keep serving a stale payload
+      // from an OLD worker version after a redeploy — which previously
+      // surfaced as the "Worker not configured" 500 persisting post-deploy.
+      // no-store makes every proxied API/static response bypass the edge
+      // cache entirely, so a fresh deploy is always live immediately.
+      newHeaders.set('Cache-Control', 'no-store, max-age=0');
       Object.entries(headersFor(request)).forEach(([k, v]) => newHeaders.set(k, v));
       const respBody = await resp.arrayBuffer();
       return new Response(respBody, { status: resp.status, headers: newHeaders });

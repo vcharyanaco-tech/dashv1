@@ -13,6 +13,10 @@
 #   Set CLOUDFLARE_API_TOKEN env var:
 #     [System.Environment]::SetEnvironmentVariable("CLOUDFLARE_API_TOKEN","<token>","User")
 #   Or run: npx wrangler login
+#   IMPORTANT: the token needs BOTH "Workers Scripts > Edit" AND
+#   "Zone > Cache Purge > Purge" permissions. Without Cache Purge the worker
+#   still deploys, but the edge cache is not cleared after deploys and stale
+#   responses can linger (the deploy script exits with code 2 and prints this).
 
 param(
     [Parameter(Position=0)]
@@ -197,6 +201,15 @@ if (-not $cfToken) {
             Write-Host "  OK  Worker deployed successfully" -ForegroundColor Green
             $nodeOut | ForEach-Object { Write-Host "      $_" -ForegroundColor Gray }
             Write-Host "      Live: https://dashboardharyana.site/app.html" -ForegroundColor Cyan
+        } elseif ($LASTEXITCODE -eq 2) {
+            # Deployed, but cache purge was skipped (token lacks Zone > Cache Purge).
+            Write-Host "  WARN  Worker deployed, but cache purge FAILED (token permission):" -ForegroundColor Yellow
+            $nodeOut | ForEach-Object { Write-Host "      $_" -ForegroundColor DarkYellow }
+            Write-Host "      Add Zone > Cache Purge to the token (same value, no env change):" -ForegroundColor DarkYellow
+            Write-Host "      https://dash.cloudflare.com/profile/api-tokens" -ForegroundColor DarkYellow
+        } elseif ($LASTEXITCODE -eq 3) {
+            Write-Host "  WARN  Worker deployed, but POST-DEPLOY SMOKE CHECK FAILED:" -ForegroundColor Red
+            $nodeOut | ForEach-Object { Write-Host "      $_" -ForegroundColor DarkGray }
         } else {
             Write-Host "  WARN  Worker deploy failed:" -ForegroundColor Red
             Write-Host ($nodeOut | Out-String) -ForegroundColor DarkGray
