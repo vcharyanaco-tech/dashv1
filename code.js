@@ -267,7 +267,11 @@ function looksLikeUrl_(value) {
   if (value === null || value === undefined) return false;
   const text = String(value).trim();
   if (!text) return false;
-  return /^(https?:\/\/|mailto:|ftp:\/\/|www\.)/i.test(text) || /(?:\.[a-z]{2,})(?:\/|$)/i.test(text);
+  // Only treat explicit schemes / www / bare domains (no whitespace) as URLs.
+  // Prose that merely contains a dot (e.g. "Send to office.verify" or
+  // "file.pdf") must never be auto-linked on cards or reports.
+  return /^(https?:\/\/|mailto:|ftp:\/\/|www\.)/i.test(text) ||
+    (/^[a-z0-9-]+(\.[a-z0-9-]+)+(:\d+)?(\/\S*)?$/i.test(text) && text.indexOf(' ') === -1);
 }
 
 function normalizeUrl_(value) {

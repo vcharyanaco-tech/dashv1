@@ -110,7 +110,11 @@ const appState = {
   // row number -> 'ai' (AI insight) or 'link' (Analyze link). Preserved across
   // dashboard re-renders (e.g. the 60s auto-refresh) so an open panel is not
   // silently closed by a background refresh.
-  expandedTableRows: {}
+  expandedTableRows: {},
+  // Loaded AI insight / Analyze-link panel content keyed by row number, so a
+  // dashboard re-render (auto-refresh, sort, filter, pagination) can restore an
+  // open panel instantly without re-fetching from the server.
+  rowPanelCache: {}
 };
 
 /* ---------------------------------- Helpers ---------------------------------- */
@@ -126,6 +130,15 @@ function can(module, action) {
    place so every refresh path keeps the same fields in sync. */
 function applyAppData(data) {
   appState.items = (data && data.items) || [];
+  // Drop cached AI / Analyze-link panels for records that no longer exist
+  // server-side (e.g. deleted by another user) so the cache cannot leak.
+  if (appState.rowPanelCache) {
+    const liveRows = {};
+    appState.items.forEach(function (it) { liveRows[String(it.row)] = true; });
+    Object.keys(appState.rowPanelCache).forEach(function (rowKey) {
+      if (!liveRows[rowKey]) delete appState.rowPanelCache[rowKey];
+    });
+  }
   appState.summary = (data && data.summary) || {};
   appState.analytics = (data && data.analytics) || {};
   appState.audit = (data && data.audit) || [];
@@ -181,7 +194,11 @@ function renderLinkableText(value) {
   if (!text) return '';
   const normalized = text.trim();
   if (!normalized) return '';
-  const isUrl = /^(https?:\/\/|mailto:|ftp:\/\/|www\.)/i.test(normalized) || /(?:\.[a-z]{2,})(?:\/|$)/i.test(normalized);
+  // Only auto-link strings that are clearly URLs (explicit scheme / www / bare
+  // domain). Prose that merely contains a dot (e.g. "Send to office.verify" or
+  // "file.pdf") must never be turned into a link.
+  const isUrl = /^(https?:\/\/|mailto:|ftp:\/\/|www\.)/i.test(normalized) ||
+    (/^[a-z0-9-]+(\.[a-z0-9-]+)+(:\d+)?(\/\S*)?$/i.test(normalized) && normalized.indexOf(' ') === -1);
   if (!isUrl) return escapeHtml(text);
   const href = /^www\./i.test(normalized) ? 'https://' + normalized : normalized;
   return `<a href="${escAttr(href)}" target="_blank" rel="noopener noreferrer">${escapeHtml(text)}</a>`;
@@ -1155,7 +1172,11 @@ function toggleCardAi(row, btn) {
   const article = btn.closest('.card');
   if (!article) return;
   let panel = article.querySelector('.card-ai-insight');
-  if (panel) { panel.classList.toggle('card-ai-collapsed'); return; }
+  if (panel) {
+    panel.classList.toggle('card-ai-collapsed');
+    cacheRowPanelContent_(row, 'ai', panel);
+    return;
+  }
   panel = document.createElement('div');
   panel.className = 'card-ai-panel card-ai-insight';
   panel.innerHTML = cardAiPanelHtml_();
@@ -1173,10 +1194,19 @@ function collapseCardAi(btn) {
   const tr = panel.closest('tr');
   if (tr) {
     const rowKey = tr.previousElementSibling && tr.previousElementSibling.getAttribute('data-row');
-    if (rowKey) delete appState.expandedTableRows[rowKey];
+    if (rowKey) {
+      delete appState.expandedTableRows[rowKey];
+      if (appState.rowPanelCache) delete appState.rowPanelCache[String(rowKey)];
+    }
     tr.remove();
   } else {
     panel.classList.add('card-ai-collapsed');
+    const card = panel.closest('.card');
+    const rowKey = card && card.getAttribute('data-row');
+    if (rowKey) {
+      const type = panel.classList.contains('card-link-panel') ? 'link' : 'ai';
+      cacheRowPanelContent_(rowKey, type, panel);
+    }
   }
 }
 
@@ -1188,6 +1218,7 @@ function toggleRowAi(row, btn) {
   if (next && next.classList && next.classList.contains('ai-insight-tr')) {
     next.remove();
     delete appState.expandedTableRows[row];
+    if (appState.rowPanelCache) delete appState.rowPanelCache[String(row)];
     return;
   }
   appState.expandedTableRows[row] = 'ai';
@@ -1226,10 +1257,62 @@ function loadCardAi(panel, row) {
       return;
     }
     body.innerHTML = aiBulletsHtml_(data.insights || '', 'div');
+    cacheRowPanelContent_(row, 'ai', panel);
   }).catch(function (err) {
     if (handleServerFailure(err)) return;
     const msg = err && err.message ? err.message : String(err || 'Unknown error');
     body.innerHTML = '<div class="card-ai-error">' + escapeHtml(msg) + '</div>';
+  });
+}
+
+function loadCardLink(panel, row) {
+  const body = panel.querySelector('.card-ai-body');
+  if (!body) return;
+  body.innerHTML = '<div class="card-ai-loading">Analyzing linked file…</div>';
+  ApiService.getLinkContentAiInsight(row).then(function (data) {
+    if (!data || data.success !== true) {
+      const msg = (data && data.message) || 'Could not analyze the linked file.';
+      body.innerHTML = '<div class="card-ai-error">' + escapeHtml(msg) + '</div>';
+      return;
+    }
+    body.innerHTML = linkAiResultHtml_(data);
+    cacheRowPanelContent_(row, 'link', panel);
+  }).catch(function (err) {
+    if (handleServerFailure(err)) return;
+    const msg = err && err.message ? err.message : String(err || 'Unknown error');
+    body.innerHTML = '<div class="card-ai-error">' + escapeHtml(msg) + '</div>';
+  });
+}
+
+/* Persist the loaded panel body so a dashboard re-render (auto-refresh, sort,
+   filter, pagination) can restore an open AI / Analyze-link panel instantly
+   instead of re-fetching (which reset it to the loading state). */
+function cacheRowPanelContent_(row, type, panel) {
+  if (!appState.rowPanelCache) appState.rowPanelCache = {};
+  const body = panel.querySelector('.card-ai-body');
+  appState.rowPanelCache[String(row)] = {
+    type: type,
+    html: body ? body.innerHTML : '',
+    collapsed: !!(panel && panel.classList.contains('card-ai-collapsed'))
+  };
+}
+
+/* Re-attaches any cached card-view panels after the card grid is rebuilt. */
+function restoreCardPanels_() {
+  const grid = getEl('dashboardCards');
+  if (!grid) return;
+  Object.keys(appState.rowPanelCache || {}).forEach(function (rowKey) {
+    const cached = appState.rowPanelCache[rowKey];
+    if (!cached || !cached.html) return;
+    const card = grid.querySelector('article.card[data-row="' + CSS.escape(rowKey) + '"]');
+    if (!card || card.querySelector('.card-ai-panel')) return;
+    const panel = document.createElement('div');
+    panel.className = 'card-ai-panel ' + (cached.type === 'link' ? 'card-link-panel' : 'card-ai-insight');
+    panel.innerHTML = cached.type === 'link' ? cardLinkPanelHtml_() : cardAiPanelHtml_();
+    const body = panel.querySelector('.card-ai-body');
+    if (body) body.innerHTML = cached.html;
+    if (cached.collapsed) panel.classList.add('card-ai-collapsed');
+    card.appendChild(panel);
   });
 }
 
@@ -1246,7 +1329,11 @@ function toggleCardLink(row, btn) {
   const article = btn.closest('.card');
   if (!article) return;
   let panel = article.querySelector('.card-link-panel');
-  if (panel) { panel.classList.toggle('card-ai-collapsed'); return; }
+  if (panel) {
+    panel.classList.toggle('card-ai-collapsed');
+    cacheRowPanelContent_(row, 'link', panel);
+    return;
+  }
   panel = document.createElement('div');
   panel.className = 'card-ai-panel card-link-panel';
   panel.innerHTML = cardLinkPanelHtml_();
@@ -1262,6 +1349,7 @@ function toggleRowLink(row, btn) {
   if (next && next.classList && next.classList.contains('ai-link-tr')) {
     next.remove();
     delete appState.expandedTableRows[row];
+    if (appState.rowPanelCache) delete appState.rowPanelCache[String(row)];
     return;
   }
   appState.expandedTableRows[row] = 'link';
@@ -1279,24 +1367,6 @@ function toggleRowLink(row, btn) {
 function itemHasLink_(item) {
   const links = (item && item.linkUrls) || {};
   return Object.keys(links).some(function (k) { return !!links[k]; });
-}
-
-function loadCardLink(panel, row) {
-  const body = panel.querySelector('.card-ai-body');
-  if (!body) return;
-  body.innerHTML = '<div class="card-ai-loading">Analyzing linked file…</div>';
-  ApiService.getLinkContentAiInsight(row).then(function (data) {
-    if (!data || data.success !== true) {
-      const msg = (data && data.message) || 'Could not analyze the linked file.';
-      body.innerHTML = '<div class="card-ai-error">' + escapeHtml(msg) + '</div>';
-      return;
-    }
-    body.innerHTML = linkAiResultHtml_(data);
-  }).catch(function (err) {
-    if (handleServerFailure(err)) return;
-    const msg = err && err.message ? err.message : String(err || 'Unknown error');
-    body.innerHTML = '<div class="card-ai-error">' + escapeHtml(msg) + '</div>';
-  });
 }
 
 function linkAiResultHtml_(data) {
@@ -1777,7 +1847,7 @@ function buildTableRowHtml(item) {
       <td class="preserve-whitespace">${escapeHtml(item.sector || '')}</td>
       <td class="details-cell preserve-whitespace">${escapeHtml(item.description || '')}</td>
       <td class="preserve-whitespace">${escapeHtml(item.entryDate || '')}</td>
-      <td class="preserve-whitespace">${renderLinkableText(item.action)}</td>
+      <td class="preserve-whitespace">${item.actionHtml || escapeHtml(item.action)}</td>
       <td class="preserve-whitespace">${escapeHtml(item.reviewDate || '')}</td>
       <td>${statusBadge}</td>
       <td>${actions}</td>
@@ -1831,6 +1901,7 @@ function restoreExpandedRows_() {
       return; // already restored
     }
     const type = appState.expandedTableRows[rowKey];
+    const cached = (appState.rowPanelCache || {})[String(rowKey)];
     const panelTr = document.createElement('tr');
     panelTr.className = type === 'link' ? 'ai-link-tr' : 'ai-insight-tr';
     const td = document.createElement('td');
@@ -1839,6 +1910,12 @@ function restoreExpandedRows_() {
     td.innerHTML = type === 'link' ? cardLinkPanelHtml_() : cardAiPanelHtml_();
     panelTr.appendChild(td);
     rowEl.parentNode.insertBefore(panelTr, rowEl.nextSibling);
+    if (cached && cached.type === type && cached.html) {
+      // Restore previously loaded content without a server round trip.
+      const body = td.querySelector('.card-ai-body');
+      if (body) body.innerHTML = cached.html;
+      return;
+    }
     if (type === 'link') {
       loadCardLink(td, rowKey);
     } else {
@@ -2420,6 +2497,7 @@ function renderDashboardCards() {
   grid.innerHTML = pageItems.slice(0, dashScroll.BATCH).map(buildCardHtml).join('');
   dashScroll.rendered = dashScroll.BATCH;
   ensureDashSentinel_(grid, pageItems);
+  restoreCardPanels_();
 }
 
 function ensureDashSentinel_(grid, pageItems) {
@@ -2444,6 +2522,7 @@ function ensureDashSentinel_(grid, pageItems) {
     }
     dashScroll.rendered += next.length;
     if (dashScroll.rendered >= pageItems.length) teardownDashScroller_();
+    restoreCardPanels_();
   }, { rootMargin: '300px 0px' }); // lookahead so there is no visible blank gap
 
   dashScroll.io.observe(dashScroll.sentinel);

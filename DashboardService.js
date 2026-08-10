@@ -135,7 +135,10 @@ function buildDashboardItems_(rows, sheet) {
       if (normalizedLabel.indexOf("date") === -1) {
         if (field && field.html) {
           fieldHtml = field.html;
-        } else if (looksLikeUrl_(formattedValue)) {
+        } else if (normalizedLabel.indexOf("action") === -1 && looksLikeUrl_(formattedValue)) {
+          // Only real rich-text hyperlinks turn the action field into a link.
+          // Plain prose in the action cell must stay plain text (Point: no
+          // heuristic auto-linkify for the action column).
           fieldHtml = linkifyText_(formattedValue);
         }
       }
