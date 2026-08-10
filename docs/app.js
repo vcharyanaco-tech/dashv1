@@ -264,16 +264,6 @@ function parseQueryParams() {
   return params;
 }
 
-function debounce(fn, ms) {
-  let timer = null;
-  return function () {
-    const args = arguments;
-    const ctx = this;
-    clearTimeout(timer);
-    timer = setTimeout(function () { fn.apply(ctx, args); }, ms || 200);
-  };
-}
-
 function svgIcon(name) {
   const paths = {
     database: '<ellipse cx="12" cy="5" rx="9" ry="3"></ellipse><path d="M21 12c0 1.66-4 3-9 3s-9-1.34-9-3"></path><path d="M3 5v14c0 1.66 4 3 9 3s9-1.34 9-3V5"></path>',
@@ -1789,6 +1779,268 @@ function openTab(tabId) {
   if (tabId === 'tasks') { renderTasks(); refreshCounts(); }
 }
 
+/* ---------------------------------- Dashboard: table + event wiring ---------------------------------- */
+
+function dashboardColumnKey_(label) {
+  const l = String(label || '').trim().toLowerCase();
+  if (l === '#' || l === 'id' || l === 'sr no' || l === 'sr no.') return 'id';
+  if (l === 'sector') return 'sector';
+  if (l === 'description') return 'description';
+  if (l.indexOf('entry') !== -1) return 'entryDate';
+  if (l.indexOf('review') !== -1) return 'reviewDate';
+  if (l === 'actions') return 'actions';
+  if (l.indexOf('action') !== -1) return 'action';
+  return '';
+}
+
+function dashboardColumnVisible_(label) {
+  const columns = (appState.dashboardPrefs && appState.dashboardPrefs.columns) || {};
+  const key = dashboardColumnKey_(label);
+  return key ? columns[key] !== false : true;
+}
+
+function buildTableRowHtml(item) {
+  const subCount = (appState.submissionCounts || {})[item.row] || 0;
+  const statusBadge = item.reviewStatus === 'due'
+    ? '<span class="review-badge review-due">Review due</span>'
+    : item.reviewStatus === 'done'
+      ? '<span class="review-badge review-done">Review done</span>'
+      : '';
+  const actions = `
+    <div class="row-actions">
+      <button class="btn btn-secondary btn-small" onclick="event.stopPropagation(); openSubmissionsModal('${escAttr(item.row)}','${escAttr(item.id)}')">Update${subCount ? ' (' + subCount + ')' : ''}</button>
+      ${appState.isEditor ? `<button class="btn btn-secondary btn-small" onclick="event.stopPropagation(); toggleRowAi('${escAttr(item.row)}', this)">AI insight</button>` : ''}
+      ${appState.isEditor && itemHasLink_(item) ? `<button class="btn btn-secondary btn-small" onclick="event.stopPropagation(); toggleRowLink('${escAttr(item.row)}', this)">Analyze link</button>` : ''}
+      ${appState.isEditor ? `<button class="btn btn-secondary btn-small" onclick="event.stopPropagation(); editItem('${escAttr(item.row)}')">Edit</button>` : ''}
+      ${appState.isEditor ? `<button class="btn btn-danger btn-small" onclick="event.stopPropagation(); deleteItem('${escAttr(item.row)}')">Delete</button>` : ''}
+    </div>`;
+  return `
+    <tr class="row-clickable ${item.reviewStatus === 'due' ? 'row-flagged' : ''}" data-row="${escAttr(item.row)}" tabindex="0">
+      <td><span class="id-badge">#${escapeHtml(item.id)}</span></td>
+      <td class="preserve-whitespace">${escapeHtml(item.sector || '')}</td>
+      <td class="details-cell preserve-whitespace">${escapeHtml(item.description || '')}</td>
+      <td class="preserve-whitespace">${escapeHtml(item.entryDate || '')}</td>
+      <td class="preserve-whitespace">${renderLinkableText(item.action)}</td>
+      <td class="preserve-whitespace">${escapeHtml(item.reviewDate || '')}</td>
+      <td>${statusBadge}</td>
+      <td>${actions}</td>
+    </tr>`;
+}
+
+function renderDashboardTable() {
+  const wrap = getEl('dashboardTableWrap');
+  const table = getEl('dashboardTable');
+  if (!wrap || !table) return;
+  const start = (appState.page - 1) * PAGE_SIZE;
+  const pageItems = sortedItems().slice(start, start + PAGE_SIZE);
+
+  table.querySelectorAll('thead th[data-dash-sort]').forEach(function (th) {
+    const sortKey = th.getAttribute('data-dash-sort');
+    if (sortKey === appState.dashSortKey) {
+      th.setAttribute('aria-sort', appState.dashSortDir === 'asc' ? 'ascending' : 'descending');
+    } else {
+      th.removeAttribute('aria-sort');
+    }
+  });
+
+  table.querySelector('tbody').innerHTML = pageItems.length
+    ? pageItems.map(buildTableRowHtml).join('')
+    : '<tr><td colspan="8">No records found.</td></tr>';
+
+  const summaryEl = getEl('dashboardTableSummary');
+  if (summaryEl) summaryEl.textContent = appState.filtered.length + ' record' + (appState.filtered.length === 1 ? '' : 's') + ' found';
+
+  applyColumnVisibility();
+}
+
+/* ---------------------------------- Event wiring ---------------------------------- */
+
+function wireGlobalEvents() {
+  const searchInput = getEl('searchInput');
+  if (searchInput) {
+    /* Only run the search for genuine user typing. Browsers sometimes
+       autofill the first text field on the page (the search box) with the
+       saved login email and fire an 'input' event without focusing the
+       field, which would auto-run a search on every page load. */
+    let userTouchedSearch = false;
+    searchInput.addEventListener('focus', function () { userTouchedSearch = true; });
+    let searchTimer = null;
+    searchInput.addEventListener('input', function () {
+      /* Ignore programmatic fills (e.g. autofill) that never focus the field. */
+      if (document.activeElement !== searchInput) return;
+      clearTimeout(searchTimer);
+      searchTimer = setTimeout(function () {
+        appState.searchQuery = searchInput.value.trim();
+        appState.page = 1;
+        updateFilterChips();
+        renderDashboard();
+      }, 180);
+    });
+
+    /* Force the box empty once the page has settled so a fresh load never
+       shows an autofilled value and never starts pre-filtered. */
+    const clearStaleSearch = function () {
+      if (userTouchedSearch) return;
+      if (!searchInput.value && !appState.searchQuery) return;
+      searchInput.value = '';
+      appState.searchQuery = '';
+      updateFilterChips();
+      renderDashboard();
+    };
+    window.addEventListener('load', function () {
+      clearStaleSearch();
+      setTimeout(clearStaleSearch, 500);
+      setTimeout(clearStaleSearch, 1500);
+    });
+  }
+
+  const notifList = getEl('notifList');
+  if (notifList) {
+    notifList.addEventListener('click', function (e) {
+      const item = e.target.closest('.notif-item');
+      if (!item) return;
+      openNotification(item.getAttribute('data-notif-id'), item.getAttribute('data-notif-type'));
+    });
+  }
+
+  document.addEventListener('keydown', function (e) {
+    if ((e.ctrlKey || e.metaKey) && (e.key === 'k' || e.key === 'K')) {
+      e.preventDefault();
+      const palette = getEl('commandPalette');
+      if (palette && !palette.classList.contains('hidden')) {
+        const input = getEl('searchInput');
+        if (input) { input.focus(); input.select(); }
+      } else {
+        openCommandPalette();
+      }
+    }
+    if (e.key === 'Escape') {
+      closeDropdowns();
+      const profileDropdown = getEl('profileDropdown');
+      if (profileDropdown && profileDropdown.classList.contains('open')) {
+        profileDropdown.classList.remove('open');
+        const trigger = getEl('profileTrigger');
+        if (trigger) trigger.setAttribute('aria-expanded', 'false');
+      }
+      closeNotificationsPanel();
+      const confirmModal = getEl('confirmModal');
+      if (confirmModal && !confirmModal.classList.contains('hidden')) {
+        cancelConfirmDialog();
+        return;
+      }
+      ['editModal', 'aboutModal', 'submissionsModal', 'recordDetailModal', 'editUserModal', 'taskModal', 'columnModal', 'commandPalette', 'previewModal', 'linkModal'].forEach(function (id) {
+        const el = getEl(id);
+        if (el && !el.classList.contains('hidden')) closeDialog(id);
+      });
+      const meetingModal = getEl('meetingNotesModal');
+      if (meetingModal && !meetingModal.classList.contains('hidden')) closeMeetingNotes();
+      document.body.classList.remove('sidebar-open');
+      const backdrop = getEl('sidebarBackdrop');
+      if (backdrop) backdrop.classList.add('hidden');
+    }
+  });
+
+  document.addEventListener('click', function (event) {
+    ['review-dropdown-menu', 'menu-dropdown-menu'].forEach(function (cls) {
+      document.querySelectorAll('.' + cls + '.open').forEach(function (menu) {
+        if (!menu.parentElement.contains(event.target)) menu.classList.remove('open');
+      });
+    });
+    const profileDropdown = getEl('profileDropdown');
+    const profileMenu = getEl('profileMenu');
+    if (profileDropdown && profileMenu && profileDropdown.classList.contains('open') && !profileMenu.contains(event.target)) {
+      profileDropdown.classList.remove('open');
+      const trigger = getEl('profileTrigger');
+      if (trigger) trigger.setAttribute('aria-expanded', 'false');
+    }
+    const notifPanel = getEl('notifPanel');
+    const notifMenu = getEl('notifMenu');
+    if (notifPanel && notifMenu && !notifPanel.classList.contains('hidden') && !notifMenu.contains(event.target)) {
+      closeNotificationsPanel();
+    }
+  });
+
+  document.querySelectorAll('.modal-backdrop').forEach(function (backdrop) {
+    backdrop.addEventListener('click', function (event) {
+      if (event.target === backdrop) {
+        if (backdrop.id === 'editModal') closeEditModal();
+        else if (backdrop.id === 'aboutModal') closeAbout();
+        else if (backdrop.id === 'submissionsModal') closeSubmissionsModal();
+        else if (backdrop.id === 'recordDetailModal') closeRecordDetail();
+        else if (backdrop.id === 'editUserModal') closeEditUser();
+        else if (backdrop.id === 'confirmModal') cancelConfirmDialog();
+        else if (backdrop.id === 'previewModal') closeLinkPreview();
+        else if (backdrop.id === 'linkModal') closeLinkModal();
+        else if (backdrop.id === 'meetingNotesModal') closeMeetingNotes();
+      }
+    });
+  });
+
+  const dashboardTable = getEl('dashboardTable');
+  if (dashboardTable) {
+    dashboardTable.querySelectorAll('thead th[data-dash-sort]').forEach(function (th) {
+      th.classList.add('sortable');
+      th.addEventListener('click', function () {
+        setDashSort(th.getAttribute('data-dash-sort'));
+      });
+    });
+    const dashTbody = dashboardTable.querySelector('tbody');
+    if (dashTbody) {
+      dashTbody.addEventListener('click', function (e) {
+        if (e.target.closest('button')) return;
+        const tr = e.target.closest('tr[data-row]');
+        if (tr) openRecordDetail(tr.getAttribute('data-row'));
+      });
+      dashTbody.addEventListener('keydown', function (e) {
+        const focused = document.activeElement;
+        if (!focused || focused.tagName !== 'TR') return;
+        const rows = Array.from(dashTbody.querySelectorAll('tr[data-row]'));
+        const idx = rows.indexOf(focused);
+        if (e.key === 'ArrowDown' && idx < rows.length - 1) { rows[idx + 1].focus(); e.preventDefault(); }
+        if (e.key === 'ArrowUp' && idx > 0) { rows[idx - 1].focus(); e.preventDefault(); }
+        if (e.key === 'Enter' || e.key === ' ') { openRecordDetail(focused.getAttribute('data-row')); e.preventDefault(); }
+      });
+    }
+  }
+
+  const auditTable = getEl('auditTable');
+  if (auditTable) {
+    auditTable.querySelectorAll('thead th[data-sort]').forEach(function (th) {
+      th.classList.add('sortable');
+      th.addEventListener('click', function () {
+        setAuditSort(th.getAttribute('data-sort'));
+      });
+    });
+  }
+
+  const usersTable = getEl('usersTable');
+  if (usersTable) {
+    usersTable.addEventListener('click', function (e) {
+      const btn = e.target.closest('button[data-action]');
+      if (!btn) return;
+      const tbody = usersTable.querySelector('tbody');
+      const users = JSON.parse((tbody && tbody.dataset.users) || '[]');
+      const user = users[Number(btn.dataset.index)];
+      if (!user) return;
+      if (btn.dataset.action === 'delete') deleteUser(user.email);
+      else if (btn.dataset.action === 'reset') resetUserPassword(user.email);
+      else if (btn.dataset.action === 'edit') openEditUser(user.email);
+      else if (btn.dataset.action === 'killSessions') killUserSessions(user.email);
+    });
+  }
+
+  ['loginForm', 'forgotForm', 'changePasswordForm', 'addUserForm', 'editForm'].forEach(function (id) {
+    const form = getEl(id);
+    if (form) wireFieldClearing(form);
+  });
+
+  window.addEventListener('offline', updateOfflineBanner);
+  window.addEventListener('online', function () {
+    updateOfflineBanner();
+    showToast('You are back online', 'info');
+  });
+}
+
 /* ---------------------------------- Auth flows ---------------------------------- */
 
 function initApp() {
@@ -2194,24 +2446,6 @@ function renderKpiCards() {
 
 /* ---------------------------------- Dashboard: cards ---------------------------------- */
 
-function dashboardColumnKey_(label) {
-  const l = String(label || '').trim().toLowerCase();
-  if (l === '#' || l === 'id' || l === 'sr no' || l === 'sr no.') return 'id';
-  if (l === 'sector') return 'sector';
-  if (l === 'description') return 'description';
-  if (l.indexOf('entry') !== -1) return 'entryDate';
-  if (l.indexOf('review') !== -1) return 'reviewDate';
-  if (l === 'actions') return 'actions';
-  if (l.indexOf('action') !== -1) return 'action';
-  return '';
-}
-
-function dashboardColumnVisible_(label) {
-  const columns = (appState.dashboardPrefs && appState.dashboardPrefs.columns) || {};
-  const key = dashboardColumnKey_(label);
-  return key ? columns[key] !== false : true;
-}
-
 function buildCardHtml(item) {
   const fieldsHtml = (item.displayFields || []).filter(function (field) {
     const key = dashboardColumnKey_(field && field.label);
@@ -2402,60 +2636,6 @@ function sortedItems() {
     if (isDate) return (dashDateKey(a[key]) - dashDateKey(b[key])) * dir;
     return dashCompare(a[key], b[key]) * dir;
   });
-}
-
-function buildTableRowHtml(item) {
-  const subCount = (appState.submissionCounts || {})[item.row] || 0;
-  const statusBadge = item.reviewStatus === 'due'
-    ? '<span class="review-badge review-due">Review due</span>'
-    : item.reviewStatus === 'done'
-      ? '<span class="review-badge review-done">Review done</span>'
-      : '';
-  const actions = `
-    <div class="row-actions">
-      <button class="btn btn-secondary btn-small" onclick="event.stopPropagation(); openSubmissionsModal('${escAttr(item.row)}','${escAttr(item.id)}')">Update${subCount ? ' (' + subCount + ')' : ''}</button>
-      ${appState.isEditor ? `<button class="btn btn-secondary btn-small" onclick="event.stopPropagation(); toggleRowAi('${escAttr(item.row)}', this)">AI insight</button>` : ''}
-      ${appState.isEditor && itemHasLink_(item) ? `<button class="btn btn-secondary btn-small" onclick="event.stopPropagation(); toggleRowLink('${escAttr(item.row)}', this)">Analyze link</button>` : ''}
-      ${appState.isEditor ? `<button class="btn btn-secondary btn-small" onclick="event.stopPropagation(); editItem('${escAttr(item.row)}')">Edit</button>` : ''}
-      ${appState.isEditor ? `<button class="btn btn-danger btn-small" onclick="event.stopPropagation(); deleteItem('${escAttr(item.row)}')">Delete</button>` : ''}
-    </div>`;
-  return `
-    <tr class="row-clickable ${item.reviewStatus === 'due' ? 'row-flagged' : ''}" data-row="${escAttr(item.row)}" tabindex="0">
-      <td><span class="id-badge">#${escapeHtml(item.id)}</span></td>
-      <td class="preserve-whitespace">${escapeHtml(item.sector || '')}</td>
-      <td class="details-cell preserve-whitespace">${escapeHtml(item.description || '')}</td>
-      <td class="preserve-whitespace">${escapeHtml(item.entryDate || '')}</td>
-      <td class="preserve-whitespace">${renderLinkableText(item.action)}</td>
-      <td class="preserve-whitespace">${escapeHtml(item.reviewDate || '')}</td>
-      <td>${statusBadge}</td>
-      <td>${actions}</td>
-    </tr>`;
-}
-
-function renderDashboardTable() {
-  const wrap = getEl('dashboardTableWrap');
-  const table = getEl('dashboardTable');
-  if (!wrap || !table) return;
-  const start = (appState.page - 1) * PAGE_SIZE;
-  const pageItems = sortedItems().slice(start, start + PAGE_SIZE);
-
-  table.querySelectorAll('thead th[data-dash-sort]').forEach(function (th) {
-    const sortKey = th.getAttribute('data-dash-sort');
-    if (sortKey === appState.dashSortKey) {
-      th.setAttribute('aria-sort', appState.dashSortDir === 'asc' ? 'ascending' : 'descending');
-    } else {
-      th.removeAttribute('aria-sort');
-    }
-  });
-
-  table.querySelector('tbody').innerHTML = pageItems.length
-    ? pageItems.map(buildTableRowHtml).join('')
-    : '<tr><td colspan="8">No records found.</td></tr>';
-
-  const summaryEl = getEl('dashboardTableSummary');
-  if (summaryEl) summaryEl.textContent = appState.filtered.length + ' record' + (appState.filtered.length === 1 ? '' : 's') + ' found';
-
-  applyColumnVisibility();
 }
 
 function applyColumnVisibility() {
@@ -5108,194 +5288,6 @@ function updateOfflineBanner() {
     }
   } catch (e) {}
   banner.classList.toggle('hidden', navigator.onLine && !hasPending);
-}
-
-/* ---------------------------------- Event wiring ---------------------------------- */
-
-function wireGlobalEvents() {
-  const searchInput = getEl('searchInput');
-  if (searchInput) {
-    /* Only run the search for genuine user typing. Browsers sometimes
-       autofill the first text field on the page (the search box) with the
-       saved login email and fire an 'input' event without focusing the
-       field, which would auto-run a search on every page load. */
-    let userTouchedSearch = false;
-    searchInput.addEventListener('focus', function () { userTouchedSearch = true; });
-    let searchTimer = null;
-    searchInput.addEventListener('input', function () {
-      /* Ignore programmatic fills (e.g. autofill) that never focus the field. */
-      if (document.activeElement !== searchInput) return;
-      clearTimeout(searchTimer);
-      searchTimer = setTimeout(function () {
-        appState.searchQuery = searchInput.value.trim();
-        appState.page = 1;
-        updateFilterChips();
-        renderDashboard();
-      }, 180);
-    });
-
-    /* Force the box empty once the page has settled so a fresh load never
-       shows an autofilled value and never starts pre-filtered. */
-    const clearStaleSearch = function () {
-      if (userTouchedSearch) return;
-      if (!searchInput.value && !appState.searchQuery) return;
-      searchInput.value = '';
-      appState.searchQuery = '';
-      updateFilterChips();
-      renderDashboard();
-    };
-    window.addEventListener('load', function () {
-      clearStaleSearch();
-      setTimeout(clearStaleSearch, 500);
-      setTimeout(clearStaleSearch, 1500);
-    });
-  }
-
-  const notifList = getEl('notifList');
-  if (notifList) {
-    notifList.addEventListener('click', function (e) {
-      const item = e.target.closest('.notif-item');
-      if (!item) return;
-      openNotification(item.getAttribute('data-notif-id'), item.getAttribute('data-notif-type'));
-    });
-  }
-
-  document.addEventListener('keydown', function (e) {
-    if ((e.ctrlKey || e.metaKey) && (e.key === 'k' || e.key === 'K')) {
-      e.preventDefault();
-      const palette = getEl('commandPalette');
-      if (palette && !palette.classList.contains('hidden')) {
-        const input = getEl('searchInput');
-        if (input) { input.focus(); input.select(); }
-      } else {
-        openCommandPalette();
-      }
-    }
-    if (e.key === 'Escape') {
-      closeDropdowns();
-      const profileDropdown = getEl('profileDropdown');
-      if (profileDropdown && profileDropdown.classList.contains('open')) {
-        profileDropdown.classList.remove('open');
-        const trigger = getEl('profileTrigger');
-        if (trigger) trigger.setAttribute('aria-expanded', 'false');
-      }
-      closeNotificationsPanel();
-      const confirmModal = getEl('confirmModal');
-      if (confirmModal && !confirmModal.classList.contains('hidden')) {
-        cancelConfirmDialog();
-        return;
-      }
-      ['editModal', 'aboutModal', 'submissionsModal', 'recordDetailModal', 'editUserModal', 'taskModal', 'columnModal', 'commandPalette', 'previewModal', 'linkModal'].forEach(function (id) {
-        const el = getEl(id);
-        if (el && !el.classList.contains('hidden')) closeDialog(id);
-      });
-      const meetingModal = getEl('meetingNotesModal');
-      if (meetingModal && !meetingModal.classList.contains('hidden')) closeMeetingNotes();
-      document.body.classList.remove('sidebar-open');
-      const backdrop = getEl('sidebarBackdrop');
-      if (backdrop) backdrop.classList.add('hidden');
-    }
-  });
-
-  document.addEventListener('click', function (event) {
-    ['review-dropdown-menu', 'menu-dropdown-menu'].forEach(function (cls) {
-      document.querySelectorAll('.' + cls + '.open').forEach(function (menu) {
-        if (!menu.parentElement.contains(event.target)) menu.classList.remove('open');
-      });
-    });
-    const profileDropdown = getEl('profileDropdown');
-    const profileMenu = getEl('profileMenu');
-    if (profileDropdown && profileMenu && profileDropdown.classList.contains('open') && !profileMenu.contains(event.target)) {
-      profileDropdown.classList.remove('open');
-      const trigger = getEl('profileTrigger');
-      if (trigger) trigger.setAttribute('aria-expanded', 'false');
-    }
-    const notifPanel = getEl('notifPanel');
-    const notifMenu = getEl('notifMenu');
-    if (notifPanel && notifMenu && !notifPanel.classList.contains('hidden') && !notifMenu.contains(event.target)) {
-      closeNotificationsPanel();
-    }
-  });
-
-  document.querySelectorAll('.modal-backdrop').forEach(function (backdrop) {
-    backdrop.addEventListener('click', function (event) {
-      if (event.target === backdrop) {
-        if (backdrop.id === 'editModal') closeEditModal();
-        else if (backdrop.id === 'aboutModal') closeAbout();
-        else if (backdrop.id === 'submissionsModal') closeSubmissionsModal();
-        else if (backdrop.id === 'recordDetailModal') closeRecordDetail();
-        else if (backdrop.id === 'editUserModal') closeEditUser();
-        else if (backdrop.id === 'confirmModal') cancelConfirmDialog();
-        else if (backdrop.id === 'previewModal') closeLinkPreview();
-        else if (backdrop.id === 'linkModal') closeLinkModal();
-        else if (backdrop.id === 'meetingNotesModal') closeMeetingNotes();
-      }
-    });
-  });
-
-  const dashboardTable = getEl('dashboardTable');
-  if (dashboardTable) {
-    dashboardTable.querySelectorAll('thead th[data-dash-sort]').forEach(function (th) {
-      th.classList.add('sortable');
-      th.addEventListener('click', function () {
-        setDashSort(th.getAttribute('data-dash-sort'));
-      });
-    });
-    const dashTbody = dashboardTable.querySelector('tbody');
-    if (dashTbody) {
-      dashTbody.addEventListener('click', function (e) {
-        if (e.target.closest('button')) return;
-        const tr = e.target.closest('tr[data-row]');
-        if (tr) openRecordDetail(tr.getAttribute('data-row'));
-      });
-      dashTbody.addEventListener('keydown', function (e) {
-        const focused = document.activeElement;
-        if (!focused || focused.tagName !== 'TR') return;
-        const rows = Array.from(dashTbody.querySelectorAll('tr[data-row]'));
-        const idx = rows.indexOf(focused);
-        if (e.key === 'ArrowDown' && idx < rows.length - 1) { rows[idx + 1].focus(); e.preventDefault(); }
-        if (e.key === 'ArrowUp' && idx > 0) { rows[idx - 1].focus(); e.preventDefault(); }
-        if (e.key === 'Enter' || e.key === ' ') { openRecordDetail(focused.getAttribute('data-row')); e.preventDefault(); }
-      });
-    }
-  }
-
-  const auditTable = getEl('auditTable');
-  if (auditTable) {
-    auditTable.querySelectorAll('thead th[data-sort]').forEach(function (th) {
-      th.classList.add('sortable');
-      th.addEventListener('click', function () {
-        setAuditSort(th.getAttribute('data-sort'));
-      });
-    });
-  }
-
-  const usersTable = getEl('usersTable');
-  if (usersTable) {
-    usersTable.addEventListener('click', function (e) {
-      const btn = e.target.closest('button[data-action]');
-      if (!btn) return;
-      const tbody = usersTable.querySelector('tbody');
-      const users = JSON.parse((tbody && tbody.dataset.users) || '[]');
-      const user = users[Number(btn.dataset.index)];
-      if (!user) return;
-      if (btn.dataset.action === 'delete') deleteUser(user.email);
-      else if (btn.dataset.action === 'reset') resetUserPassword(user.email);
-      else if (btn.dataset.action === 'edit') openEditUser(user.email);
-      else if (btn.dataset.action === 'killSessions') killUserSessions(user.email);
-    });
-  }
-
-  ['loginForm', 'forgotForm', 'changePasswordForm', 'addUserForm', 'editForm'].forEach(function (id) {
-    const form = getEl(id);
-    if (form) wireFieldClearing(form);
-  });
-
-  window.addEventListener('offline', updateOfflineBanner);
-  window.addEventListener('online', function () {
-    updateOfflineBanner();
-    showToast('You are back online', 'info');
-  });
 }
 
 wireGlobalEvents();
