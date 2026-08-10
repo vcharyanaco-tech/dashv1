@@ -105,7 +105,12 @@ const appState = {
   dashSortKey: 'id',
   dashSortDir: 'asc',
   permissions: {},
-  notifications: { unread: 0, recent: [] }
+  notifications: { unread: 0, recent: [] },
+  // Rows in the table view that currently have an inline panel open, keyed by
+  // row number -> 'ai' (AI insight) or 'link' (Analyze link). Preserved across
+  // dashboard re-renders (e.g. the 60s auto-refresh) so an open panel is not
+  // silently closed by a background refresh.
+  expandedTableRows: {}
 };
 
 /* ---------------------------------- Helpers ---------------------------------- */
@@ -1160,7 +1165,19 @@ function toggleCardAi(row, btn) {
 
 function collapseCardAi(btn) {
   const panel = btn.closest('.card-ai-panel');
-  if (panel) panel.classList.add('card-ai-collapsed');
+  if (!panel) return;
+  /* For table-row panels the Collapse button removes the row entirely
+     (same as toggling the button again) so the auto-refresh doesn't leave
+     an empty row. For card panels, the existing collapsed-class behavior
+     keeps the panel hidden until the user re-toggles. */
+  const tr = panel.closest('tr');
+  if (tr) {
+    const rowKey = tr.previousElementSibling && tr.previousElementSibling.getAttribute('data-row');
+    if (rowKey) delete appState.expandedTableRows[rowKey];
+    tr.remove();
+  } else {
+    panel.classList.add('card-ai-collapsed');
+  }
 }
 
 function toggleRowAi(row, btn) {
@@ -1168,7 +1185,12 @@ function toggleRowAi(row, btn) {
   const tr = btn.closest('tr');
   if (!tr) return;
   const next = tr.nextElementSibling;
-  if (next && next.classList && next.classList.contains('ai-insight-tr')) { next.remove(); return; }
+  if (next && next.classList && next.classList.contains('ai-insight-tr')) {
+    next.remove();
+    delete appState.expandedTableRows[row];
+    return;
+  }
+  appState.expandedTableRows[row] = 'ai';
   const panelTr = document.createElement('tr');
   panelTr.className = 'ai-insight-tr';
   const td = document.createElement('td');
@@ -1237,7 +1259,12 @@ function toggleRowLink(row, btn) {
   const tr = btn.closest('tr');
   if (!tr) return;
   const next = tr.nextElementSibling;
-  if (next && next.classList && next.classList.contains('ai-link-tr')) { next.remove(); return; }
+  if (next && next.classList && next.classList.contains('ai-link-tr')) {
+    next.remove();
+    delete appState.expandedTableRows[row];
+    return;
+  }
+  appState.expandedTableRows[row] = 'link';
   const panelTr = document.createElement('tr');
   panelTr.className = 'ai-link-tr';
   const td = document.createElement('td');
@@ -1781,6 +1808,43 @@ function renderDashboardTable() {
   if (summaryEl) summaryEl.textContent = appState.filtered.length + ' record' + (appState.filtered.length === 1 ? '' : 's') + ' found';
 
   applyColumnVisibility();
+
+  /* Re-open any expanded AI insight / Analyze link rows that were destroyed
+     when the tbody was rebuilt (e.g. the 60s auto-refresh). */
+  restoreExpandedRows_();
+}
+
+/* Re-creates the inline panel row for every row that had an AI insight or
+   Analyze link panel open, so a dashboard re-render (auto-refresh, filter,
+   sort, pagination) does not silently close them. Only rows still present on
+   the current page are restored; the content is re-fetched. */
+function restoreExpandedRows_() {
+  const table = getEl('dashboardTable');
+  if (!table) return;
+  const tbody = table.querySelector('tbody');
+  if (!tbody) return;
+  Object.keys(appState.expandedTableRows || {}).forEach(function (rowKey) {
+    const rowEl = tbody.querySelector('tr[data-row="' + CSS.escape(rowKey) + '"]');
+    if (!rowEl) return;
+    if (rowEl.nextElementSibling && rowEl.nextElementSibling.classList &&
+        (rowEl.nextElementSibling.classList.contains('ai-insight-tr') || rowEl.nextElementSibling.classList.contains('ai-link-tr'))) {
+      return; // already restored
+    }
+    const type = appState.expandedTableRows[rowKey];
+    const panelTr = document.createElement('tr');
+    panelTr.className = type === 'link' ? 'ai-link-tr' : 'ai-insight-tr';
+    const td = document.createElement('td');
+    td.setAttribute('colspan', '8');
+    td.className = type === 'link' ? 'card-ai-panel card-link-panel' : 'card-ai-panel card-ai-insight';
+    td.innerHTML = type === 'link' ? cardLinkPanelHtml_() : cardAiPanelHtml_();
+    panelTr.appendChild(td);
+    rowEl.parentNode.insertBefore(panelTr, rowEl.nextSibling);
+    if (type === 'link') {
+      loadCardLink(td, rowKey);
+    } else {
+      loadCardAi(td, rowKey);
+    }
+  });
 }
 
 /* ---------------------------------- Event wiring ---------------------------------- */
