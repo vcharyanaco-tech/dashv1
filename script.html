@@ -2042,6 +2042,84 @@ function wireGlobalEvents() {
   });
 }
 
+function dashCompare(a, b) {
+  const av = a == null ? '' : a;
+  const bv = b == null ? '' : b;
+  const an = Number(av);
+  const bn = Number(bv);
+  const aIsNum = av !== '' && isFinite(an);
+  const bIsNum = bv !== '' && isFinite(bn);
+  if (aIsNum && bIsNum) return an - bn;
+  return String(av).toLowerCase() < String(bv).toLowerCase() ? -1
+    : (String(av).toLowerCase() > String(bv).toLowerCase() ? 1 : 0);
+}
+
+function dashDateKey(v) {
+  if (v == null) return 0;
+  v = String(v).trim();
+  let m = v.match(/^(\d{1,2})[.\-/](\d{1,2})[.\-/](\d{2,4})$/);
+  if (m) {
+    let y = Number(m[3]);
+    if (y < 100) y += 2000;
+    return (y * 10000) + (Number(m[2]) * 100) + Number(m[1]);
+  }
+  m = v.match(/^(\d{4})-(\d{1,2})-(\d{1,2})$/);
+  if (m) return (Number(m[1]) * 10000) + (Number(m[2]) * 100) + Number(m[3]);
+  return Number(v) || 0;
+}
+
+function sortedItems() {
+  const key = appState.dashSortKey;
+  const dir = appState.dashSortDir === 'desc' ? -1 : 1;
+  const isDate = key === 'entryDate' || key === 'reviewDate';
+  return appState.filtered.slice().sort(function (a, b) {
+    if (isDate) return (dashDateKey(a[key]) - dashDateKey(b[key])) * dir;
+    return dashCompare(a[key], b[key]) * dir;
+  });
+}
+
+function applyColumnVisibility() {
+  const prefs = appState.dashboardPrefs || {};
+  const columns = prefs.columns || {};
+  const table = getEl('dashboardTable');
+  if (!table) return;
+  table.querySelectorAll('th[data-col]').forEach(function (th) {
+    const col = th.getAttribute('data-col');
+    const show = columns[col] !== false;
+    th.style.display = show ? '' : 'none';
+  });
+  table.querySelectorAll('tbody tr').forEach(function (tr) {
+    const cells = tr.querySelectorAll('td');
+    const headers = table.querySelectorAll('th[data-col]');
+    headers.forEach(function (th, idx) {
+      if (cells[idx]) cells[idx].style.display = th.style.display;
+    });
+  });
+}
+
+function renderDashboard() {
+  teardownDashScroller_();
+  applyFilters();
+  renderKpiCards();
+  updateFilterChips();
+  updateSortControls();
+  const grid = getEl('dashboardCards');
+  const tableWrap = getEl('dashboardTableWrap');
+  const viewCardsBtn = getEl('viewCardsBtn');
+  const viewTableBtn = getEl('viewTableBtn');
+  const isTable = appState.dashboardView === 'table';
+  if (grid) grid.classList.toggle('hidden', isTable);
+  if (tableWrap) tableWrap.classList.toggle('hidden', !isTable);
+  if (viewCardsBtn) viewCardsBtn.classList.toggle('active', !isTable);
+  if (viewTableBtn) viewTableBtn.classList.toggle('active', isTable);
+  if (isTable) {
+    renderDashboardTable();
+  } else {
+    renderDashboardCards();
+  }
+  renderPagination();
+}
+
 /* ---------------------------------- Auth flows ---------------------------------- */
 
 function initApp() {
@@ -2628,61 +2706,6 @@ function toggleDashboardView(view) {
   renderDashboard();
 }
 
-function dashCompare(a, b) {
-  const av = a == null ? '' : a;
-  const bv = b == null ? '' : b;
-  const an = Number(av);
-  const bn = Number(bv);
-  const aIsNum = av !== '' && isFinite(an);
-  const bIsNum = bv !== '' && isFinite(bn);
-  if (aIsNum && bIsNum) return an - bn;
-  return String(av).toLowerCase() < String(bv).toLowerCase() ? -1
-    : (String(av).toLowerCase() > String(bv).toLowerCase() ? 1 : 0);
-}
-
-function dashDateKey(v) {
-  if (v == null) return 0;
-  v = String(v).trim();
-  let m = v.match(/^(\d{1,2})[.\-/](\d{1,2})[.\-/](\d{2,4})$/);
-  if (m) {
-    let y = Number(m[3]);
-    if (y < 100) y += 2000;
-    return (y * 10000) + (Number(m[2]) * 100) + Number(m[1]);
-  }
-  m = v.match(/^(\d{4})-(\d{1,2})-(\d{1,2})$/);
-  if (m) return (Number(m[1]) * 10000) + (Number(m[2]) * 100) + Number(m[3]);
-  return Number(v) || 0;
-}
-
-function sortedItems() {
-  const key = appState.dashSortKey;
-  const dir = appState.dashSortDir === 'desc' ? -1 : 1;
-  const isDate = key === 'entryDate' || key === 'reviewDate';
-  return appState.filtered.slice().sort(function (a, b) {
-    if (isDate) return (dashDateKey(a[key]) - dashDateKey(b[key])) * dir;
-    return dashCompare(a[key], b[key]) * dir;
-  });
-}
-
-function applyColumnVisibility() {
-  const prefs = appState.dashboardPrefs || {};
-  const columns = prefs.columns || {};
-  const table = getEl('dashboardTable');
-  if (!table) return;
-  table.querySelectorAll('th[data-col]').forEach(function (th) {
-    const col = th.getAttribute('data-col');
-    const show = columns[col] !== false;
-    th.style.display = show ? '' : 'none';
-  });
-  table.querySelectorAll('tbody tr').forEach(function (tr) {
-    const cells = tr.querySelectorAll('td');
-    const headers = table.querySelectorAll('th[data-col]');
-    headers.forEach(function (th, idx) {
-      if (cells[idx]) cells[idx].style.display = th.style.display;
-    });
-  });
-}
-
 function setDashSort(key) {
   if (key === appState.dashSortKey) {
     appState.dashSortDir = appState.dashSortDir === 'asc' ? 'desc' : 'asc';
@@ -2724,29 +2747,6 @@ function setPage(page) {
   renderPagination();
   const target = appState.dashboardView === 'table' ? getEl('dashboardTableWrap') : getEl('dashboardCards');
   if (target) target.scrollIntoView({ behavior: 'smooth', block: 'start' });
-}
-
-function renderDashboard() {
-  teardownDashScroller_();
-  applyFilters();
-  renderKpiCards();
-  updateFilterChips();
-  updateSortControls();
-  const grid = getEl('dashboardCards');
-  const tableWrap = getEl('dashboardTableWrap');
-  const viewCardsBtn = getEl('viewCardsBtn');
-  const viewTableBtn = getEl('viewTableBtn');
-  const isTable = appState.dashboardView === 'table';
-  if (grid) grid.classList.toggle('hidden', isTable);
-  if (tableWrap) tableWrap.classList.toggle('hidden', !isTable);
-  if (viewCardsBtn) viewCardsBtn.classList.toggle('active', !isTable);
-  if (viewTableBtn) viewTableBtn.classList.toggle('active', isTable);
-  if (isTable) {
-    renderDashboardTable();
-  } else {
-    renderDashboardCards();
-  }
-  renderPagination();
 }
 
 function refreshData() {
