@@ -394,13 +394,17 @@ function toggleSubmissionDisplay(submissionId, token) {
   const admin = requireAdmin_(token);
 
   return runWithLock_(function () {
-    const rec = findSubmissionRecord_(submissionId);
+    // Single read reused for the lookup, the write and the response (same
+    // pattern as updateSubmission) — no second full-sheet re-read.
+    const rows = readSubmissionRows_();
+    const rec = findSubmissionRecord_(submissionId, rows);
     if (!rec) throw clientError_('Submission not found.');
 
     const next = !rec.displayed;
     submissionsSheet_().getRange(rec.row, SUBMISSION_COL.DISPLAYED).setValue(next);
+    rec.displayed = next; // patch in-memory so the response reflects the change
 
     try { logAudit_(next ? ACTIONS.SUBMISSION_DISPLAY : ACTIONS.SUBMISSION_HIDE, rec.cardRow, { id: submissionId }, admin.email); } catch (err) {}
-    return submissionsForCard_(rec.cardRow, admin);
+    return submissionsForCard_(rec.cardRow, admin, rows);
   });
 }

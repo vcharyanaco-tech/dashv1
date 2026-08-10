@@ -5254,9 +5254,26 @@ function toggleDisplaySubmission(id) {
   if (!appState.isAdmin) { showToast('Admin access required', 'warning'); return; }
   ApiService.toggleSubmissionDisplay(id).then(function (list) {
     appState.submissions = list || [];
+    // Patch the displayed-on-card list locally from the toggle response so the
+    // cards update without a full getAppData refetch + full dashboard re-render.
+    const updated = (list || []).find(function (s) { return String(s.id) === String(id); });
+    if (updated) {
+      const others = (appState.displayedSubmissions || []).filter(function (s) {
+        return String(s.id) !== String(id);
+      });
+      if (updated.displayed) {
+        others.push({
+          cardRow: Number(updated.cardRow),
+          email: updated.email,
+          text: updated.text,
+          createdAt: updated.createdAt
+        });
+      }
+      appState.displayedSubmissions = others;
+    }
     renderSubmissionList();
     showToast('Display updated', 'success');
-    refreshData();
+    renderDashboard();
     }).catch(function (err) {
       if (handleServerFailure(err)) return;
       showToast('Could not update display: ' + (err.message || err), 'error');
