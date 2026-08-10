@@ -116,7 +116,7 @@ function buildDashboardItems_(rows, sheet) {
   const statuses = getReviewStatuses_(sheet, rows);
 
   return rows.map(function (rowSpec) {
-    let actionHtml = escHtml_(rowSpec.action);
+    let actionHtml = AppUtils.escHtml(rowSpec.action);
 
     const reviewStatus = statuses[String(rowSpec.rowNumber)] || "";
     const flagged = reviewStatus === "due";
@@ -135,11 +135,11 @@ function buildDashboardItems_(rows, sheet) {
       if (normalizedLabel.indexOf("date") === -1) {
         if (field && field.html) {
           fieldHtml = field.html;
-        } else if (normalizedLabel.indexOf("action") === -1 && looksLikeUrl_(formattedValue)) {
+        } else if (normalizedLabel.indexOf("action") === -1 && AppUtils.looksLikeUrl(formattedValue)) {
           // Only real rich-text hyperlinks turn the action field into a link.
           // Plain prose in the action cell must stay plain text (Point: no
           // heuristic auto-linkify for the action column).
-          fieldHtml = linkifyText_(formattedValue);
+          fieldHtml = AppUtils.linkifyText(formattedValue);
         }
       }
       // Point 7: every rich-text/link HTML fragment passes through the

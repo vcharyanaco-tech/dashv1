@@ -164,7 +164,7 @@ function updateRecord_(item, token) {
       let rt = null;
       try { rt = range.getRichTextValue(); } catch (e) { rt = null; }
       const plain = rt ? String(rt.getText()) : String(range.getValue() == null ? "" : range.getValue());
-      return { plain: plain, link: extractLinkUrl_(rt), linkText: extractLinkText_(rt) };
+      return { plain: plain, link: AppUtils.extractLinkUrl(rt), linkText: AppUtils.extractLinkText(rt) };
     }
 
     function writeLinkedField(col, state, newVal, linkUrl, linkText) {

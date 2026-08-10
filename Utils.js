@@ -139,6 +139,175 @@ const AppUtils = {
     return s;
   },
 
+  /** Escapes a string for safe embedding in HTML text/attributes. */
+  escHtml: function (s) {
+    if (s === null || s === undefined) return '';
+    return String(s)
+      .replace(/&/g, '&amp;')
+      .replace(/</g, '&lt;')
+      .replace(/>/g, '&gt;')
+      .replace(/"/g, '&quot;')
+      .replace(/'/g, '&#39;');
+  },
+
+  /** True when a value reads as a linkable URL (explicit scheme, www, or a
+   *  bare domain with no whitespace). Plain prose is never auto-linked. */
+  looksLikeUrl: function (value) {
+    if (value === null || value === undefined) return false;
+    const text = String(value).trim();
+    if (!text) return false;
+    // Only treat explicit schemes / www / bare domains (no whitespace) as URLs.
+    // Prose that merely contains a dot (e.g. "Send to office.verify" or
+    // "file.pdf") must never be auto-linked on cards or reports.
+    return /^(https?:\/\/|mailto:|ftp:\/\/|www\.)/i.test(text) ||
+      (/^[a-z0-9-]+(\.[a-z0-9-]+)+(:\d+)?(\/\S*)?$/i.test(text) && text.indexOf(' ') === -1);
+  },
+
+  /** Prefixes https:// to bare "www." URLs; passes everything else through. */
+  normalizeUrl: function (value) {
+    const text = String(value || '').trim();
+    if (!text) return '';
+    if (/^www\./i.test(text)) return 'https://' + text;
+    return text;
+  },
+
+  /** Base URL of the active spreadsheet (lazily cached per script run). */
+  _ssUrlCache: null,
+  ssBaseUrl: function () {
+    if (AppUtils._ssUrlCache === null) {
+      try { AppUtils._ssUrlCache = SpreadsheetApp.getActiveSpreadsheet().getUrl(); } catch (e) { AppUtils._ssUrlCache = ''; }
+    }
+    return AppUtils._ssUrlCache;
+  },
+
+  /** Resolves a possibly-relative/hostless URL against the spreadsheet URL.
+   *  Returns '' for unresolvable values (kept from ever producing garbage links). */
+  absUrl: function (u) {
+    if (!u) return '';
+    var s = String(u).trim();
+    if (!s) return '';
+    if (s.charAt(0) === '#') {
+      var base = AppUtils.ssBaseUrl();
+      if (!base) return '';
+      return base.split('#')[0] + s;
+    }
+    if (/^(https?:|mailto:|tel:)/i.test(s)) return s;
+    if (s.charAt(0) === '/') return '';
+    if (s.indexOf('www.') === 0) return 'https://' + s;
+    return 'https://' + s;
+  },
+
+  /** Replaces linkable URL tokens in plain text with safe anchor tags. */
+  linkifyText: function (text) {
+    if (text === null || text === undefined) return '';
+    const source = String(text);
+    if (!source) return '';
+    const pieces = source.split(/(\s+)/);
+    return pieces.map(function (piece) {
+      if (!AppUtils.looksLikeUrl(piece)) {
+        return AppUtils.escHtml(piece);
+      }
+      const url = AppUtils.normalizeUrl(piece);
+      const safeUrl = AppUtils.absUrl(url);
+      if (!safeUrl) {
+        return AppUtils.escHtml(piece);
+      }
+      return '<a href="' + AppUtils.escHtml(safeUrl) + '" target="_blank" rel="noopener noreferrer" data-embed="1">' + AppUtils.escHtml(piece) + '</a>';
+    }).join('');
+  },
+
+  /** Converts a RichTextValue into display HTML (links, colors, bold/italic). */
+  richToHtml: function (rt, fallback) {
+    if (!rt) return AppUtils.linkifyText(fallback);
+    var runs = null;
+    try { runs = rt.getRuns(); } catch (e) { runs = null; }
+    if (!runs || !runs.length) {
+      var text = '';
+      try { text = rt.getText(); } catch (e) { text = ''; }
+      return AppUtils.linkifyText(text || fallback);
+    }
+    var out = [];
+    for (var i = 0; i < runs.length; i++) {
+      var t = runs[i].getText();
+      if (t === '' || t === null) continue;
+      var css = [];
+      var st = null;
+      try { st = runs[i].getTextStyle(); } catch (e) { st = null; }
+      if (st) {
+        var col = null;
+        try {
+          var co = st.getForegroundColorObject();
+          if (co) { col = co.asRgbColor().asHexString(); }
+        } catch (e2) {
+          try { col = st.getForegroundColor(); } catch (e3) { col = null; }
+        }
+        if (col && String(col).length >= 4) {
+          var c9 = String(col);
+          if (c9.length === 9) { c9 = '#' + c9.substring(3); }
+          css.push('color:' + c9);
+        }
+        try { if (st.isBold()) css.push('font-weight:700'); } catch (e4) {}
+        try { if (st.isItalic()) css.push('font-style:italic'); } catch (e5) {}
+        try { if (st.isUnderline()) css.push('text-decoration:underline'); } catch (e6) {}
+      }
+      var body = AppUtils.escHtml(t);
+      var url = null;
+      try { url = runs[i].getLinkUrl(); } catch (e8) { url = null; }
+      if (url) {
+        var au = AppUtils.absUrl(url);
+        if (au) { body = '<a href="' + AppUtils.escHtml(au) + '" target="_blank" rel="noopener noreferrer" data-embed="1">' + body + '</a>'; }
+      } else {
+        body = AppUtils.linkifyText(t);
+      }
+      if (css.length) { out.push('<span style="' + css.join(';') + '">' + body + '</span>'); }
+      else { out.push(body); }
+    }
+    return out.join('');
+  },
+
+  /** First link URL found in a rich-text value ('' when none). */
+  extractLinkUrl: function (rt) {
+    if (!rt) return "";
+    var runs = null;
+    try { runs = rt.getRuns(); } catch (e) { runs = null; }
+    if (runs && runs.length) {
+      for (var i = 0; i < runs.length; i++) {
+        var u = null;
+        try { u = runs[i].getLinkUrl(); } catch (e2) { u = null; }
+        if (u) return String(u);
+      }
+      return "";
+    }
+    try {
+      if (typeof rt.getLinkUrl === "function") {
+        var direct = rt.getLinkUrl();
+        return direct ? String(direct) : "";
+      }
+    } catch (e3) {}
+    return "";
+  },
+
+  /** Display text of the linked portion of a rich-text value ('' when none). */
+  extractLinkText: function (rt) {
+    if (!rt) return "";
+    var runs = null;
+    try { runs = rt.getRuns(); } catch (e) { runs = null; }
+    if (runs && runs.length) {
+      var out = "";
+      for (var i = 0; i < runs.length; i++) {
+        var u = null;
+        try { u = runs[i].getLinkUrl(); } catch (e2) { u = null; }
+        if (u) {
+          var t = "";
+          try { t = runs[i].getText(); } catch (e3) { t = ""; }
+          out += t;
+        }
+      }
+      return out;
+    }
+    return "";
+  },
+
   /** Formats a value using the sheet's display date format ("dd.MM.yyyy"). */
   formatDate: function (value) {
     if (value === null || value === undefined || value === "") return "";
@@ -445,12 +614,12 @@ function linkTextFromCell_(cell) {
 }
 
 /** Rebuilds the display HTML for a cell from its raw value + runs,
- *  mirroring richToHtml_ (links, colors, bold/italic/underline). */
+ *  mirroring AppUtils.richToHtml (links, colors, bold/italic/underline). */
 function cellHtmlFromRuns_(cell) {
   const value = cell ? cell.value : "";
   const plain = String(value == null ? "" : value);
   const runs = (cell && cell.runs) || [];
-  if (!runs.length) return linkifyText_(plain);
+  if (!runs.length) return AppUtils.linkifyText(plain);
   let out = "";
   for (let i = 0; i < runs.length; i++) {
     const t = String(runs[i].text || "");
@@ -464,15 +633,15 @@ function cellHtmlFromRuns_(cell) {
     if (tf.bold) css.push("font-weight:700");
     if (tf.italic) css.push("font-style:italic");
     if (tf.underline) css.push("text-decoration:underline");
-    let body = escHtml_(t);
+    let body = AppUtils.escHtml(t);
     const url = (fmt.link && fmt.link.uri) || "";
     if (url) {
-      const au = absUrl_(url);
-      if (au) body = '<a href="' + escHtml_(au) + '" target="_blank" rel="noopener noreferrer" data-embed="1">' + body + '</a>';
+      const au = AppUtils.absUrl(url);
+      if (au) body = '<a href="' + AppUtils.escHtml(au) + '" target="_blank" rel="noopener noreferrer" data-embed="1">' + body + '</a>';
     }
     out += css.length ? '<span style="' + css.join(";") + '">' + body + '</span>' : body;
   }
-  return out || linkifyText_(plain);
+  return out || AppUtils.linkifyText(plain);
 }
 
 /** Builds row specs from the advanced grid snapshot (same shape as the
@@ -594,17 +763,17 @@ function getSheetDataRows_(sheet) {
       const richValue = (richValues[rowNumber - 1] || [])[headerIndex];
       if (richValue) {
         try {
-          html = richToHtml_(richValue, String(value === null || value === undefined ? "" : value));
+          html = AppUtils.richToHtml(richValue, String(value === null || value === undefined ? "" : value));
         } catch (err) {
           html = "";
         }
         try {
-          linkUrl = extractLinkUrl_(richValue);
+          linkUrl = AppUtils.extractLinkUrl(richValue);
         } catch (err2) {
           linkUrl = "";
         }
         try {
-          linkText = extractLinkText_(richValue);
+          linkText = AppUtils.extractLinkText(richValue);
         } catch (err2b) {
           linkText = "";
         }
@@ -1106,9 +1275,9 @@ function buildRowSpecForRow_(sheet, row) {
       let linkText = "";
       const richValue = richRow ? richRow[headerIndex] : null;
       if (richValue) {
-        try { html = richToHtml_(richValue, String(value === null || value === undefined ? "" : value)); } catch (err) { html = ""; }
-        try { linkUrl = extractLinkUrl_(richValue); } catch (err2) { linkUrl = ""; }
-        try { linkText = extractLinkText_(richValue); } catch (err2b) { linkText = ""; }
+        try { html = AppUtils.richToHtml(richValue, String(value === null || value === undefined ? "" : value)); } catch (err) { html = ""; }
+        try { linkUrl = AppUtils.extractLinkUrl(richValue); } catch (err2) { linkUrl = ""; }
+        try { linkText = AppUtils.extractLinkText(richValue); } catch (err2b) { linkText = ""; }
       }
       if (linkUrl && fieldIndexByKey[headerIndex] !== undefined) {
         linkUrls[fieldIndexByKey[headerIndex]] = linkUrl;
