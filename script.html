@@ -1253,7 +1253,7 @@ function toggleRowAi(row, btn) {
   const panelTr = document.createElement('tr');
   panelTr.className = 'ai-insight-tr';
   const td = document.createElement('td');
-  td.setAttribute('colspan', '7');
+  td.setAttribute('colspan', '8');
   td.className = 'card-ai-panel card-ai-insight';
   td.innerHTML = cardAiPanelHtml_();
   panelTr.appendChild(td);
@@ -1322,7 +1322,7 @@ function toggleRowLink(row, btn) {
   const panelTr = document.createElement('tr');
   panelTr.className = 'ai-link-tr';
   const td = document.createElement('td');
-  td.setAttribute('colspan', '7');
+  td.setAttribute('colspan', '8');
   td.className = 'card-ai-panel card-link-panel';
   td.innerHTML = cardLinkPanelHtml_();
   panelTr.appendChild(td);
@@ -2233,7 +2233,8 @@ function dashboardColumnKey_(label) {
   if (l === 'description') return 'description';
   if (l.indexOf('entry') !== -1) return 'entryDate';
   if (l.indexOf('review') !== -1) return 'reviewDate';
-  if (l.indexOf('action') !== -1) return 'actions';
+  if (l === 'actions') return 'actions';
+  if (l.indexOf('action') !== -1) return 'action';
   return '';
 }
 
@@ -2450,6 +2451,7 @@ function buildTableRowHtml(item) {
       <td class="preserve-whitespace">${escapeHtml(item.sector || '')}</td>
       <td class="details-cell preserve-whitespace">${escapeHtml(item.description || '')}</td>
       <td class="preserve-whitespace">${escapeHtml(item.entryDate || '')}</td>
+      <td class="preserve-whitespace">${renderLinkableText(item.action)}</td>
       <td class="preserve-whitespace">${escapeHtml(item.reviewDate || '')}</td>
       <td>${statusBadge}</td>
       <td>${actions}</td>
@@ -2474,7 +2476,7 @@ function renderDashboardTable() {
 
   table.querySelector('tbody').innerHTML = pageItems.length
     ? pageItems.map(buildTableRowHtml).join('')
-    : '<tr><td colspan="7">No records found.</td></tr>';
+    : '<tr><td colspan="8">No records found.</td></tr>';
 
   const summaryEl = getEl('dashboardTableSummary');
   if (summaryEl) summaryEl.textContent = appState.filtered.length + ' record' + (appState.filtered.length === 1 ? '' : 's') + ' found';
@@ -4973,12 +4975,40 @@ function updateOfflineBanner() {
 function wireGlobalEvents() {
   const searchInput = getEl('searchInput');
   if (searchInput) {
-    searchInput.addEventListener('input', debounce(function () {
-      appState.searchQuery = searchInput.value.trim();
-      appState.page = 1;
+    /* Only run the search for genuine user typing. Browsers sometimes
+       autofill the first text field on the page (the search box) with the
+       saved login email and fire an 'input' event without focusing the
+       field, which would auto-run a search on every page load. */
+    let userTouchedSearch = false;
+    searchInput.addEventListener('focus', function () { userTouchedSearch = true; });
+    let searchTimer = null;
+    searchInput.addEventListener('input', function () {
+      /* Ignore programmatic fills (e.g. autofill) that never focus the field. */
+      if (document.activeElement !== searchInput) return;
+      clearTimeout(searchTimer);
+      searchTimer = setTimeout(function () {
+        appState.searchQuery = searchInput.value.trim();
+        appState.page = 1;
+        updateFilterChips();
+        renderDashboard();
+      }, 180);
+    });
+
+    /* Force the box empty once the page has settled so a fresh load never
+       shows an autofilled value and never starts pre-filtered. */
+    const clearStaleSearch = function () {
+      if (userTouchedSearch) return;
+      if (!searchInput.value && !appState.searchQuery) return;
+      searchInput.value = '';
+      appState.searchQuery = '';
       updateFilterChips();
       renderDashboard();
-    }, 180));
+    };
+    window.addEventListener('load', function () {
+      clearStaleSearch();
+      setTimeout(clearStaleSearch, 500);
+      setTimeout(clearStaleSearch, 1500);
+    });
   }
 
   const notifList = getEl('notifList');

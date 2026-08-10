@@ -1182,7 +1182,7 @@ function toggleRowAi(row, btn) {
   const panelTr = document.createElement('tr');
   panelTr.className = 'ai-insight-tr';
   const td = document.createElement('td');
-  td.setAttribute('colspan', '7');
+  td.setAttribute('colspan', '8');
   td.className = 'card-ai-panel card-ai-insight';
   td.innerHTML = cardAiPanelHtml_();
   panelTr.appendChild(td);
@@ -1251,7 +1251,7 @@ function toggleRowLink(row, btn) {
   const panelTr = document.createElement('tr');
   panelTr.className = 'ai-link-tr';
   const td = document.createElement('td');
-  td.setAttribute('colspan', '7');
+  td.setAttribute('colspan', '8');
   td.className = 'card-ai-panel card-link-panel';
   td.innerHTML = cardLinkPanelHtml_();
   panelTr.appendChild(td);
