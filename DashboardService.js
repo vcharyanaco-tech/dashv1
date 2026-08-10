@@ -74,7 +74,7 @@ function getReviewStatuses_(sheet, rows) {
         ? "done"
         : (isFlaggedBackground_(background) ? "due" : "");
       if (status !== "done" && rowSpec.reviewDate) {
-        const days = daysUntilDate_(rowSpec.reviewDate);
+        const days = AppUtils.daysUntilDate(rowSpec.reviewDate);
         if (days !== null && days <= 1) status = "due";
       }
       out[String(rowSpec.rowNumber)] = status;
@@ -94,7 +94,7 @@ function getReviewStatuses_(sheet, rows) {
           ? "done"
           : (isFlaggedBackground_(background) ? "due" : "");
         if (status !== "done" && rowSpec.reviewDate) {
-          const days = daysUntilDate_(rowSpec.reviewDate);
+          const days = AppUtils.daysUntilDate(rowSpec.reviewDate);
           if (days !== null && days <= 1) status = "due";
         }
         out[String(rowSpec.rowNumber)] = status;
@@ -145,7 +145,7 @@ function buildDashboardItems_(rows, sheet) {
       // Point 7: every rich-text/link HTML fragment passes through the
       // allow-list sanitizer before leaving the server (tags, link schemes,
       // inline styles, event handlers).
-      if (fieldHtml) fieldHtml = sanitizeHtml_(fieldHtml);
+      if (fieldHtml) fieldHtml = AppUtils.sanitizeHtml(fieldHtml);
 
       if (normalizedLabel.indexOf("action") !== -1 && fieldHtml) {
         actionHtml = fieldHtml;
@@ -165,7 +165,7 @@ function buildDashboardItems_(rows, sheet) {
       description: rowSpec.description,
       entryDate: AppUtils.formatDate(rowSpec.entryDate),
       action: rowSpec.action,
-      actionHtml: sanitizeHtml_(actionHtml),
+      actionHtml: AppUtils.sanitizeHtml(actionHtml),
       responsibility: rowSpec.responsibility,
       reviewDate: AppUtils.formatDate(rowSpec.reviewDate),
       flagged: flagged,

@@ -163,7 +163,7 @@ function sendOverdueWhatsAppReminders() {
   var due = (data.items || []).filter(function (item) {
     if (item.reviewStatus === 'done') return false;
     if (!enterpriseBool_(item.whatsappOptIn)) return false;
-    var days = daysUntilDate_(item.reviewDate);
+    var days = AppUtils.daysUntilDate(item.reviewDate);
     return days === 0 || days === 1;
   });
   var result = { sent: [], skipped: [], errors: [] };

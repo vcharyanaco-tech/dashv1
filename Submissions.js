@@ -114,11 +114,11 @@ function assertCanEditSubmission_(user, rec) {
   if (canEditSubmission_(user, rec)) return;
   if (submissionLocked_(rec)) {
     if (getUserRole(rec.lockedBy) === ROLES.ADMIN) {
-      throw clientError_('This submission was locked by an admin and can only be changed by an admin.');
+      throw AppUtils.clientError('This submission was locked by an admin and can only be changed by an admin.');
     }
-    throw clientError_('This submission is locked and cannot be edited.');
+    throw AppUtils.clientError('This submission is locked and cannot be edited.');
   }
-  throw clientError_('You can only edit your own submissions.');
+  throw AppUtils.clientError('You can only edit your own submissions.');
 }
 
 function formatDateTime_(value) {
@@ -236,20 +236,20 @@ function getSubmissions(token, cardRow) {
 function addSubmission(cardRow, cardId, text, token) {
   const user = requireLogin_(token);
   cardRow = Number(cardRow);
-  if (!cardRow || isNaN(cardRow) || cardRow <= 0) throw clientError_('Invalid record reference.');
+  if (!cardRow || isNaN(cardRow) || cardRow <= 0) throw AppUtils.clientError('Invalid record reference.');
   const content = String(text || '').trim();
-  if (!content) throw clientError_('Write your update before submitting.');
+  if (!content) throw AppUtils.clientError('Write your update before submitting.');
   if (content.length > CONFIG.SUBMISSIONS.MAX_TEXT_LENGTH) {
-    throw clientError_('Submission is too long (max ' + CONFIG.SUBMISSIONS.MAX_TEXT_LENGTH + ' characters).');
+    throw AppUtils.clientError('Submission is too long (max ' + CONFIG.SUBMISSIONS.MAX_TEXT_LENGTH + ' characters).');
   }
 
   return runWithLock_(function () {
     // Point 9: content-key idempotency — the exact same payload submitted to
     // the same record within 5 minutes is treated as a duplicate and returns
     // the stored result instead of appending twice (protects offline replay).
-    const idemKey = 'sub:' + sha256Hex_(String(cardRow) + '|' + String(cardId || '') + '|' + content);
+    const idemKey = 'sub:' + AppUtils.sha256Hex(String(cardRow) + '|' + String(cardId || '') + '|' + content);
     const res = withIdempotency_(idemKey, 300, function () {
-      if (!cardExists_(cardRow)) throw clientError_('Record not found.');
+      if (!cardExists_(cardRow)) throw AppUtils.clientError('Record not found.');
 
       const sh = submissionsSheet_();
       const id = Utilities.getUuid().replace(/-/g, '');
@@ -277,9 +277,9 @@ function addSubmission(cardRow, cardId, text, token) {
 function updateSubmission(submissionId, text, token) {
   const user = requireLogin_(token);
   const content = String(text || '').trim();
-  if (!content) throw clientError_('Write your update before saving.');
+  if (!content) throw AppUtils.clientError('Write your update before saving.');
   if (content.length > CONFIG.SUBMISSIONS.MAX_TEXT_LENGTH) {
-    throw clientError_('Submission is too long (max ' + CONFIG.SUBMISSIONS.MAX_TEXT_LENGTH + ' characters).');
+    throw AppUtils.clientError('Submission is too long (max ' + CONFIG.SUBMISSIONS.MAX_TEXT_LENGTH + ' characters).');
   }
 
   return runWithLock_(function () {
@@ -288,7 +288,7 @@ function updateSubmission(submissionId, text, token) {
     // sheet re-read on every edit.
     const rows = readSubmissionRows_();
     const rec = findSubmissionRecord_(submissionId, rows);
-    if (!rec) throw clientError_('Submission not found.');
+    if (!rec) throw AppUtils.clientError('Submission not found.');
     assertCanEditSubmission_(user, rec);
 
     const sh = submissionsSheet_();
@@ -324,9 +324,9 @@ function lockSubmission(submissionId, token) {
 
   return runWithLock_(function () {
     const rec = findSubmissionRecord_(submissionId);
-    if (!rec) throw clientError_('Submission not found.');
+    if (!rec) throw AppUtils.clientError('Submission not found.');
     if (submissionLocked_(rec) && getUserRole(rec.lockedBy) === ROLES.ADMIN && editor.role !== ROLES.ADMIN) {
-      throw clientError_('This submission was locked by an admin and can only be changed by an admin.');
+      throw AppUtils.clientError('This submission was locked by an admin and can only be changed by an admin.');
     }
 
     const sh = submissionsSheet_();
@@ -349,9 +349,9 @@ function unlockSubmission(submissionId, token) {
 
   return runWithLock_(function () {
     const rec = findSubmissionRecord_(submissionId);
-    if (!rec) throw clientError_('Submission not found.');
+    if (!rec) throw AppUtils.clientError('Submission not found.');
     if (submissionLocked_(rec) && getUserRole(rec.lockedBy) === ROLES.ADMIN && editor.role !== ROLES.ADMIN) {
-      throw clientError_('This submission was locked by an admin and can only be changed by an admin.');
+      throw AppUtils.clientError('This submission was locked by an admin and can only be changed by an admin.');
     }
 
     const sh = submissionsSheet_();
@@ -374,7 +374,7 @@ function deleteSubmission(submissionId, token) {
 
   return runWithLock_(function () {
     const rec = findSubmissionRecord_(submissionId);
-    if (!rec) throw clientError_('Submission not found.');
+    if (!rec) throw AppUtils.clientError('Submission not found.');
 
     const sh = submissionsSheet_();
     sh.deleteRow(rec.row);
@@ -398,7 +398,7 @@ function toggleSubmissionDisplay(submissionId, token) {
     // pattern as updateSubmission) — no second full-sheet re-read.
     const rows = readSubmissionRows_();
     const rec = findSubmissionRecord_(submissionId, rows);
-    if (!rec) throw clientError_('Submission not found.');
+    if (!rec) throw AppUtils.clientError('Submission not found.');
 
     const next = !rec.displayed;
     submissionsSheet_().getRange(rec.row, SUBMISSION_COL.DISPLAYED).setValue(next);

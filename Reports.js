@@ -146,7 +146,7 @@ function exportToSpreadsheet(token) {
       try { blob = buildXlsxFromItems_(report.items); } catch (err) { blob = null; }
     }
 
-    if (!blob) throw clientError_('Could not convert the report to Excel format.');
+    if (!blob) throw AppUtils.clientError('Could not convert the report to Excel format.');
 
     const filename = 'IndiaPostDashboard_Report_' + Utilities.formatDate(new Date(), Session.getScriptTimeZone(), 'yyyyMMdd_HHmm') + '.xlsx';
     blob.setName(filename);
@@ -318,7 +318,7 @@ function getReportData(token, templateKey) {
 function emailReport(token, recipient, templateKey) {
   requireLogin_(token);
   if (!recipient || !/^[^@\s]+@[^@\s]+\.[^@\s]+$/.test(recipient)) {
-    throw clientError_('A valid recipient email is required.');
+    throw AppUtils.clientError('A valid recipient email is required.');
   }
   const key = String(templateKey || 'summary').toLowerCase();
   const report = getReportData(token, key);

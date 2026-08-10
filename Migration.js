@@ -67,7 +67,7 @@ function adminMigrateStableIds(mode, token) {
 function resolveAdminIdentity_(token) {
   if (token) return requireAdmin_(token);
   const email = String(getCurrentUser() || '').toLowerCase().trim();
-  if (!email || !isAdmin(email)) throw clientError_('Admin permission required.');
+  if (!email || !isAdmin(email)) throw AppUtils.clientError('Admin permission required.');
   return { email: email };
 }
 

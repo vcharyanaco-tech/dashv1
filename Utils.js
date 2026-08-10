@@ -34,16 +34,24 @@
  * fail at script load.
  */
 const AppUtils = {
-  /** Creates a client-safe Error (see clientError_ below). */
+  /** Creates a client-safe Error (clientSafe === true, passed through by doPost). */
   clientError: function (message) {
     const err = new Error(String(message));
     err.clientSafe = true;
     return err;
   },
 
+  /** SHA-256 hex digest of a string (Utilities.computeDigest). */
+  sha256Hex: function (input) {
+    const raw = Utilities.computeDigest(Utilities.DigestAlgorithm.SHA_256, String(input), Utilities.Charset.UTF_8);
+    return raw.map(function (b) {
+      return ((b + 256) % 256).toString(16).padStart(2, '0');
+    }).join('');
+  },
+
   /** Hash-safe cache key (avoids hitting CacheService key-length limits). */
   safeCacheKey: function (value) {
-    return sha256Hex_(String(value || '')).slice(0, 16);
+    return AppUtils.sha256Hex(String(value || '')).slice(0, 16);
   },
 
   /** Validates an email address. */
@@ -51,11 +59,85 @@ const AppUtils = {
     return /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(String(email || '').trim());
   },
 
-  /** Days until a date, or null when unparseable. */
-  daysUntilDate: function (value) { return daysUntilDate_(value); },
+  /** Whole days from today (script timezone) to the given display date.
+   *  Returns 1 for tomorrow, 0 for today, -1 for yesterday, null when unparseable. */
+  daysUntilDate: function (value) {
+    const d = AppUtils.parseDisplayDate(value);
+    if (!d) return null;
+    const now = new Date();
+    const today = new Date(now.getFullYear(), now.getMonth(), now.getDate());
+    const target = new Date(d.getFullYear(), d.getMonth(), d.getDate());
+    return Math.round((target - today) / 86400000);
+  },
 
-  /** Whitelist HTML sanitizer for rich-text fields. */
-  sanitizeHtml: function (html) { return sanitizeHtml_(html); },
+  /** Tags allowed in rich-text HTML output. SPAN is kept only for the
+   *  inline styles the dashboard itself emits (colour/bold/italic/underline). */
+  SAFE_RICH_TAGS: Object.freeze({ A: 1, STRONG: 1, EM: 1, P: 1, BR: 1, UL: 1, OL: 1, LI: 1, SPAN: 1 }),
+
+  /** Inline CSS properties allowed inside style="..." attributes. */
+  SAFE_STYLE_PROPS: /^(color|background-color|font-weight|font-style|text-decoration|text-align):/i,
+
+  /** Blocks non-web link schemes before any attribute handling. */
+  safeLinkScheme: function (url) {
+    const t = String(url || '').trim();
+    return /^(https?:|mailto:|tel:)/i.test(t) && !/[\'"\x00-\x1f]/.test(t);
+  },
+
+  /** Whitelist HTML sanitizer for rich-text fields. Allow-lists tags
+   *  (a/strong/em/p/br/ul/ol/li/span), only http(s)/mailto/tel links, and a
+   *  tiny set of inline style properties. Strips <script>, event-handler
+   *  attributes and javascript:/data:/vbscript: URLs, and adds
+   *  rel="noopener noreferrer". Not a general HTML parser — safe for the
+   *  dashboard's own server-generated markup. Text content of stripped tags
+   *  is preserved so no visible data is lost. */
+  sanitizeHtml: function (html) {
+    if (html === null || html === undefined) return '';
+    let s = String(html);
+
+    // 1) Wholesale drop dangerous elements (tags only; text content is kept —
+    //    it is re-escaped/allow-listed by the later passes and stays inert).
+    s = s.replace(/<\s*\/?\s*(script|iframe|object|embed|style|link|meta|form|input|button|svg|math|base|template|noscript)[^>]*>/gi, '');
+
+    // 2) Strip event-handler attributes (onclick, onerror, ...), including the
+    //    no-space variant (<a href="x"onclick="...">) and handlers that are the
+    //    first attribute. A handler name must follow a quote/space/start so
+    //    ordinary words like "condition=" are never matched.
+    s = s.replace(/(^|["'\s])on[a-z]+\s*=\s*(?:"[^"]*"|'[^']*'|[^\s>]+)/gi, '$1');
+
+    // 3) Sanitize href/src attributes to safe web schemes.
+    s = s.replace(/(href|src)\s*=\s*("[^"]*"|'[^']*'|[^\s>]+)/gi, function (m, attr, val) {
+      const inner = String(val).replace(/^(['"])(.*)\1$/s, '$2');
+      if (AppUtils.safeLinkScheme(inner)) {
+        return attr + '=' + val;
+      }
+      return attr + '="#"';
+    });
+
+    // 4) Allow-list remaining tags; rewrite style attributes to safe props only.
+    s = s.replace(/<\s*(\/?)([a-zA-Z][a-zA-Z0-9]*)((?:[^">']|"[^"]*"|'[^']*')*?)\s*\/?>/g, function (m, close, tag, attrs) {
+      const upper = String(tag).toUpperCase();
+      if (!AppUtils.SAFE_RICH_TAGS[upper]) return ''; // strip unknown tags, keep text
+      if (close) return '</' + tag + '>';
+      let cleaned = String(attrs)
+        // Defense-in-depth: drop any event-handler attribute by name even when
+        // it has no leading space (the global pass above only sees whitespace).
+        .replace(/(^|["'\s])on[a-z]+\s*=\s*(?:"[^"]*"|'[^']*'|[^\s>]+)/gi, '$1')
+        .replace(/\s+style\s*=\s*("[^"]*"|'[^']*')/gi, function (mm, sv) {
+          const inner = String(sv).replace(/^(['"])(.*)\1$/s, '$2');
+          const kept = inner.split(';')
+            .map(function (st) { return String(st).trim(); })
+            .filter(function (st) { return st && AppUtils.SAFE_STYLE_PROPS.test(st); });
+          return kept.length ? ' style="' + kept.join(';') + '"' : '';
+        });
+      // Add rel for links (harmless when already present).
+      if (upper === 'A' && !/\brel\s*=/.test(cleaned)) cleaned += ' rel="noopener noreferrer"';
+      return '<' + tag + cleaned + '>';
+    });
+
+    // 5) Remove stray unsafe fragments (e.g. "<" from malformed input).
+    s = s.replace(/<\s*>/g, '').replace(/javascript\s*:/gi, '').replace(/data\s*:/gi, '');
+    return s;
+  },
 
   /** Formats a value using the sheet's display date format ("dd.MM.yyyy"). */
   formatDate: function (value) {
@@ -103,23 +185,6 @@ const AppUtils = {
     return (p ? p + '-' : '') + day + '-' + suffix;
   },
 };
-
-
-/* ============================================================
- * Client-safe error marker
- * ============================================================ */
-
-/**
- * Creates an Error that is safe to send back to the client. doPost passes
- * errors marked `clientSafe` through as-is (validation / auth / rate-limit
- * messages) and sanitizes everything else, so internal details (sheet names,
- * variable state, stack traces) never reach anonymous web-app callers.
- * @param {string} message User-facing message.
- * @returns {Error} An Error with `clientSafe === true`.
- */
-function clientError_(message) {
-  return AppUtils.clientError(message);
-}
 
 
 /* ============================================================
@@ -1115,25 +1180,9 @@ function patchCachedDataRow_(row) {
 /* ============================================================
  * Date Helpers
  *
- * formatDate / today / parseDisplayDate / now / addDays now live in
- * AppUtils (see top of file). daysUntilDate_ below is the full
- * implementation and is DELEGATED TO by AppUtils.daysUntilDate; it stays
- * top-level so existing bare-name callers keep working during the
- * incremental migration.
+ * formatDate / today / parseDisplayDate / now / addDays / daysUntilDate
+ * all live in AppUtils (see top of file).
  * ============================================================ */
-
-/* Whole days from today (script timezone) to the given display date.
-   Returns 1 for tomorrow, 0 for today, -1 for yesterday, null when unparseable. */
-function daysUntilDate_(value) {
-  const d = AppUtils.parseDisplayDate(value);
-  if (!d) return null;
-  const now = new Date();
-  const today = new Date(now.getFullYear(), now.getMonth(), now.getDate());
-  const target = new Date(d.getFullYear(), d.getMonth(), d.getDate());
-  return Math.round((target - today) / 86400000);
-}
-
-
 /* ============================================================
  * Color Helpers
  * ============================================================ */
@@ -1189,77 +1238,10 @@ function withIdempotency_(key, ttlSeconds, fn, shouldCache) {
 
 /* ============================================================
  * HTML Sanitizer (rich-text / hyperlink rendering)
+ *
+ * SAFE_RICH_TAGS / SAFE_STYLE_PROPS / safeLinkScheme / sanitizeHtml all
+ * live in AppUtils (see top of file).
  * ============================================================ */
-
-/** Tags allowed in rich-text HTML output. SPAN is kept only for the
- * inline styles the dashboard itself emits (colour/bold/italic/underline). */
-const SAFE_RICH_TAGS = Object.freeze({ A: 1, STRONG: 1, EM: 1, P: 1, BR: 1, UL: 1, OL: 1, LI: 1, SPAN: 1 });
-
-/** Inline CSS properties allowed inside style="..." attributes. */
-const SAFE_STYLE_PROPS = /^(color|background-color|font-weight|font-style|text-decoration|text-align):/i;
-
-/** Blocks non-web link schemes before any attribute handling. */
-function safeLinkScheme_(url) {
-  const t = String(url || '').trim();
-  return /^(https?:|mailto:|tel:)/i.test(t) && !/[\\'"\x00-\x1f]/.test(t);
-}
-
-/** Sanitizes rich-text HTML produced from spreadsheet rich text runs.
- *  Allow-lists tags (a/strong/em/p/br/ul/ol/li/span), only http(s)/mailto/tel
- *  links, and a tiny set of inline style properties. Strips <script>,
- *  event-handler attributes and javascript:/data:/vbscript: URLs, and adds
- *  rel="noopener noreferrer". Not a general HTML parser — safe for the
- *  dashboard's own server-generated markup. Text content of stripped tags is
- *  preserved so no visible data is lost. */
-function sanitizeHtml_(html) {
-  if (html === null || html === undefined) return '';
-  let s = String(html);
-
-  // 1) Wholesale drop dangerous elements (tags only; text content is kept —
-  //    it is re-escaped/allow-listed by the later passes and stays inert).
-  s = s.replace(/<\s*\/?\s*(script|iframe|object|embed|style|link|meta|form|input|button|svg|math|base|template|noscript)[^>]*>/gi, '');
-
-  // 2) Strip event-handler attributes (onclick, onerror, ...), including the
-  //    no-space variant (<a href="x"onclick="...">) and handlers that are the
-  //    first attribute. A handler name must follow a quote/space/start so
-  //    ordinary words like "condition=" are never matched.
-  s = s.replace(/(^|["'\s])on[a-z]+\s*=\s*(?:"[^"]*"|'[^']*'|[^\s>]+)/gi, '$1');
-
-  // 3) Sanitize href/src attributes to safe web schemes.
-  s = s.replace(/(href|src)\s*=\s*("[^"]*"|'[^']*'|[^\s>]+)/gi, function (m, attr, val) {
-    const inner = String(val).replace(/^(['"])(.*)\1$/s, '$2');
-    if (safeLinkScheme_(inner)) {
-      return attr + '=' + val;
-    }
-    return attr + '="#"';
-  });
-
-  // 4) Allow-list remaining tags; rewrite style attributes to safe props only.
-  s = s.replace(/<\s*(\/?)([a-zA-Z][a-zA-Z0-9]*)((?:[^">']|"[^"]*"|'[^']*')*?)\s*\/?>/g, function (m, close, tag, attrs) {
-    const upper = String(tag).toUpperCase();
-    if (!SAFE_RICH_TAGS[upper]) return ''; // strip unknown tags, keep text
-    if (close) return '</' + tag + '>';
-    let cleaned = String(attrs)
-      // Defense-in-depth: drop any event-handler attribute by name even when
-      // it has no leading space (the global pass above only sees whitespace).
-      .replace(/(^|["'\s])on[a-z]+\s*=\s*(?:"[^"]*"|'[^']*'|[^\s>]+)/gi, '$1')
-      .replace(/\s+style\s*=\s*("[^"]*"|'[^']*')/gi, function (mm, sv) {
-        const inner = String(sv).replace(/^(['"])(.*)\1$/s, '$2');
-        const kept = inner.split(';')
-          .map(function (st) { return String(st).trim(); })
-          .filter(function (st) { return st && SAFE_STYLE_PROPS.test(st); });
-        return kept.length ? ' style="' + kept.join(';') + '"' : '';
-      });
-    // Add rel for links (harmless when already present).
-    if (upper === 'A' && !/\brel\s*=/.test(cleaned)) cleaned += ' rel="noopener noreferrer"';
-    return '<' + tag + cleaned + '>';
-  });
-
-  // 5) Remove stray unsafe fragments (e.g. "<" from malformed input).
-  s = s.replace(/<\s*>/g, '').replace(/javascript\s*:/gi, '').replace(/data\s*:/gi, '');
-  return s;
-}
-
 /* ============================================================
  * JSON Helpers
  * ============================================================ */

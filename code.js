@@ -518,7 +518,7 @@ function getReviewReminders_(items, user) {
     if (!responsibility) return;
     if (office && !responsibilityMatchesUser_(responsibility, user)) return;
     if (item.reviewStatus === 'done') return;
-    const days = daysUntilDate_(item.reviewDate);
+    const days = AppUtils.daysUntilDate(item.reviewDate);
     if (days === null || days > 1) return;
     out.push({
       row: item.row,
@@ -611,7 +611,7 @@ function sendReviewReminders(token) {
     const responsibility = String(item.responsibility || '').trim();
     if (!responsibility) return;
     if (item.reviewStatus === 'done') return;
-    const days = daysUntilDate_(item.reviewDate);
+    const days = AppUtils.daysUntilDate(item.reviewDate);
     if (days !== 1) return;
 
     users.forEach(function (user) {
@@ -671,7 +671,7 @@ function generateReviewNotifications(token) {
       if (!responsibility) return;
       if (item.reviewStatus === 'done') return;
       if (!responsibilityMatchesUser_(responsibility, context)) return;
-      const days = daysUntilDate_(item.reviewDate);
+      const days = AppUtils.daysUntilDate(item.reviewDate);
       if (days === null || days > 1) return;
 
       const dedupeKey = 'rvnotif_' + todayKey + '_' + item.row + '_' + user.email;
@@ -811,7 +811,7 @@ function doPost(e) {
   } catch (err) {
     // Security: never leak internal error details (sheet names, variable
     // state, stack traces) to anonymous web-app callers. Intentional,
-    // client-safe validation/auth errors (marked with clientError_) keep
+    // client-safe validation/auth errors (marked with AppUtils.clientError) keep
     // their message so the UI can show meaningful feedback; everything else
     // is logged in full server-side and replaced with a generic message.
     if (err && err.clientSafe === true) {

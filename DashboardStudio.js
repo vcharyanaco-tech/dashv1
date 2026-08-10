@@ -65,6 +65,6 @@ function saveDashboardPreferences(prefs, token) {
   merged[DASHBOARD_PREF_KEYS.COLUMNS] = Object.assign({}, DEFAULT_COLUMNS, prefs.columns || merged[DASHBOARD_PREF_KEYS.COLUMNS] || {});
   merged[DASHBOARD_PREF_KEYS.LAYOUT] = prefs.layout || merged[DASHBOARD_PREF_KEYS.LAYOUT] || {};
   const ok = setUserPreferences_(user.email, merged);
-  if (!ok) throw clientError_('Could not save preferences.');
+  if (!ok) throw AppUtils.clientError('Could not save preferences.');
   return { success: true };
 }
