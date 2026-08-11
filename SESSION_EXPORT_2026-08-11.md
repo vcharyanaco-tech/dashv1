@@ -49,17 +49,40 @@ resetting passwords, and importing users all crashed.
   GAS bytes + a source guard that fails if anyone reverts to UTF_8). The full
   suite is now **87/87 passing**.
 
-### Live verification
-- Deployed @224 (crash fix) → @225 via `deploy-all.ps1`.
-- **Confirmed**: the exact call that returned the HTML crash page pre-fix now
-  returns clean JSON (`{"success":false,"error":"Login required..."}` — an
-  auth check, proving execution reaches deep into the handler).
-- Full end-to-end (create user → import → delete with correct auth args) was
-  blocked by a **Google anti-abuse interstitial** on this client's requests
-  (triggered by the earlier burst of scripted API calls; raw GAS URL and the
-  worker URL both served the `ppConfig` challenge page, and the browser-use
-  automation service was session-limited). The challenge clears in ~30-60 min;
-  see **§4. Resume** for the exact re-test recipe.
+### The charset fix was rejected — final solution is pure-JS hashing
+Attempt 1 (Latin-1 string round-trip) fixed the `number[]` signature error but
+hit a second GAS V8 pitfall: `Exception: Invalid argument: charset` —
+**`Utilities.Charset.ISO_8859_1` was REMOVED in the V8 runtime**. Login still
+"worked" only because the v1→v2 upgrade is swallowed by `try/catch {}`, so
+real logins never exercised the broken path; the create paths did, and now
+returned a clean (but still failing) JSON error instead of HTML.
+
+**Final fix: pure-JS SHA-256 / HMAC-SHA256 / PBKDF2** (`utf8Bytes_`,
+`sha256Bytes_`, `hmacSha256Bytes_`, `pbkdf2HmacSha256_` in Auth.js) — no
+`Utilities` byte-array interop at all. Standard FIPS 180-4 / RFC 2104 / RFC
+2898 with UTF-8 encoding, byte-identical to `crypto.pbkdf2Sync()` for every
+input incl. unicode and emoji (surrogate pairs). A 64-bit length field bug in
+SHA-256 padding (4 bytes instead of 8) was caught by the regression vectors
+and fixed. Tests updated to standard UTF-8 references + RFC 4231 TC1;
+suite is now **89/89 passing**.
+
+### Live verification (FULLY VERIFIED)
+- Deployed @224 (JSON error fix) → @225 → **@227/@228 (pure-JS fix)** via
+  `deploy-all.ps1` (all stages OK, worker smoke-check passed).
+- **Password round-trip proven live**: login #1 migrated the admin's legacy
+  v1 hash → v2 (pure-JS); login #2 verified the v2 hash successfully.
+- **Create/import paths work live**: `adminImportUsers` added 4 users with
+  zero errors; `adminAddUser` created its user (intermittent Google
+  interstitial intercepted one response, but the side effect confirmed via
+  listing); all 5 throwaway users deleted; final list = exactly the 6 real
+  accounts, `ALL_CLEAN`.
+- **No more HTML crash pages**: every response is clean JSON; real errors are
+  logged to Stackdriver by the fixed `doPost` (`fnName` + stack).
+- A **Google anti-abuse interstitial** (`ppConfig` page) intermittently
+  intercepts scripted requests from this client (burst-triggered; cleared in
+  ~30-60 min). Real browsers pass it. It is external to the app and NOT a
+  server error — the earlier `Unexpected token '<'` report from the live app
+  was this same transient challenge.
 
 ## 2. Performance work (task tab + login speed)
 
@@ -111,25 +134,28 @@ f4c7480 fix: GAS V8 crash on user creation (PBKDF2 Latin-1 + doPost scoping)
 4aa8e94 chore: drop one-off pbkdf2 verification script
 71f3282 test: PBKDF2 Latin-1 V8 round-trip regression vectors (5 tests)
 4f82d89 auto: 2026-08-11 17:31:38 (deploy-all)
+09ba230 fix: pure-JS SHA-256/HMAC/PBKDF2 (V8-safe) — ISO_8859_1 removed in V8
 ```
 
 ## 4. Resume point / next steps
 
-The crash fix is live; the remaining item is **live end-to-end timing
-verification** once Google's anti-abuse interstitial clears (or from a browser
-on a different IP, which passes instantly):
+The crash fix is **fully verified live** (user creation, import, password
+migration, v2 verify — all working; Users sheet clean at 6 real accounts).
+The only outstanding item is a **clean timing capture** of login / task-tab
+(earlier numbers were polluted by the intermittent interstitial + cold
+starts):
 
-1. **Quick smoke**: login via
-   `https://dashboardharyana.site/app.html` in a normal browser
-   (`vcharyanaco@gmail.com / Vish@9194`), then Tasks tab — measure the
-   `login` and `getTasks` POSTs to `/exec` in DevTools Network.
-2. **Create-user path**: Settings → Users → Add user (or bulk-import a CSV:
-   `email,role,group,department,office,password,username`) — must return
-   JSON, not an HTML page.
-3. **Cleanup**: delete any throwaway users afterwards (Users sheet should have
-   exactly 6 real accounts).
-4. If re-running from this machine via curl: pace requests ≥3 s apart with a
-   browser User-Agent, and retry login every ~3 min until the challenge page
-   (`ppConfig` in the body) stops appearing. Use
+1. **Timing**: login via `https://dashboardharyana.site/app.html` in a normal
+   browser (`vcharyanaco@gmail.com / Vish@9194`), then Tasks tab — read the
+   `login` and `getTasks` POSTs to `/exec` in DevTools Network. Baseline
+   captured so far (API level, warm): login **~3.4-4.8s**, getTasks **~3.1s**
+   (one 25s outlier when the interstitial interfered).
+2. **If the interstitial appears again** from this machine: pace requests
+   ≥3 s apart with a browser User-Agent, retry login every ~3 min until
+   `ppConfig` stops appearing in the body. Use
    `adminAddUser(email, username, role, password, group, dept, office, token)`
    and `adminDeleteUser(email, token)` — token LAST.
+3. **Deploy rule**: any change touching Auth.js hashing must keep
+   `tests/pbkdf2-v8-roundtrip.test.js` green — it pins the derivation to
+   `crypto.pbkdf2Sync` and guards against any return to
+   `Utilities.computeHmacSha256Signature` / `Charset` (both V8-hostile).
