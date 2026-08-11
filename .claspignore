@@ -27,3 +27,5 @@ Verify-EnterpriseAddons.ps1
 README_ENTERPRISE_ADDONS.md
 *.ps1
 *.md
+minify-frontend.js
+lib/**
