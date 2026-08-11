@@ -147,9 +147,11 @@ starts):
 
 1. **Timing**: login via `https://dashboardharyana.site/app.html` in a normal
    browser (`vcharyanaco@gmail.com / Vish@9194`), then Tasks tab — read the
-   `login` and `getTasks` POSTs to `/exec` in DevTools Network. Baseline
-   captured so far (API level, warm): login **~3.4-4.8s**, getTasks **~3.1s**
-   (one 25s outlier when the interstitial interfered).
+   `login` and `getTasks` POSTs to `/exec` in DevTools Network. Clean capture
+   (API level, challenge clear, paced): login **3.46-4.10s**, getAppData
+   (boot) **~2.2s**, getTasks **~1.8-3.1s** (9.3s once on a cold GAS start;
+   the Tasks sheet is currently empty, `{"result":[]}`), getDashboardCounts
+   **~3.6s**.
 2. **If the interstitial appears again** from this machine: pace requests
    ≥3 s apart with a browser User-Agent, retry login every ~3 min until
    `ppConfig` stops appearing in the body. Use
