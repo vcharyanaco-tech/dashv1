@@ -93,11 +93,47 @@ function clientWrapper(src, key) {
   return { params: m[1].split(',').map((p) => p.trim()).filter(Boolean), body: m[2].trim() };
 }
 
+/** Finds the index of the brace that closes the one opened at openIdx,
+ *  skipping over string literals so `'{...}'` inside JSON.stringify calls
+ *  never confuses the counter. Works on minified and pretty-printed code. */
+function findClosingBrace(src, openIdx) {
+  let depth = 0;
+  let quote = null;
+  let i = openIdx;
+  for (; i < src.length; i++) {
+    const c = src[i];
+    if (quote) {
+      if (c === '\\') { i++; continue; }
+      if (c === quote) quote = null;
+    } else if (c === "'" || c === '"' || c === '`') {
+      quote = c;
+    } else if (c === '{') {
+      depth++;
+    } else if (c === '}') {
+      depth--;
+      if (depth === 0) return i;
+    }
+  }
+  return -1;
+}
+
 /** Extracts the apiCall_ body (for reference in failure diagnostics). */
 function apiCallBody(src) {
-  const m = src.match(/function\s+apiCall_\s*\(([^)]*)\)\s*\{([\s\S]*?)\n\}/);
-  if (!m) return null;
-  return { params: m[1].split(',').map((p) => p.trim()).filter(Boolean), body: m[2].trim() };
+  const start = src.indexOf('function apiCall_(');
+  if (start === -1) return null;
+  const open = src.indexOf('{', start);
+  if (open === -1) return null;
+  const close = findClosingBrace(src, open);
+  if (close === -1) return null;
+  const params = src
+    .slice(start + 'function apiCall_'.length, open)
+    .trim()
+    .replace(/^\(/, '')
+    .replace(/\)$/, '')
+    .split(',')
+    .map((p) => p.trim())
+    .filter(Boolean);
+  return { params: params, body: src.slice(open, close + 1) };
 }
 
 test('API_ROUTES allowlist exposes the CRUD actions', () => {

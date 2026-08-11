@@ -29,6 +29,10 @@
  *   node sync-frontend.js            # sync (writes both clients if needed)
  *   node sync-frontend.js --check    # verify only; exit 1 on drift
  *
+ * The deploy pipeline runs `node minify-frontend.js` AFTER this script; a
+ * minified synced region is treated as in-sync (it is compared against the
+ * minified canonical), and re-syncing preserves the region's current form.
+ *
  * Wired into deploy-all.ps1 before `clasp push` so every deploy ships
  * identical shared logic to both the GAS template and the PWA.
  */
@@ -37,6 +41,7 @@
 
 const fs = require('fs');
 const path = require('path');
+const { minifyJs } = require(path.join(__dirname, 'lib', 'jsmin.js'));
 
 const ROOT = path.join(__dirname);
 const SOURCE = path.join(ROOT, 'src', 'frontend-logic.js');
@@ -111,7 +116,12 @@ function syncClient(client, canonical, checkOnly) {
   // Operate on the script text, then splice back for script.html.
   const { before, region, after } = readMarkedRegion(scriptText, client.name);
 
-  if (region === canonical) {
+  // The build pipeline runs minify-frontend.js after sync, so a synced region
+  // may legitimately be the minified form of the canonical source. Accept
+  // both; when writing, preserve whichever form the client currently uses.
+  const canonicalMin = minifyJs(canonical);
+
+  if (region === canonical || region === canonicalMin) {
     console.log('✔ ' + client.name + ': already in sync');
     return false;
   }
@@ -122,7 +132,13 @@ function syncClient(client, canonical, checkOnly) {
     return true; // drift
   }
 
-  const updated = before + normalizeEol(canonical, eol) + after;
+  // The minifier collapses every whitespace run (including newlines) to a
+  // single space, so a minified region contains no line breaks. Detect that
+  // rather than comparing to canonicalMin: a STALE minified region (canonical
+  // changed) must still be replaced with the minified form, or the client
+  // would end up half-minified until the next minify-frontend.js run.
+  const replacement = region.indexOf('\n') === -1 ? canonicalMin : canonical;
+  const updated = before + normalizeEol(replacement, eol) + after;
   if (client.spliceIntoHtml) {
     // Splice the updated script back into script.html (anchor on the LAST
     // closing tag for the same reason as extractScript above).

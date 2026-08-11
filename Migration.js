@@ -41,6 +41,21 @@ function adminMigrateStableIds(mode, token) {
     report.entities.push(migrateNotifications_(dryRun));
     report.entities.push(migrateDocuments_(dryRun));
     report.entities.push(migrateUsers_(dryRun));
+
+    // The migrations rewrite the Tasks/Submissions/Notifications/Users sheets
+    // directly (bypassing the record mutators), so their cached payloads must
+    // be invalidated or they go stale. Only families that actually changed are
+    // bumped — one bump each (deferred semantics make this a single bump per
+    // family), and dry runs never write so they skip entirely.
+    if (!dryRun) {
+      report.entities.forEach(function (e) {
+        if (!e.rowsBackfilled && !e.columnsAdded) return;
+        if (e.entity === 'Tasks') invalidateCounts_('tasks');
+        else if (e.entity === 'Submissions') invalidateCounts_('submissions');
+        else if (e.entity === 'Notifications') invalidateCounts_('notif');
+        else if (e.entity === 'Users') markUserDirty_();
+      });
+    }
   });
 
   const totals = { columnsAdded: 0, rowsBackfilled: 0, idsGenerated: 0 };

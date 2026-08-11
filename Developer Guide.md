@@ -158,6 +158,60 @@ opened (`ensureAuditLoaded`, `loadNotifications`).
 5. Redeploy the stable deployment ID, hard-refresh the live URL, sign in, and
    exercise the affected feature.
 
+## Measuring performance before/after a deploy
+
+For login and bulk-import timing see *Measuring speed before/after a deploy* in
+the [Admin Guide](Admin%20Guide.md). This section covers the two client-facing
+load paths: the dashboard boot and the Tasks tab.
+
+Common method: DevTools → **Network** (F12), **hard refresh** (**Ctrl+Shift+R**)
+so the cache-busted client bundle loads, then 2–3 runs taking the median — GAS
+cold starts make the first call of a session noisy. Use the same browser,
+network, and data volume before and after the deploy.
+
+**Dashboard load**
+
+1. The app is usable once the bootstrap `getAppData` request resolves and the
+   "Loading app…" overlay clears — that duration is the number to compare.
+   `getAppData` returns `user, items, summary, analytics, settings,
+   submissionCounts, submissionFlash, displayedSubmissions`; audit and
+   notifications load lazily the first time their tabs open.
+2. Server-side reads are generation-cached: the records payload is keyed by
+   `dataGeneration_`, count tiles by `countCacheKey_` (records/tasks/notif
+   gens), and the submissions overview by `subm:v1:g<submissionsGen>`. A
+   request that follows a mutation re-reads a sheet at most once per
+   generation instead of once per request.
+3. Compare warm-vs-warm: the first load in a new generation window (after any
+   mutation) pays the sheet read; subsequent ones hit the cache.
+
+**Tasks tab load**
+
+1. Click the Tasks tab with the Network tab open. `openTab('tasks')` calls
+   `renderTasks()` plus `refreshCounts()` for the KPI tiles.
+2. The client keeps a 30 s in-memory cache (`TASKS_CACHE_TTL_MS`): a tab
+   switch within 30 s of the last fetch renders instantly from
+   `appState.tasks` with no network call and no overlay. After the TTL, or
+   when the filter changes, `renderTasks()` fetches `ApiService.getTasks(...)`
+   and shows the "Loading tasks…" overlay — that fetch is what you time.
+3. Mutations force freshness: edit/delete/complete call `renderTasks(true)`
+   (immediate refetch with the overlay; `renderTasks(!0)` in the minified
+   clients), while off-tab quick-adds (meeting notes → tasks) call
+   `invalidateTasksCache_()` so the next tab visit refetches — saved changes
+   never wait for the 30 s window.
+4. Server side, `getTasks` reads `cachedTasksList_` (payload cache keyed
+   `tasks:v1:g<tasksGen>`), so one Tasks-sheet read serves the tab, the KPI
+   counts, and "my tasks" per generation. Mutation flows batch their
+   generation bumps (`runWithBatchedCountBumps_`), collapsing N bumps per
+   request into one per family.
+
+**Checking where the time goes**
+
+- `?inspect=1` on the web app URL dumps the bound spreadsheet as JSON (see
+  Debugging) — handy for confirming the cache would have returned fresh data.
+- Apps Script editor → **Execution transcript** (or STACKDRIVER logs) shows the
+  per-request server time; a slow sheet read there points at a cache miss
+  (new generation after a mutation) rather than client-side work.
+
 ## Logo assets
 
 Logo data URIs live in `index.html` (sidebar, splash, About, favicon) as base64

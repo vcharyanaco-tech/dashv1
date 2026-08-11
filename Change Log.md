@@ -1,5 +1,77 @@
 # Change Log
 
+## 1.1.0 — 2026-08-11 (performance + payload reduction)
+
+### Performance tuning
+- **Login ~3x faster:** PBKDF2-HMAC-SHA256 iterations 10 000 → 3 000; stored
+  v2 hashes with the old iteration count are transparently re-hashed on the
+  next successful login, so existing users pick up the faster setting without
+  a password change (`Settings.js`, `Auth.js`).
+- **Generation-bumped server-side caches** (reuses the Counts.js pattern):
+  - Users sheet reads cached per generation (`readUserRecords_` /
+    `listUserRecords_`) — login and getAppData no longer re-read the sheet
+    3-4x per request; every user mutation bumps the generation.
+  - **Batched Users-generation bumps + cache co-write** — multi-mutation flows
+    (password change, admin add/update, admin password reset, bulk import) wrap
+    their body in `runWithBatchedUserBumps_`; and while the cached Users
+    payload is present, each mutator now CO-WRITES its change into the cache
+    under the same generation key (`patchUserCacheSetField_` / `AddRow_` /
+    `RemoveRow_`, alias-aware like `findUserRecord_`), so reads inside the
+    flow hit the cache and a bulk import never re-reads the sheet after its
+    first read — zero generation bumps in the warm path. Only when the cache
+    is absent (cold/missed) do mutations fall back to `markUserDirty_`, whose
+    bumps collapse into one (flushed on exit even on error, or lazily before
+    any read). Covered by `tests/users-bump-batching.test.js` (13 tests:
+    batching semantics, co-write cell/append/remove/alias behavior, cold-cache
+    fallback, and mutator wiring source guards).
+  - Tasks list cached (`cachedTasksList_` keyed by the tasks generation) —
+    the Tasks tab, KPI counts and "my tasks" share one sheet read per
+    generation instead of one read per request.
+  - **Batched count-generation bumps (Tasks/Submissions/notif/records)** —
+    the users pattern generalized to all count families in Counts.js:
+    `invalidateCounts_()` is now deferred-aware, and
+    `runWithBatchedCountBumps_()` flushes one bump per family on exit (even on
+    throw). Multi-mutation flows now collapse their bumps: `createTask` /
+    `updateTask` / `updateTaskField` (tasks + up to 2 notifications → 1 bump
+    each), and `addSubmission` (was ~N+2 bumps for N staff recipients → 1 notif
+    + 1 submissions). The three cached read funnels (`countCacheRead_`,
+    `cachedTasksList_`, `getSubmissionOverview_`) flush pending first so
+    intra-flow reads never observe stale data. Also fixed a real staleness
+    bug: `adminMigrateStableIds` rewrites the Tasks/Submissions/Notifications/
+    Users sheets directly but never invalidated their caches — it now bumps
+    each affected family (dry-run and no-op migrations still skip). Covered by
+    `tests/count-bump-batching.test.js` (11 tests).
+  - Submission overview (counts / 24h flash / displayed) cached — every page
+    load previously re-read the whole Submissions sheet; all six submission
+    mutations bump the generation.
+  - Email renames now also invalidate the tasks/notifications/submissions
+    caches they touch (latent staleness bug fixed).
+- **Client boot + Tasks tab:**
+  - Boot parallelizes the notifications + preferences round trips
+    (`Promise.all`) in both clients.
+  - Tasks tab renders instantly from an in-memory cache (<30s) and refreshes
+    silently in the background — tab switches never block on the network.
+  - Task render logic moved into the shared synced core (`renderTasks` /
+    `renderTaskList` / `fetchTasks_`) with platform guards — ICS export,
+    offline-complete and edit/delete buttons only render where the handlers
+    exist. Fixes the GAS client's broken action buttons and its stale
+    showConfirm call on "Complete".
+  - `renderTasks(force)` flag: after a create/update/delete/complete mutation
+    the list is fetched immediately instead of waiting for the background
+    refresh, so saved changes appear right away (tab switches still use the
+    fast cached path). Meeting-notes quick-add flows (which run while the
+    Tasks tab is hidden) use a new `invalidateTasksCache_()` instead — the
+    next tab visit refetches instead of painting the stale pre-mutation list.
+    Covered by new `tests/render-tasks-force.test.js` (7 tests).
+- **Payload:**
+  - Logo data URI deduplicated in `index.html` + `docs/app.html` (4 inline
+    copies → 1 shared + a tiny boot script; ~13.7 KB saved per page).
+  - New build step `minify-frontend.js` (token-aware, idempotent, output
+    validated with `new Function` before writing) shrinks the script.html
+    inline JS 231 KB → 180 KB and docs/app.js 238 KB → 185 KB. Wired into
+    deploy-all.ps1 after sync-frontend.js; `sync-frontend.js --check` now
+    tolerates minified synced regions.
+
 ## 1.0.0 — 2026-08-19 (current, git `main`)
 
 ### Phase 1 — Architecture & technical debt (deployment @79)

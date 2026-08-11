@@ -114,11 +114,11 @@ function assertCanEditSubmission_(user, rec) {
   if (canEditSubmission_(user, rec)) return;
   if (submissionLocked_(rec)) {
     if (getUserRole(rec.lockedBy) === ROLES.ADMIN) {
-      throw AppUtils.clientError('This submission was locked by an admin and can only be changed by an admin.');
+      throw clientError_('This submission was locked by an admin and can only be changed by an admin.');
     }
-    throw AppUtils.clientError('This submission is locked and cannot be edited.');
+    throw clientError_('This submission is locked and cannot be edited.');
   }
-  throw AppUtils.clientError('You can only edit your own submissions.');
+  throw clientError_('You can only edit your own submissions.');
 }
 
 function formatDateTime_(value) {
@@ -179,25 +179,16 @@ function cardExists_(cardRow) {
   return (data.items || []).some(function (item) { return Number(item.row) === Number(cardRow); });
 }
 
-let __submissionOverviewCache__ = null;
-var SUBMISSION_OVERVIEW_CACHE_KEY = 'dashv1:suboverview:v1';
-var SUBMISSION_OVERVIEW_CACHE_TTL = 15;
-
-/* The overview (counts/flash/displayed) is rebuilt by scanning every
-   submission row, so getAppData pays a full Submissions-sheet read on every
-   request. A short cross-execution CacheService TTL serves repeated loads
-   (page loads, auto-refresh, other users) from cache; every submission
-   mutation invalidates it immediately. */
+/* Submission overview (per-card counts + 24h flash + displayed list) cached
+ * in CacheService keyed by the submissions generation counter, which every
+ * mutation bumps via invalidateCounts_('submissions'). The previous
+ * module-level cache only survived a single request in GAS, so every page
+ * load re-read the whole Submissions sheet. */
 function getSubmissionOverview_() {
-  if (__submissionOverviewCache__) return __submissionOverviewCache__;
-
-  try {
-    const raw = CacheService.getScriptCache().get(SUBMISSION_OVERVIEW_CACHE_KEY);
-    if (raw) {
-      __submissionOverviewCache__ = JSON.parse(raw);
-      return __submissionOverviewCache__;
-    }
-  } catch (err) {}
+  flushCountBumps_(); // a read must observe pending mutations: collapse them into one bump first
+  const cacheKey = 'subm:v1:g' + countGen_(COUNT_GEN_PROP.SUBMISSIONS);
+  const hit = payloadCacheRead_(cacheKey);
+  if (hit) return hit;
 
   const counts = {};
   const flash = {};
@@ -219,18 +210,9 @@ function getSubmissionOverview_() {
     }
   });
 
-  __submissionOverviewCache__ = { counts: counts, flash: flash, displayed: displayed };
-  try {
-    CacheService.getScriptCache().put(SUBMISSION_OVERVIEW_CACHE_KEY, JSON.stringify(__submissionOverviewCache__), SUBMISSION_OVERVIEW_CACHE_TTL);
-  } catch (err) {}
-  return __submissionOverviewCache__;
-}
-
-/* Drops the submission-overview cache; called after every submission mutation
-   so counts/flash/displayed refresh on the next read. */
-function invalidateSubmissionOverviewCache_() {
-  __submissionOverviewCache__ = null;
-  try { CacheService.getScriptCache().remove(SUBMISSION_OVERVIEW_CACHE_KEY); } catch (err) {}
+  const overview = { counts: counts, flash: flash, displayed: displayed };
+  payloadCacheWrite_(cacheKey, overview, CONFIG.CACHE.COUNTS_TTL_SLOW);
+  return overview;
 }
 
 
@@ -246,7 +228,7 @@ function invalidateSubmissionOverviewCache_() {
  * @returns {Object[]} Visible submissions (newest first).
  */
 function getSubmissions(token, cardRow) {
-  const user = AppUtils.requireLogin(token);
+  const user = requireLogin_(token);
   return submissionsForCard_(cardRow, user);
 }
 
@@ -259,37 +241,39 @@ function getSubmissions(token, cardRow) {
  * @returns {Object[]} Submissions for the card after the add.
  */
 function addSubmission(cardRow, cardId, text, token) {
-  const user = AppUtils.requireLogin(token);
+  const user = requireLogin_(token);
   cardRow = Number(cardRow);
-  if (!cardRow || isNaN(cardRow) || cardRow <= 0) throw AppUtils.clientError('Invalid record reference.');
+  if (!cardRow || isNaN(cardRow) || cardRow <= 0) throw clientError_('Invalid record reference.');
   const content = String(text || '').trim();
-  if (!content) throw AppUtils.clientError('Write your update before submitting.');
+  if (!content) throw clientError_('Write your update before submitting.');
   if (content.length > CONFIG.SUBMISSIONS.MAX_TEXT_LENGTH) {
-    throw AppUtils.clientError('Submission is too long (max ' + CONFIG.SUBMISSIONS.MAX_TEXT_LENGTH + ' characters).');
+    throw clientError_('Submission is too long (max ' + CONFIG.SUBMISSIONS.MAX_TEXT_LENGTH + ' characters).');
   }
 
   return runWithLock_(function () {
-    // Point 9: content-key idempotency — the exact same payload submitted to
-    // the same record within 5 minutes is treated as a duplicate and returns
-    // the stored result instead of appending twice (protects offline replay).
-    const idemKey = 'sub:' + AppUtils.sha256Hex(String(cardRow) + '|' + String(cardId || '') + '|' + content);
-    const res = withIdempotency_(idemKey, 300, function () {
-      if (!cardExists_(cardRow)) throw AppUtils.clientError('Record not found.');
-
-      const sh = submissionsSheet_();
-      const id = Utilities.getUuid().replace(/-/g, '');
-      const now = new Date();
-      sh.appendRow([id, cardRow, String(cardId || ''), user.email, content, now, now, '', null, false, 1, user.email]);
-      invalidateSubmissionOverviewCache_();
-      invalidateCounts_('notif'); // staff recipients get a notification
-
-      try { logAudit_(ACTIONS.SUBMISSION_ADD, cardRow, { id: id, cardRow: cardRow, text: content }, user.email); } catch (err) {}
-      try {
-        notifyStaffLocked_(NOTIFICATION_TYPES.SUBMISSION, 'New submission', 'Update submitted on record #' + cardRow + ' by ' + user.email + '.', '', user.email);
-      } catch (err) {}
-      return submissionsForCard_(cardRow, user);
+    return runWithBatchedCountBumps_(function () {
+      // Point 9: content-key idempotency — the exact same payload submitted to
+      // the same record within 5 minutes is treated as a duplicate and returns
+      // the stored result instead of appending twice (protects offline replay).
+      const idemKey = 'sub:' + sha256Hex_(String(cardRow) + '|' + String(cardId || '') + '|' + content);
+      const res = withIdempotency_(idemKey, 300, function () {
+        if (!cardExists_(cardRow)) throw clientError_('Record not found.');
+  
+        const sh = submissionsSheet_();
+        const id = Utilities.getUuid().replace(/-/g, '');
+        const now = new Date();
+        sh.appendRow([id, cardRow, String(cardId || ''), user.email, content, now, now, '', null, false, 1, user.email]);
+        invalidateCounts_('notif'); // staff recipients get a notification
+        invalidateCounts_('submissions');
+  
+        try { logAudit_(ACTIONS.SUBMISSION_ADD, cardRow, { id: id, cardRow: cardRow, text: content }, user.email); } catch (err) {}
+        try {
+          notifyStaffLocked_(NOTIFICATION_TYPES.SUBMISSION, 'New submission', 'Update submitted on record #' + cardRow + ' by ' + user.email + '.', '', user.email);
+        } catch (err) {}
+        return submissionsForCard_(cardRow, user);
+      });
+      return res.result;
     });
-    return res.result;
   });
 }
 
@@ -301,11 +285,11 @@ function addSubmission(cardRow, cardId, text, token) {
  * @returns {Object[]} Submissions for the card after the update.
  */
 function updateSubmission(submissionId, text, token) {
-  const user = AppUtils.requireLogin(token);
+  const user = requireLogin_(token);
   const content = String(text || '').trim();
-  if (!content) throw AppUtils.clientError('Write your update before saving.');
+  if (!content) throw clientError_('Write your update before saving.');
   if (content.length > CONFIG.SUBMISSIONS.MAX_TEXT_LENGTH) {
-    throw AppUtils.clientError('Submission is too long (max ' + CONFIG.SUBMISSIONS.MAX_TEXT_LENGTH + ' characters).');
+    throw clientError_('Submission is too long (max ' + CONFIG.SUBMISSIONS.MAX_TEXT_LENGTH + ' characters).');
   }
 
   return runWithLock_(function () {
@@ -314,7 +298,7 @@ function updateSubmission(submissionId, text, token) {
     // sheet re-read on every edit.
     const rows = readSubmissionRows_();
     const rec = findSubmissionRecord_(submissionId, rows);
-    if (!rec) throw AppUtils.clientError('Submission not found.');
+    if (!rec) throw clientError_('Submission not found.');
     assertCanEditSubmission_(user, rec);
 
     const sh = submissionsSheet_();
@@ -327,7 +311,7 @@ function updateSubmission(submissionId, text, token) {
     sh.getRange(rec.row, SUBMISSION_COL.TEXT, 1, 8).setValues([[
       content, rec.createdAt, now, rec.lockedBy, rec.lockedAt, rec.displayed, nextVersion, user.email
     ]]);
-    invalidateSubmissionOverviewCache_();
+    invalidateCounts_('submissions');
 
     // Patch the in-memory record so the response reflects the save.
     rec.text = content;
@@ -347,19 +331,19 @@ function updateSubmission(submissionId, text, token) {
  * @returns {Object[]} Submissions for the card after the lock.
  */
 function lockSubmission(submissionId, token) {
-  const editor = AppUtils.requireEditor(token);
+  const editor = requireEditor_(token);
 
   return runWithLock_(function () {
     const rec = findSubmissionRecord_(submissionId);
-    if (!rec) throw AppUtils.clientError('Submission not found.');
+    if (!rec) throw clientError_('Submission not found.');
     if (submissionLocked_(rec) && getUserRole(rec.lockedBy) === ROLES.ADMIN && editor.role !== ROLES.ADMIN) {
-      throw AppUtils.clientError('This submission was locked by an admin and can only be changed by an admin.');
+      throw clientError_('This submission was locked by an admin and can only be changed by an admin.');
     }
 
     const sh = submissionsSheet_();
     sh.getRange(rec.row, SUBMISSION_COL.LOCKED_BY).setValue(editor.email);
     sh.getRange(rec.row, SUBMISSION_COL.LOCKED_AT).setValue(new Date());
-    invalidateSubmissionOverviewCache_();
+    invalidateCounts_('submissions');
 
     try { logAudit_(ACTIONS.SUBMISSION_LOCK, rec.cardRow, { id: submissionId }, editor.email); } catch (err) {}
     return submissionsForCard_(rec.cardRow, editor);
@@ -373,19 +357,19 @@ function lockSubmission(submissionId, token) {
  * @returns {Object[]} Submissions for the card after the unlock.
  */
 function unlockSubmission(submissionId, token) {
-  const editor = AppUtils.requireEditor(token);
+  const editor = requireEditor_(token);
 
   return runWithLock_(function () {
     const rec = findSubmissionRecord_(submissionId);
-    if (!rec) throw AppUtils.clientError('Submission not found.');
+    if (!rec) throw clientError_('Submission not found.');
     if (submissionLocked_(rec) && getUserRole(rec.lockedBy) === ROLES.ADMIN && editor.role !== ROLES.ADMIN) {
-      throw AppUtils.clientError('This submission was locked by an admin and can only be changed by an admin.');
+      throw clientError_('This submission was locked by an admin and can only be changed by an admin.');
     }
 
     const sh = submissionsSheet_();
     sh.getRange(rec.row, SUBMISSION_COL.LOCKED_BY).setValue('');
     sh.getRange(rec.row, SUBMISSION_COL.LOCKED_AT).setValue(null);
-    invalidateSubmissionOverviewCache_();
+    invalidateCounts_('submissions');
 
     try { logAudit_(ACTIONS.SUBMISSION_UNLOCK, rec.cardRow, { id: submissionId }, editor.email); } catch (err) {}
     return submissionsForCard_(rec.cardRow, editor);
@@ -399,15 +383,15 @@ function unlockSubmission(submissionId, token) {
  * @returns {Object[]} Submissions for the card after the delete.
  */
 function deleteSubmission(submissionId, token) {
-  const admin = AppUtils.requireAdmin(token);
+  const admin = requireAdmin_(token);
 
   return runWithLock_(function () {
     const rec = findSubmissionRecord_(submissionId);
-    if (!rec) throw AppUtils.clientError('Submission not found.');
+    if (!rec) throw clientError_('Submission not found.');
 
     const sh = submissionsSheet_();
     sh.deleteRow(rec.row);
-    invalidateSubmissionOverviewCache_();
+    invalidateCounts_('submissions');
 
     try { logAudit_(ACTIONS.SUBMISSION_DELETE, rec.cardRow, { id: submissionId, text: rec.text }, admin.email); } catch (err) {}
     return submissionsForCard_(rec.cardRow, admin);
@@ -421,19 +405,19 @@ function deleteSubmission(submissionId, token) {
  * @returns {Object[]} Submissions for the card after the toggle.
  */
 function toggleSubmissionDisplay(submissionId, token) {
-  const admin = AppUtils.requireAdmin(token);
+  const admin = requireAdmin_(token);
 
   return runWithLock_(function () {
     // Single read reused for the lookup, the write and the response (same
     // pattern as updateSubmission) — no second full-sheet re-read.
     const rows = readSubmissionRows_();
     const rec = findSubmissionRecord_(submissionId, rows);
-    if (!rec) throw AppUtils.clientError('Submission not found.');
+    if (!rec) throw clientError_('Submission not found.');
 
     const next = !rec.displayed;
     submissionsSheet_().getRange(rec.row, SUBMISSION_COL.DISPLAYED).setValue(next);
-    invalidateSubmissionOverviewCache_();
     rec.displayed = next; // patch in-memory so the response reflects the change
+    invalidateCounts_('submissions');
 
     try { logAudit_(next ? ACTIONS.SUBMISSION_DISPLAY : ACTIONS.SUBMISSION_HIDE, rec.cardRow, { id: submissionId }, admin.email); } catch (err) {}
     return submissionsForCard_(rec.cardRow, admin, rows);

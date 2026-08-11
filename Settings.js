@@ -38,10 +38,13 @@ const CONFIG = Object.freeze({
     MAX_LOGIN_ATTEMPTS: 5,
     LOCK_MINUTES: 15,
     ACTIVITY_LIMIT: 500,
-    // Point 7: PBKDF2-HMAC-SHA256 iterations. 10k keeps login well inside
-    // the anonymous web-app execution budget; the stored hash records the
-    // exact iteration count so it can be raised later without a re-login.
-    PBKDF2_ITERATIONS: 10000
+    // Point 7: PBKDF2-HMAC-SHA256 iterations. 3k keeps login ~3x faster
+    // than the previous 10k while still forcing a brute-force attempt to
+    // cost real HMAC work. The stored hash records the exact iteration
+    // count, and login() transparently re-hashes v2 hashes whose count
+    // differs from this value — so this number can be tuned at any time
+    // without forcing users to re-login.
+    PBKDF2_ITERATIONS: 3000
   },
   RATE_LIMIT: {
     PASSWORD_RESET_MAX: 3,     PASSWORD_RESET_WINDOW: 900,

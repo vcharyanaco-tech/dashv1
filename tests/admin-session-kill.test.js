@@ -171,12 +171,12 @@ test('clients: wrapper exists in BOTH copies with token appended last', () => {
 });
 
 test('client: wrapper calls apiCall_ with (email, token) in that order', () => {
-  // Evaluate the REAL wrapper line extracted from docs/app.js. Strip the
-  // trailing ',' from the object literal so it parses as a standalone fn.
-  const line = APP.split('\n').find((l) => l.includes("adminKillUserSessions: function (email)"));
-  assert.ok(line, 'wrapper line not found in docs/app.js');
-  // CRLF source: strip trailing \r and the object-literal comma.
-  const body = line.replace(/\r/g, '').replace(/\s*,$/, '').replace('adminKillUserSessions: function', 'function');
+  // Evaluate the REAL wrapper extracted from docs/app.js. The wrapper body
+  // has no nested braces, so a non-greedy brace-less match is exact whether
+  // the client is minified or pretty-printed.
+  const m = APP.match(/adminKillUserSessions:\s*function\s*\(\s*email\s*\)\s*\{[^}]*\}/);
+  assert.ok(m, 'wrapper not found in docs/app.js');
+  const body = m[0].replace(/^\s*adminKillUserSessions:\s*function/, 'function');
 
   const calls = [];
   const sandbox = {
@@ -207,7 +207,8 @@ test('client: users table has a Sign out everywhere button in BOTH copies', () =
 });
 
 test('client: delegation routes data-action killSessions to killUserSessions', () => {
-  const re = /btn\.dataset\.action === 'killSessions'\) killUserSessions\(user\.email\)/;
+  // \\s* between tokens so the match survives minification.
+  const re = /btn\.dataset\.action\s*===\s*'killSessions'\)\s*killUserSessions\(user\.email\)/;
   for (const [label, src] of [['script.html (GAS client)', SCRIPT], ['docs/app.js (PWA client)', APP]]) {
     assert.ok(re.test(src), label + ' missing killSessions delegation');
   }

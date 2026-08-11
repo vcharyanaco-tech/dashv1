@@ -99,6 +99,53 @@ Shows the newest 80 events (timestamp, user, action, record ID, details).
 - The XLSX export is generated server-side and requires no Drive permissions for
   the end user.
 
+## Measuring speed before/after a deploy
+
+When a deploy includes performance work, record the numbers **before** the
+deploy and again **after** so the gains are visible instead of guessed at.
+Use the same browser, network, and data volume both times, and take the
+median of 2–3 runs (the first GAS call of a session includes a cold start).
+
+**Login time**
+
+1. Sign out, then open DevTools → **Network** (F12) and keep it open.
+2. Sign in and note the total time of the `login` request (the dashboard
+   becomes usable once the following `getAppData` request also returns —
+   include both if you want the full sign-in path).
+3. **Run it twice**: the first login after a deploy still verifies the
+   stored password hash with the *old* PBKDF2 iteration count and re-hashes
+   it to the new setting, so it is slower than steady state. The **second**
+   login is the number to compare — it should be roughly 3× faster than
+   before for the re-hash alone.
+4. A session lasts 6 hours; after that, login runs again at this cost.
+
+**Bulk import (Settings → Users → import CSV)**
+
+1. In DevTools → **Network**, find the `adminImportUsers` request that the
+   import button fires, or time it from the browser console:
+
+   ```js
+   const t0 = performance.now();
+   await ApiService.adminImportUsers(csvText);
+   console.log('import took', (performance.now() - t0).toFixed(0), 'ms');
+   ```
+
+2. Import the **same CSV** before and after the deploy so the comparison is
+   fair (same sheet size, same browser).
+3. What to expect: imports used to re-read the Users sheet and bump the
+   cache generation several times **per row**; they now read the sheet once
+   and co-write every change into the cached payload under the same
+   generation key, so rows in the middle of a large CSV hit the cache
+   instead of the spreadsheet. Larger CSVs show the biggest difference.
+
+**General notes**
+
+- Compare like-for-like: same browser, same network, same data volume, and
+  a median of 2–3 runs — GAS cold starts make the first call noisy.
+- Server-side gains (login, imports, cached Tasks/Submissions reads) are
+  visible on the first load after deploy. If the client bundle was rebuilt,
+  do a hard refresh (**Ctrl+Shift+R**) so the cache-busted assets load.
+
 ## Troubleshooting
 
 - **"Login required"** — your session expired (after 6 hours); sign in again.

@@ -30,7 +30,7 @@ function bootstrapAdminPassword_() {
  *  it never needs to ship in source. Never echoes the value back. Matches the
  *  codebase convention of token-as-last-argument. */
 function setAdminBootstrapPassword(password, token) {
-  AppUtils.requireAdmin(token);
+  requireAdmin_(token);
   const pw = String(password || '').trim();
   const pwError = validatePassword_(pw);
   if (pwError) return { ok: false, message: pwError };
@@ -67,6 +67,24 @@ const USER_COL = Object.freeze({
   RESET_REQUESTED: 14,
   USERNAME: 15,
   ID: 16
+});
+
+/* Fields writable via setUserField_ mapped to their USER_COL (1-based). */
+const USER_FIELD_COL = Object.freeze({
+  email: USER_COL.EMAIL,
+  role: USER_COL.ROLE,
+  salt: USER_COL.SALT,
+  passwordHash: USER_COL.PASSWORD_HASH,
+  mustChange: USER_COL.MUST_CHANGE,
+  createdBy: USER_COL.CREATED_BY,
+  createdAt: USER_COL.CREATED_AT,
+  resetToken: USER_COL.RESET_TOKEN,
+  resetExpires: USER_COL.RESET_EXPIRES,
+  group: USER_COL.GROUP,
+  department: USER_COL.DEPARTMENT,
+  office: USER_COL.OFFICE,
+  resetRequested: USER_COL.RESET_REQUESTED,
+  username: USER_COL.USERNAME
 });
 
 function getCurrentUser() {
@@ -147,16 +165,21 @@ function validatePassword_(password) {
   return null;
 }
 
-/* SHA-256 hex helper now lives in AppUtils.sha256Hex (see Utils.js). */
+function sha256Hex_(input) {
+  const raw = Utilities.computeDigest(Utilities.DigestAlgorithm.SHA_256, String(input), Utilities.Charset.UTF_8);
+  return raw.map(function (b) {
+    return ((b + 256) % 256).toString(16).padStart(2, '0');
+  }).join('');
+}
 
 /* Legacy v1 hasher (salted SHA-256, 500 iterations). Kept ONLY to verify
  * existing accounts; all new hashes are PBKDF2 v2 (see hashPasswordV2_).
  * Legacy hashes are transparently upgraded to v2 on the next successful
  * login, so this function can be deleted once every user has signed in. */
 function hashPassword_(password, salt) {
-  let hash = AppUtils.sha256Hex((salt || '') + '|' + (password || ''));
+  let hash = sha256Hex_((salt || '') + '|' + (password || ''));
   for (let i = 0; i < 500; i++) {
-    hash = AppUtils.sha256Hex(hash + '|' + (salt || ''));
+    hash = sha256Hex_(hash + '|' + (salt || ''));
   }
   return hash;
 }
@@ -255,56 +278,86 @@ function usersSheet_() {
   return sh;
 }
 
-var __usersRowsCache__ = null;
-var USERS_ROWS_CACHE_KEY = 'dashv1:usersrows:v1';
-var USERS_ROWS_CACHE_TTL = 15;
+/* Generation-bumped Users-sheet cache. Every user mutation (setUserField_,
+ * addUserRecord_, deleteUserRecord_, renameUserEmail_) marks the cache dirty
+ * (markUserDirty_); outside a batched flow that bumps the counter at once, so
+ * cached payloads whose key embeds the old generation are orphaned instantly.
+ * Multi-mutation flows (password change, admin update, bulk import) wrap their
+ * body in runWithBatchedUserBumps_ so the bumps collapse into a single one —
+ * see the helper docs below. The cache lives in CacheService (chunked by
+ * payloadCacheWrite_) because the module-level __usersSheetCache__ only
+ * survives a single request in GAS. A quota miss just falls back to reading
+ * the sheet.
+ * NOTE: the cached payload includes the raw sheet rows, i.e. salt + PBKDF2
+ * password hashes. That is the same script-scoped trust boundary as the
+ * existing getData() cache, but do not mirror this pattern into any other
+ * service (e.g. a user-facing cache) without scrubbing credentials first. */
+const __USER_GEN_PROP__ = 'dashv1:userGen';
 
-/* Date cells are normalized to a tagged { __d: ISO } wrapper before
-   JSON.stringify (JSON.stringify invokes Date.prototype.toJSON first, so a
-   replacer would only ever see the already-stringified ISO value) and restored
-   by the reviver on read. CacheService stores strings, so without this Dates
-   would silently become ISO strings and change the Users-table display format
-   between cache hit/miss. */
-function __usersRowsReviver_(k, v) {
-  if (v && typeof v === 'object' && typeof v.__d === 'string') return new Date(v.__d);
-  return v;
-}
-
-function getCachedUserRows_() {
+function userGen_() {
   try {
-    const raw = CacheService.getScriptCache().get(USERS_ROWS_CACHE_KEY);
-    if (!raw) return null;
-    const parsed = JSON.parse(raw, __usersRowsReviver_);
-    return Array.isArray(parsed) ? parsed : null;
-  } catch (err) { return null; }
+    const g = parseInt(PropertiesService.getScriptProperties().getProperty(__USER_GEN_PROP__) || '1', 10);
+    return isFinite(g) && g > 0 ? g : 1;
+  } catch (err) { return 1; }
 }
 
-function putCachedUserRows_(rows) {
+function bumpUserGen_() {
+  try { PropertiesService.getScriptProperties().setProperty(__USER_GEN_PROP__, String(userGen_() + 1)); } catch (err) {}
+}
+
+/* Deferred Users-generation bumps + cache co-write. A multi-mutation flow
+ * (password change, admin update, bulk import) used to bump the generation
+ * after EVERY cell write — each bump orphaned the cached Users payload, so
+ * the next read inside the flow paid a full sheet read (and the cache sat
+ * cold during the whole flow). Now, while the cached payload is present, each
+ * mutator co-writes its change into the cache under the SAME generation key
+ * (see patchUserCache* below), so reads inside the flow hit the cache and a
+ * bulk import never re-reads the sheet after its first read — zero bumps in
+ * the warm path. Only when the co-write finds no cache (cold/missed) does a
+ * mutation fall back to markUserDirty_: inside runWithBatchedUserBumps_ the
+ * pending markers accumulate and collapse into a SINGLE bump, flushed in
+ * `finally` (so even an error path leaves the cache consistent) or lazily
+ * right before any user read (readUserRecords_ calls flushUserBumps_), so the
+ * fallback still keeps intra-flow reads fresh (which is what keeps duplicate
+ * email/username rows in the same import detected correctly). Outside a
+ * batched flow markUserDirty_ bumps immediately, so single-mutation callers
+ * (login re-hash, ensureUserRecord_) behave exactly as before. */
+let __usersBumpsDeferred__ = false;
+let __usersBumpsPending__ = 0;
+
+function markUserDirty_() {
+  if (__usersBumpsDeferred__) { __usersBumpsPending__++; return; }
+  bumpUserGen_();
+}
+
+function flushUserBumps_() {
+  if (__usersBumpsPending__ > 0) {
+    __usersBumpsPending__ = 0;
+    bumpUserGen_();
+  }
+}
+
+/* Runs fn with user-generation bumps deferred; all mutations performed inside
+ * collapse into one bump (flushed on exit, including on throw). Nested calls
+ * restore the outer deferral state after flushing their own batch — pending
+ * is flushed, never restored (one bump invalidates both batches, so
+ * correctness holds even if a flow ever nests wrappers). */
+function runWithBatchedUserBumps_(fn) {
+  const wasDeferred = __usersBumpsDeferred__;
+  __usersBumpsDeferred__ = true;
   try {
-    const normalized = rows.map(function (r) {
-      return r.map(function (c) {
-        return Object.prototype.toString.call(c) === '[object Date]' ? { __d: c.toISOString() } : c;
-      });
-    });
-    const json = JSON.stringify(normalized);
-    if (json && json !== '[]') {
-      CacheService.getScriptCache().put(USERS_ROWS_CACHE_KEY, json, USERS_ROWS_CACHE_TTL);
-    }
-  } catch (err) {}
-}
-
-/* Drops the cross-execution user cache. Called by every user write so an
-   admin edit is visible on the next request (same-execution reads still use
-   the sheet). */
-function invalidateUsersCache_() {
-  __usersRowsCache__ = null;
-  try { CacheService.getScriptCache().remove(USERS_ROWS_CACHE_KEY); } catch (err) {}
+    return fn();
+  } finally {
+    flushUserBumps_();
+    __usersBumpsDeferred__ = wasDeferred;
+  }
 }
 
 function readUserRecords_() {
-  if (__usersRowsCache__) return __usersRowsCache__;
-  const cached = getCachedUserRows_();
-  if (cached) { __usersRowsCache__ = cached; return cached; }
+  flushUserBumps_(); // fallback only: pending exists when a co-write hit no cache (no-op in the warm path)
+  const key = 'users:v1:g' + userGen_();
+  const hit = payloadCacheRead_(key);
+  if (hit) return hit;
 
   const sh = usersSheet_();
   if (!sh) return [];
@@ -313,9 +366,69 @@ function readUserRecords_() {
   if (lastRow < 2) return [];
 
   const rows = sh.getRange(2, 1, lastRow - 1, USER_SHEET_HEADERS.length).getValues();
-  __usersRowsCache__ = rows;
-  putCachedUserRows_(rows);
+  payloadCacheWrite_(key, rows, CONFIG.CACHE.COUNTS_TTL_SLOW);
   return rows;
+}
+
+/* Cache co-write helpers: keep the cached Users payload (raw sheet rows under
+ * the current generation key) in sync with a sheet mutation, so a batched
+ * flow (e.g. bulk import) never re-reads the sheet between rows — the next
+ * readUserRecords_ hits the same key and finds the mutated row already in
+ * place. Each returns true when the cache was present and patched (no
+ * generation bump needed), false when there was nothing to patch — the caller
+ * then falls back to markUserDirty_ (deferred bump inside a batched flow,
+ * immediate otherwise). Matching mirrors emailList_ semantics so comma-separated
+ * alias cells resolve like findUserRecord_ does.
+ * Concurrency note: co-writing is a cache read-modify-write, so two concurrent
+ * requests mutating DIFFERENT users could last-write-wins each other's patch
+ * (the sheet keeps both; the cache loses one until TTL). Mutation flows are
+ * serialized by runWithLock_, so this is rare, and the 300 s TTL bounds any
+ * residual staleness — same eventual-consistency envelope the codebase already
+ * accepts for CacheService. Cost note: each co-write serializes the whole
+ * payload once; still far cheaper than a sheet re-read for typical user counts. */
+function userCacheHandle_() {
+  const key = 'users:v1:g' + userGen_();
+  const rows = payloadCacheRead_(key);
+  return rows ? { key: key, rows: rows } : null;
+}
+
+function userCacheRowIndex_(rows, email) {
+  const target = String(email || '').toLowerCase().trim();
+  if (!target) return -1;
+  for (let i = 0; i < rows.length; i++) {
+    if (emailList_(rows[i] && rows[i][0]).indexOf(target) !== -1) return i;
+  }
+  return -1;
+}
+
+function patchUserCacheSetField_(email, field, value) {
+  const cache = userCacheHandle_();
+  if (!cache) return false;
+  const col = USER_FIELD_COL[field];
+  if (!col) return false;
+  const i = userCacheRowIndex_(cache.rows, email);
+  if (i === -1) return false;
+  cache.rows[i][col - 1] = value;
+  payloadCacheWrite_(cache.key, cache.rows, CONFIG.CACHE.COUNTS_TTL_SLOW);
+  return true;
+}
+
+function patchUserCacheAddRow_(row) {
+  const cache = userCacheHandle_();
+  if (!cache) return false;
+  cache.rows.push(row);
+  payloadCacheWrite_(cache.key, cache.rows, CONFIG.CACHE.COUNTS_TTL_SLOW);
+  return true;
+}
+
+function patchUserCacheRemoveRow_(email) {
+  const cache = userCacheHandle_();
+  if (!cache) return false;
+  const i = userCacheRowIndex_(cache.rows, email);
+  if (i === -1) return false;
+  cache.rows.splice(i, 1);
+  payloadCacheWrite_(cache.key, cache.rows, CONFIG.CACHE.COUNTS_TTL_SLOW);
+  return true;
 }
 
 function userRecordFromRow_(row) {
@@ -399,40 +512,21 @@ function resolveUserByIdentifier_(identifier) {
 }
 
 function setUserField_(email, field, value) {
-  invalidateUsersCache_();
   const rec = findUserRecord_(email);
   if (!rec) return;
 
-  const colMap = {
-    email: USER_COL.EMAIL,
-    role: USER_COL.ROLE,
-    salt: USER_COL.SALT,
-    passwordHash: USER_COL.PASSWORD_HASH,
-    mustChange: USER_COL.MUST_CHANGE,
-    createdBy: USER_COL.CREATED_BY,
-    createdAt: USER_COL.CREATED_AT,
-    resetToken: USER_COL.RESET_TOKEN,
-    resetExpires: USER_COL.RESET_EXPIRES,
-    group: USER_COL.GROUP,
-    department: USER_COL.DEPARTMENT,
-    office: USER_COL.OFFICE,
-    resetRequested: USER_COL.RESET_REQUESTED,
-    username: USER_COL.USERNAME
-  };
-
-  const col = colMap[field];
+  const col = USER_FIELD_COL[field];
   if (!col) return;
 
   const sh = usersSheet_();
   if (sh) sh.getRange(rec.row, col).setValue(value);
+  if (!patchUserCacheSetField_(email, field, value)) markUserDirty_();
 }
 
 function addUserRecord_(email, role, salt, passwordHash, createdBy, group, department, office, username) {
-  invalidateUsersCache_();
   const sh = usersSheet_();
   if (!sh) return;
-  const row = sh.getLastRow() + 1;
-  sh.getRange(row, 1, 1, USER_SHEET_HEADERS.length).setValues([[
+  const row = [
     email,
     role,
     salt,
@@ -449,16 +543,18 @@ function addUserRecord_(email, role, salt, passwordHash, createdBy, group, depar
     null,
     username || '',
     AppUtils.newEntityId('USER')
-  ]]);
+  ];
+  sh.getRange(sh.getLastRow() + 1, 1, 1, USER_SHEET_HEADERS.length).setValues([row]);
+  if (!patchUserCacheAddRow_(row)) markUserDirty_();
 }
 
 function deleteUserRecord_(email) {
-  invalidateUsersCache_();
   const rec = findUserRecord_(email);
   if (!rec) return false;
   const sh = usersSheet_();
   if (!sh) return false;
   sh.deleteRow(rec.row);
+  if (!patchUserCacheRemoveRow_(email)) markUserDirty_();
   return true;
 }
 
@@ -535,17 +631,37 @@ function renameUserEmail_(oldEmail, newEmail) {
     }
     if (changed) cbRange.setValues(cbValues);
   }
+
+  // Keep the cached Users payload in sync (same email / createdBy rewrites as
+  // the sheet above). Only fall back to a generation bump when the cache was
+  // absent; the other cache families are orphaned regardless.
+  let cachePatched = false;
+  const cache = userCacheHandle_();
+  if (cache) {
+    for (let i = 0; i < cache.rows.length; i++) {
+      if (matches(cache.rows[i] && cache.rows[i][0])) {
+        cache.rows[i][0] = newEmail;
+        cachePatched = true;
+        break;
+      }
+    }
+    for (let i = 0; i < cache.rows.length; i++) {
+      if (matches(cache.rows[i] && cache.rows[i][USER_COL.CREATED_BY - 1])) {
+        cache.rows[i][USER_COL.CREATED_BY - 1] = newPrimary;
+        cachePatched = true;
+      }
+    }
+    if (cachePatched) payloadCacheWrite_(cache.key, cache.rows, CONFIG.CACHE.COUNTS_TTL_SLOW);
+  }
+  if (!cachePatched) { try { markUserDirty_(); } catch (err) {} }
+  try { invalidateCounts_('tasks'); invalidateCounts_('notif'); invalidateCounts_('submissions'); } catch (err) {}
 }
 
 function listUserRecords_() {
-  const sh = usersSheet_();
   const out = [];
-  if (!sh) return out;
-
-  const lastRow = sh.getLastRow();
-  if (lastRow < 2) return out;
-
-  const values = sh.getRange(2, 1, lastRow - 1, USER_SHEET_HEADERS.length).getValues();
+  // Reuses the generation-bumped cached read (no second sheet pass).
+  const values = readUserRecords_();
+  if (!values || !values.length) return out;
 
   for (let i = 0; i < values.length; i++) {
     if (!String(values[i][0] || '').trim()) continue;
@@ -672,7 +788,7 @@ function checkRateLimit_(key, maxAttempts, windowSeconds) {
   const k = 'rl_' + key;
   const count = Number(cache.get(k) || 0);
   if (count >= maxAttempts) {
-    throw AppUtils.clientError('Too many requests. Please try again later.');
+    throw clientError_('Too many requests. Please try again later.');
   }
   cache.put(k, String(count + 1), windowSeconds || 60);
 }
@@ -845,14 +961,28 @@ function getUserContext(email) {
 
 function authenticate_(token) {
   const email = sessionEmail_(token);
-  if (!email) throw AppUtils.clientError('Login required. Please log in again.');
+  if (!email) throw clientError_('Login required. Please log in again.');
   return { email: email, role: getUserRole(email) };
 }
 
-/* Auth guards requireLogin_/requireEditor_/requireAdmin_ now live in
- * AppUtils (see Utils.js). isAdmin/isEditor/requireViewer() stay top-level —
- * they are referenced by name as public API. (A legacy no-arg
- * requireEditor() was removed: it had zero callers.) */
+function requireLogin_(token) {
+  return authenticate_(token);
+}
+
+function requireEditor_(token) {
+  const user = requireLogin_(token);
+  if (!isEditor(user.email)) throw clientError_('Editor permission required.');
+  return user;
+}
+
+function requireAdmin_(token) {
+  const user = requireLogin_(token);
+  if (!isAdmin(user.email)) throw clientError_('Admin permission required.');
+  return user;
+}
+function requireEditor() {
+  if (!isEditor()) throw clientError_('Editor permission required.');
+}
 
 function requireViewer() {
   return true;
@@ -913,8 +1043,12 @@ function login(identifier, password) {
 
   const email = rec.email;
 
-  // Point 7: transparently upgrade legacy (v1) hashes to PBKDF2 on login.
-  if (!isV2Hash_(rec.passwordHash)) {
+  // Point 7: transparently upgrade legacy (v1) hashes to PBKDF2 on login, and
+  // re-hash v2 hashes whose stored iteration count differs from the current
+  // CONFIG (e.g. the 10000 -> 3000 tuning) — existing users pick up the
+  // faster setting on their next sign-in, no password change required.
+  const storedIterations = isV2Hash_(rec.passwordHash) ? parseInt(rec.passwordHash.split('$')[1], 10) : 0;
+  if (!isV2Hash_(rec.passwordHash) || storedIterations !== CONFIG.USERS.PBKDF2_ITERATIONS) {
     try {
       setUserField_(email, 'passwordHash', hashPasswordV2_(password, rec.salt, CONFIG.USERS.PBKDF2_ITERATIONS));
     } catch (err) {}
@@ -1029,7 +1163,7 @@ function requestPasswordReset(identifier) {
  * @returns {{success: boolean, message: string}}
  */
 function changePassword(currentPassword, newPassword, token) {
-  const user = AppUtils.requireLogin(token);
+  const user = requireLogin_(token);
   checkRateLimit_('chpw_' + AppUtils.safeCacheKey(user.email), CONFIG.RATE_LIMIT.PASSWORD_CHANGE_MAX, CONFIG.RATE_LIMIT.PASSWORD_CHANGE_WINDOW);
 
   if (!verifyPassword_(user.email, currentPassword)) {
@@ -1040,13 +1174,15 @@ function changePassword(currentPassword, newPassword, token) {
   if (pwError) return { success: false, message: pwError };
 
   runWithLock_(function () {
-    const salt = generateSalt_();
-    setUserField_(user.email, 'salt', salt);
-    setUserField_(user.email, 'passwordHash', hashPasswordV2_(newPassword, salt, CONFIG.USERS.PBKDF2_ITERATIONS));
-    setUserField_(user.email, 'mustChange', false);
-    setUserField_(user.email, 'resetToken', '');
-    setUserField_(user.email, 'resetExpires', null);
-    setUserField_(user.email, 'resetRequested', null);
+    runWithBatchedUserBumps_(function () {
+      const salt = generateSalt_();
+      setUserField_(user.email, 'salt', salt);
+      setUserField_(user.email, 'passwordHash', hashPasswordV2_(newPassword, salt, CONFIG.USERS.PBKDF2_ITERATIONS));
+      setUserField_(user.email, 'mustChange', false);
+      setUserField_(user.email, 'resetToken', '');
+      setUserField_(user.email, 'resetExpires', null);
+      setUserField_(user.email, 'resetRequested', null);
+    });
   });
 
   bumpSessionEpoch_(user.email); // invalidate the user's other sessions
@@ -1066,7 +1202,7 @@ function changePassword(currentPassword, newPassword, token) {
  * @returns {Object[]} User records without credentials.
  */
 function adminGetUsers(token) {
-  AppUtils.requireAdmin(token);
+  requireAdmin_(token);
   return listUserRecords_();
 }
 
@@ -1076,7 +1212,7 @@ function adminGetUsers(token) {
  * @returns {Object[]} User records with email and username for assignment.
  */
 function getAssignableUsers(token) {
-  AppUtils.requireEditor(token);
+  requireEditor_(token);
   return listUserRecords_().map(function (u) {
     return {
       email: u.email,
@@ -1099,45 +1235,47 @@ function getAssignableUsers(token) {
  * @returns {Object[]} Updated user list.
  */
 function adminAddUser(email, username, role, password, group, department, office, token) {
-  const admin = AppUtils.requireAdmin(token);
+  const admin = requireAdmin_(token);
   checkRateLimit_('adminuser_' + AppUtils.safeCacheKey(admin.email), CONFIG.RATE_LIMIT.ADMIN_USER_MAX, CONFIG.RATE_LIMIT.ADMIN_USER_WINDOW);
 
   return runWithLock_(function () {
-    email = String(email || '').toLowerCase().trim();
-    username = String(username || '').trim();
-    role = String(role || '').toUpperCase().trim();
+    return runWithBatchedUserBumps_(function () {
+      email = String(email || '').toLowerCase().trim();
+      username = String(username || '').trim();
+      role = String(role || '').toUpperCase().trim();
 
-    if (!isValidEmailList_(email)) throw AppUtils.clientError('Invalid email address(es).');
-    if (username && !isValidUsername_(username)) throw AppUtils.clientError('Username must be 3-30 characters (letters, digits, dot, underscore, hyphen).');
-    if ([ROLES.VIEWER, ROLES.EDITOR, ROLES.ADMIN].indexOf(role) === -1) throw AppUtils.clientError('Role must be VIEWER, EDITOR or ADMIN.');
+      if (!isValidEmailList_(email)) throw clientError_('Invalid email address(es).');
+      if (username && !isValidUsername_(username)) throw clientError_('Username must be 3-30 characters (letters, digits, dot, underscore, hyphen).');
+      if ([ROLES.VIEWER, ROLES.EDITOR, ROLES.ADMIN].indexOf(role) === -1) throw clientError_('Role must be VIEWER, EDITOR or ADMIN.');
 
-    if (findUserRecord_(email)) throw AppUtils.clientError('A user with that email already exists.');
-    if (username && findUserByUsername_(username)) throw AppUtils.clientError('Username already taken.');
+      if (findUserRecord_(email)) throw clientError_('A user with that email already exists.');
+      if (username && findUserByUsername_(username)) throw clientError_('Username already taken.');
 
-    const pwError = validatePassword_(password);
-    if (pwError) throw AppUtils.clientError(pwError);
+      const pwError = validatePassword_(password);
+      if (pwError) throw clientError_(pwError);
 
-    const salt = generateSalt_();
-    addUserRecord_(email, role, salt, hashPasswordV2_(password, salt, CONFIG.USERS.PBKDF2_ITERATIONS), admin.email, group, department, office, username);
+      const salt = generateSalt_();
+      addUserRecord_(email, role, salt, hashPasswordV2_(password, salt, CONFIG.USERS.PBKDF2_ITERATIONS), admin.email, group, department, office, username);
 
-    try { logAudit_(ACTIONS.USER_ADD, '', email + ' as ' + role, admin.email); } catch (err) {}
-    try { notify_(email, NOTIFICATION_TYPES.USER, 'Account created', 'Your dashboard account was created with the ' + role + ' role. Use the credentials given by your administrator.', ''); } catch (err) {}
+      try { logAudit_(ACTIONS.USER_ADD, '', email + ' as ' + role, admin.email); } catch (err) {}
+      try { notify_(email, NOTIFICATION_TYPES.USER, 'Account created', 'Your dashboard account was created with the ' + role + ' role. Use the credentials given by your administrator.', ''); } catch (err) {}
 
-    // Email the new user their account credentials so they can sign in.
-    try {
-      sendMail_(
-        email,
-        'Your India Post Dashboard account',
-        'An administrator created a dashboard account for you.\n\n' +
-        '  Email: ' + email + '\n' +
-        (username ? '  Username: ' + username + '\n' : '') +
-        '  Role: ' + role + '\n' +
-        '  Password: ' + password + '\n\n' +
-        'Sign in at https://www.dashboardharyana.site/app.html and change your password after first login.'
-      );
-    } catch (err) {}
+      // Email the new user their account credentials so they can sign in.
+      try {
+        sendMail_(
+          email,
+          'Your India Post Dashboard account',
+          'An administrator created a dashboard account for you.\n\n' +
+          '  Email: ' + email + '\n' +
+          (username ? '  Username: ' + username + '\n' : '') +
+          '  Role: ' + role + '\n' +
+          '  Password: ' + password + '\n\n' +
+          'Sign in at https://www.dashboardharyana.site/app.html and change your password after first login.'
+        );
+      } catch (err) {}
 
-    return listUserRecords_();
+      return listUserRecords_();
+    });
   });
 }
 
@@ -1153,81 +1291,83 @@ function adminAddUser(email, username, role, password, group, department, office
  * @returns {{users: Object[], reAuth: boolean, message: string}} Updated list + flags.
  */
 function adminUpdateUser(email, fields, token) {
-  const admin = AppUtils.requireAdmin(token);
+  const admin = requireAdmin_(token);
 
   return runWithLock_(function () {
-    email = String(email || '').toLowerCase().trim();
-    if (!findUserRecord_(email)) throw AppUtils.clientError('User not found.');
+    return runWithBatchedUserBumps_(function () {
+      email = String(email || '').toLowerCase().trim();
+      if (!findUserRecord_(email)) throw clientError_('User not found.');
 
-    const f = fields || {};
-    const changes = [];
-    let reAuth = false;
+      const f = fields || {};
+      const changes = [];
+      let reAuth = false;
 
-    if (f.email !== undefined) {
-      const newEmail = String(f.email || '').toLowerCase().trim();
-      const currentRec = findUserRecord_(email);
-      const oldRaw = currentRec ? currentRec.rawEmail : email;
-      const oldPrimary = primaryEmail_(oldRaw);
-      const changed = (emailList_(newEmail).join(',') !== emailList_(oldRaw).join(','));
-      if (changed) {
-        if (!isValidEmailList_(newEmail)) throw AppUtils.clientError('Invalid email address(es).');
-        if (isBootstrapAdmin_(oldPrimary) && primaryEmail_(newEmail) !== oldPrimary) {
-          throw AppUtils.clientError('The primary admin account email cannot be changed.');
+      if (f.email !== undefined) {
+        const newEmail = String(f.email || '').toLowerCase().trim();
+        const currentRec = findUserRecord_(email);
+        const oldRaw = currentRec ? currentRec.rawEmail : email;
+        const oldPrimary = primaryEmail_(oldRaw);
+        const changed = (emailList_(newEmail).join(',') !== emailList_(oldRaw).join(','));
+        if (changed) {
+          if (!isValidEmailList_(newEmail)) throw clientError_('Invalid email address(es).');
+          if (isBootstrapAdmin_(oldPrimary) && primaryEmail_(newEmail) !== oldPrimary) {
+            throw clientError_('The primary admin account email cannot be changed.');
+          }
+          const collides = findUserRecord_(newEmail);
+          if (collides && (!currentRec || collides.row !== currentRec.row)) {
+            throw clientError_('A user with that email already exists.');
+          }
+
+          renameUserEmail_(oldRaw, newEmail);
+          bumpSessionEpoch_(oldPrimary); // Point 7: email change invalidates the old identity's sessions
+          changes.push('email ' + oldRaw + ' -> ' + newEmail);
+          try { notify_(primaryEmail_(newEmail), NOTIFICATION_TYPES.USER, 'Account updated', 'Your dashboard login email was changed to ' + newEmail + ' by an administrator.', ''); } catch (err) {}
+          if (oldPrimary === admin.email) {
+            destroySession_(token);
+            reAuth = true;
+          }
+          email = newEmail;
         }
-        const collides = findUserRecord_(newEmail);
-        if (collides && (!currentRec || collides.row !== currentRec.row)) {
-          throw AppUtils.clientError('A user with that email already exists.');
+      }
+
+      if (f.role !== undefined) {
+        const role = String(f.role || '').toUpperCase().trim();
+        if ([ROLES.VIEWER, ROLES.EDITOR, ROLES.ADMIN].indexOf(role) === -1) throw clientError_('Role must be VIEWER, EDITOR or ADMIN.');
+        if (isBootstrapAdmin_(email)) throw clientError_('The primary admin account role cannot be changed.');
+        if (primaryEmail_(email) === admin.email && role !== ROLES.ADMIN) throw clientError_('You cannot change your own role.');
+        if (role !== ROLES.ADMIN && getUserRole(email) === ROLES.ADMIN) {
+          const adminCount = listUserRecords_().filter(function (u) { return u.role === ROLES.ADMIN; }).length;
+          if (adminCount <= 1) throw clientError_('Cannot demote the last admin.');
         }
-
-        renameUserEmail_(oldRaw, newEmail);
-        bumpSessionEpoch_(oldPrimary); // Point 7: email change invalidates the old identity's sessions
-        changes.push('email ' + oldRaw + ' -> ' + newEmail);
-        try { notify_(primaryEmail_(newEmail), NOTIFICATION_TYPES.USER, 'Account updated', 'Your dashboard login email was changed to ' + newEmail + ' by an administrator.', ''); } catch (err) {}
-        if (oldPrimary === admin.email) {
-          destroySession_(token);
-          reAuth = true;
+        if (getUserRole(email) !== role) {
+          setUserField_(email, 'role', role);
+          bumpSessionEpoch_(email); // Point 7: role changes invalidate existing sessions
+          changes.push('role -> ' + role);
+          try { notify_(email, NOTIFICATION_TYPES.USER, 'Role changed', 'Your dashboard role was changed to ' + role + ' by an administrator.', ''); } catch (err) {}
         }
-        email = newEmail;
       }
-    }
 
-    if (f.role !== undefined) {
-      const role = String(f.role || '').toUpperCase().trim();
-      if ([ROLES.VIEWER, ROLES.EDITOR, ROLES.ADMIN].indexOf(role) === -1) throw AppUtils.clientError('Role must be VIEWER, EDITOR or ADMIN.');
-      if (isBootstrapAdmin_(email)) throw AppUtils.clientError('The primary admin account role cannot be changed.');
-      if (primaryEmail_(email) === admin.email && role !== ROLES.ADMIN) throw AppUtils.clientError('You cannot change your own role.');
-      if (role !== ROLES.ADMIN && getUserRole(email) === ROLES.ADMIN) {
-        const adminCount = listUserRecords_().filter(function (u) { return u.role === ROLES.ADMIN; }).length;
-        if (adminCount <= 1) throw AppUtils.clientError('Cannot demote the last admin.');
+      if (f.username !== undefined) {
+        const uname = String(f.username || '').trim();
+        if (uname && !isValidUsername_(uname)) throw clientError_('Username must be 3-30 characters (letters, digits, dot, underscore, hyphen).');
+        const holder = uname ? findUserByUsername_(uname) : null;
+        if (holder && primaryEmail_(holder.email) !== primaryEmail_(email)) throw clientError_('Username already taken.');
+        setUserField_(email, 'username', uname);
+        changes.push('username updated');
       }
-      if (getUserRole(email) !== role) {
-        setUserField_(email, 'role', role);
-        bumpSessionEpoch_(email); // Point 7: role changes invalidate existing sessions
-        changes.push('role -> ' + role);
-        try { notify_(email, NOTIFICATION_TYPES.USER, 'Role changed', 'Your dashboard role was changed to ' + role + ' by an administrator.', ''); } catch (err) {}
-      }
-    }
+      if (f.group !== undefined) setUserField_(email, 'group', String(f.group || ''));
+      if (f.department !== undefined) setUserField_(email, 'department', String(f.department || ''));
+      if (f.office !== undefined) setUserField_(email, 'office', String(f.office || ''));
 
-    if (f.username !== undefined) {
-      const uname = String(f.username || '').trim();
-      if (uname && !isValidUsername_(uname)) throw AppUtils.clientError('Username must be 3-30 characters (letters, digits, dot, underscore, hyphen).');
-      const holder = uname ? findUserByUsername_(uname) : null;
-      if (holder && primaryEmail_(holder.email) !== primaryEmail_(email)) throw AppUtils.clientError('Username already taken.');
-      setUserField_(email, 'username', uname);
-      changes.push('username updated');
-    }
-    if (f.group !== undefined) setUserField_(email, 'group', String(f.group || ''));
-    if (f.department !== undefined) setUserField_(email, 'department', String(f.department || ''));
-    if (f.office !== undefined) setUserField_(email, 'office', String(f.office || ''));
+      const summary = changes.length ? changes.join(', ') : 'metadata updated';
+      try { logAudit_(ACTIONS.USER_UPDATE, '', email + ' (' + summary + ')', admin.email); } catch (err) {}
 
-    const summary = changes.length ? changes.join(', ') : 'metadata updated';
-    try { logAudit_(ACTIONS.USER_UPDATE, '', email + ' (' + summary + ')', admin.email); } catch (err) {}
-
-    return {
-      users: listUserRecords_(),
-      reAuth: reAuth,
-      message: changes.length ? 'User updated: ' + summary : 'No changes were made.'
-    };
+      return {
+        users: listUserRecords_(),
+        reAuth: reAuth,
+        message: changes.length ? 'User updated: ' + summary : 'No changes were made.'
+      };
+    });
   });
 }
 
@@ -1237,7 +1377,7 @@ function adminUpdateUser(email, fields, token) {
  * @returns {string} CSV content.
  */
 function adminExportUsers(token) {
-  AppUtils.requireAdmin(token);
+  requireAdmin_(token);
   const users = listUserRecords_();
   const header = ['Email', 'Username', 'Role', 'Group', 'Department', 'Office', 'CreatedAt', 'MustChange'];
   const lines = users.map(function (u) {
@@ -1296,107 +1436,108 @@ function parseCsvLine_(line) {
  * @returns {{users: Object[], added: number, updated: number, errors: string[]}}
  */
 function adminImportUsers(csv, token) {
-  invalidateUsersCache_();
-  const admin = AppUtils.requireAdmin(token);
+  const admin = requireAdmin_(token);
   checkRateLimit_('adminuser_' + AppUtils.safeCacheKey(admin.email), CONFIG.RATE_LIMIT.ADMIN_USER_MAX, CONFIG.RATE_LIMIT.ADMIN_USER_WINDOW);
 
   const result = { users: listUserRecords_(), added: 0, updated: 0, errors: [] };
-  if (!csv || !String(csv).trim()) throw AppUtils.clientError('Paste CSV content to import.');
+  if (!csv || !String(csv).trim()) throw clientError_('Paste CSV content to import.');
 
   return runWithLock_(function () {
-    const lines = String(csv)
-      .replace(/\r\n/g, '\n')
-      .split('\n')
-      .filter(function (l) { return String(l).trim() !== ''; });
+    return runWithBatchedUserBumps_(function () {
+      const lines = String(csv)
+        .replace(/\r\n/g, '\n')
+        .split('\n')
+        .filter(function (l) { return String(l).trim() !== ''; });
 
-    if (!lines.length) throw AppUtils.clientError('No rows to import.');
+      if (!lines.length) throw clientError_('No rows to import.');
 
-    const rows = lines.map(parseCsvLine_);
+      const rows = lines.map(parseCsvLine_);
 
-    for (let r = 0; r < rows.length; r++) {
-      const cols = rows[r];
-      const email = String(cols[0] || '').toLowerCase().trim();
-      const role = String(cols[1] || '').toUpperCase().trim();
+      for (let r = 0; r < rows.length; r++) {
+        const cols = rows[r];
+        const email = String(cols[0] || '').toLowerCase().trim();
+        const role = String(cols[1] || '').toUpperCase().trim();
 
-      if (r === 0 && !isValidEmailList_(email)) continue;
+        if (r === 0 && !isValidEmailList_(email)) continue;
 
-      if (!email) { result.errors.push('Row ' + (r + 1) + ': missing email.'); continue; }
-      if (!isValidEmailList_(email)) { result.errors.push('Row ' + (r + 1) + ': invalid email "' + email + '".'); continue; }
-      if ([ROLES.VIEWER, ROLES.EDITOR, ROLES.ADMIN].indexOf(role) === -1) {
-        result.errors.push('Row ' + (r + 1) + ': invalid role "' + (role || '') + '".');
-        continue;
-      }
+        if (!email) { result.errors.push('Row ' + (r + 1) + ': missing email.'); continue; }
+        if (!isValidEmailList_(email)) { result.errors.push('Row ' + (r + 1) + ': invalid email "' + email + '".'); continue; }
+        if ([ROLES.VIEWER, ROLES.EDITOR, ROLES.ADMIN].indexOf(role) === -1) {
+          result.errors.push('Row ' + (r + 1) + ': invalid role "' + (role || '') + '".');
+          continue;
+        }
 
-      const group = String(cols[2] || '').trim();
-      const department = String(cols[3] || '').trim();
-      const office = String(cols[4] || '').trim();
-      const password = String(cols[5] || '').trim();
-      const username = String(cols[6] || '').trim();
+        const group = String(cols[2] || '').trim();
+        const department = String(cols[3] || '').trim();
+        const office = String(cols[4] || '').trim();
+        const password = String(cols[5] || '').trim();
+        const username = String(cols[6] || '').trim();
 
-      if (username && !isValidUsername_(username)) {
-        result.errors.push('Row ' + (r + 1) + ': invalid username "' + username + '".');
-        continue;
-      }
+        if (username && !isValidUsername_(username)) {
+          result.errors.push('Row ' + (r + 1) + ': invalid username "' + username + '".');
+          continue;
+        }
 
-      const existing = findUserRecord_(email);
+        const existing = findUserRecord_(email);
 
-      if (existing) {
-        if (username) {
-          const holder = findUserByUsername_(username);
-          if (holder && holder.email !== email) {
+        if (existing) {
+          if (username) {
+            const holder = findUserByUsername_(username);
+            if (holder && holder.email !== email) {
+              result.errors.push('Row ' + (r + 1) + ': username "' + username + '" already taken.');
+              continue;
+            }
+            setUserField_(email, 'username', username);
+          }
+          if (group) setUserField_(email, 'group', group);
+          if (department) setUserField_(email, 'department', department);
+          if (office) setUserField_(email, 'office', office);
+          if (password) {
+            const pwError = validatePassword_(password);
+            if (pwError) { result.errors.push('Row ' + (r + 1) + ': ' + pwError); continue; }
+            const salt = generateSalt_();
+            setUserField_(email, 'salt', salt);
+            setUserField_(email, 'passwordHash', hashPasswordV2_(password, salt, CONFIG.USERS.PBKDF2_ITERATIONS));
+            setUserField_(email, 'mustChange', false);
+          }
+          result.updated++;
+        } else {
+          const pw = password || Utilities.getUuid().replace(/-/g, '').slice(0, 12);
+          const pwError = validatePassword_(pw);
+          if (pwError) { result.errors.push('Row ' + (r + 1) + ': ' + pwError); continue; }
+          if (username && findUserByUsername_(username)) {
             result.errors.push('Row ' + (r + 1) + ': username "' + username + '" already taken.');
             continue;
           }
-          setUserField_(email, 'username', username);
-        }
-        if (group) setUserField_(email, 'group', group);
-        if (department) setUserField_(email, 'department', department);
-        if (office) setUserField_(email, 'office', office);
-        if (password) {
-          const pwError = validatePassword_(password);
-          if (pwError) { result.errors.push('Row ' + (r + 1) + ': ' + pwError); continue; }
           const salt = generateSalt_();
-          setUserField_(email, 'salt', salt);
-          setUserField_(email, 'passwordHash', hashPasswordV2_(password, salt, CONFIG.USERS.PBKDF2_ITERATIONS));
-          setUserField_(email, 'mustChange', false);
-        }
-        result.updated++;
-      } else {
-        const pw = password || Utilities.getUuid().replace(/-/g, '').slice(0, 12);
-        const pwError = validatePassword_(pw);
-        if (pwError) { result.errors.push('Row ' + (r + 1) + ': ' + pwError); continue; }
-        if (username && findUserByUsername_(username)) {
-          result.errors.push('Row ' + (r + 1) + ': username "' + username + '" already taken.');
-          continue;
-        }
-        const salt = generateSalt_();
-        addUserRecord_(email, role, salt, hashPasswordV2_(pw, salt, CONFIG.USERS.PBKDF2_ITERATIONS), admin.email, group, department, office, username);
-        if (!password) setUserField_(email, 'mustChange', true);
-        result.added++;
-        try { notify_(email, NOTIFICATION_TYPES.USER, 'Account created', 'Your dashboard account was created with the ' + role + ' role during a bulk import.', ''); } catch (err) {}
+          addUserRecord_(email, role, salt, hashPasswordV2_(pw, salt, CONFIG.USERS.PBKDF2_ITERATIONS), admin.email, group, department, office, username);
+          if (!password) setUserField_(email, 'mustChange', true);
+          result.added++;
+          try { notify_(email, NOTIFICATION_TYPES.USER, 'Account created', 'Your dashboard account was created with the ' + role + ' role during a bulk import.', ''); } catch (err) {}
 
-        // Email the imported user their credentials so they can sign in.
-        try {
-          sendMail_(
-            email,
-            'Your India Post Dashboard account',
-            'An administrator created a dashboard account for you (bulk import).\n\n' +
-            '  Email: ' + email + '\n' +
-            (username ? '  Username: ' + username + '\n' : '') +
-            '  Role: ' + role + '\n' +
-            '  Password: ' + pw + '\n\n' +
-            'Sign in at https://www.dashboardharyana.site/app.html and change your password after first login.'
-          );
-        } catch (err) {}
+          // Email the imported user their credentials so they can sign in.
+          try {
+            sendMail_(
+              email,
+              'Your India Post Dashboard account',
+              'An administrator created a dashboard account for you (bulk import).\n\n' +
+              '  Email: ' + email + '\n' +
+              (username ? '  Username: ' + username + '\n' : '') +
+              '  Role: ' + role + '\n' +
+              '  Password: ' + pw + '\n\n' +
+              'Sign in at https://www.dashboardharyana.site/app.html and change your password after first login.'
+            );
+          } catch (err) {}
+        }
       }
-    }
 
-    try {
-      logAudit_(ACTIONS.USER_IMPORT, '', 'Imported users: +' + result.added + ' added, ' + result.updated + ' updated, ' + result.errors.length + ' errors', admin.email);
-    } catch (err) {}
+      try {
+        logAudit_(ACTIONS.USER_IMPORT, '', 'Imported users: +' + result.added + ' added, ' + result.updated + ' updated, ' + result.errors.length + ' errors', admin.email);
+      } catch (err) {}
 
-    result.users = listUserRecords_();
-    return result;
+      result.users = listUserRecords_();
+      return result;
+    });
   });
 }
 
@@ -1407,7 +1548,7 @@ function adminImportUsers(csv, token) {
  * @returns {{users: Object[], recent: Object[], totals: Object}}
  */
 function adminGetUserActivity(token) {
-  AppUtils.requireAdmin(token);
+  requireAdmin_(token);
 
   const sheet = getAuditSheet_();
   const lastRow = sheet.getLastRow();
@@ -1471,15 +1612,14 @@ function adminGetUserActivity(token) {
  * @returns {Object[]} Updated user list.
  */
 function adminDeleteUser(email, token) {
-  const admin = AppUtils.requireAdmin(token);
+  const admin = requireAdmin_(token);
 
   return runWithLock_(function () {
     email = String(email || '').toLowerCase().trim();
 
-    if (primaryEmail_(email) === admin.email) throw AppUtils.clientError('You cannot delete your own account.');
-    if (isBootstrapAdmin_(email)) throw AppUtils.clientError('The primary admin account cannot be deleted.');
-    invalidateUsersCache_();
-    if (!deleteUserRecord_(email)) throw AppUtils.clientError('User not found.');
+    if (primaryEmail_(email) === admin.email) throw clientError_('You cannot delete your own account.');
+    if (isBootstrapAdmin_(email)) throw clientError_('The primary admin account cannot be deleted.');
+    if (!deleteUserRecord_(email)) throw clientError_('User not found.');
 
     try { logAudit_(ACTIONS.USER_DELETE, '', email, admin.email); } catch (err) {}
     return listUserRecords_();
@@ -1494,28 +1634,30 @@ function adminDeleteUser(email, token) {
  * @returns {Object[]} Updated user list.
  */
 function adminResetPassword(email, newPassword, token) {
-  const admin = AppUtils.requireAdmin(token);
+  const admin = requireAdmin_(token);
 
   return runWithLock_(function () {
-    email = String(email || '').toLowerCase().trim();
+    return runWithBatchedUserBumps_(function () {
+      email = String(email || '').toLowerCase().trim();
 
-    if (!findUserRecord_(email)) throw AppUtils.clientError('User not found.');
+      if (!findUserRecord_(email)) throw clientError_('User not found.');
 
-    const pwError = validatePassword_(newPassword);
-    if (pwError) throw AppUtils.clientError(pwError);
+      const pwError = validatePassword_(newPassword);
+      if (pwError) throw clientError_(pwError);
 
-    const salt = generateSalt_();
-    setUserField_(email, 'salt', salt);
-    setUserField_(email, 'passwordHash', hashPasswordV2_(newPassword, salt, CONFIG.USERS.PBKDF2_ITERATIONS));
-    bumpSessionEpoch_(email);
-    setUserField_(email, 'mustChange', false);
-    setUserField_(email, 'resetToken', '');
-    setUserField_(email, 'resetExpires', null);
-    setUserField_(email, 'resetRequested', null);
+      const salt = generateSalt_();
+      setUserField_(email, 'salt', salt);
+      setUserField_(email, 'passwordHash', hashPasswordV2_(newPassword, salt, CONFIG.USERS.PBKDF2_ITERATIONS));
+      bumpSessionEpoch_(email);
+      setUserField_(email, 'mustChange', false);
+      setUserField_(email, 'resetToken', '');
+      setUserField_(email, 'resetExpires', null);
+      setUserField_(email, 'resetRequested', null);
 
-    try { logAudit_(ACTIONS.USER_RESET_PASSWORD, '', email, admin.email); } catch (err) {}
-    try { notify_(email, NOTIFICATION_TYPES.USER, 'Password reset', 'An administrator reset your dashboard password. Please sign in with the new password.', ''); } catch (err) {}
-    return listUserRecords_();
+      try { logAudit_(ACTIONS.USER_RESET_PASSWORD, '', email, admin.email); } catch (err) {}
+      try { notify_(email, NOTIFICATION_TYPES.USER, 'Password reset', 'An administrator reset your dashboard password. Please sign in with the new password.', ''); } catch (err) {}
+      return listUserRecords_();
+    });
   });
 }
 
@@ -1536,14 +1678,14 @@ function adminResetPassword(email, newPassword, token) {
  * @returns {{success: boolean, message: string, email: string, reAuth: boolean}}
  */
 function adminKillUserSessions(email, token) {
-  const admin = AppUtils.requireAdmin(token);
+  const admin = requireAdmin_(token);
   // Normalize BEFORE the rate-limit key so casing/whitespace permutations of
   // the same address share one bucket (no per-variant bypass).
   email = String(email || '').toLowerCase().trim();
   checkRateLimit_('killses_' + AppUtils.safeCacheKey(email), CONFIG.RATE_LIMIT.ADMIN_USER_MAX, CONFIG.RATE_LIMIT.ADMIN_USER_WINDOW);
 
   return runWithLock_(function () {
-    if (!findUserRecord_(email)) throw AppUtils.clientError('User not found.');
+    if (!findUserRecord_(email)) throw clientError_('User not found.');
 
     bumpSessionEpoch_(email); // invalidate every session minted before now
 
@@ -1562,12 +1704,12 @@ function adminKillUserSessions(email, token) {
  * @returns {{success: boolean, sent: number, recipients: string[]}}
  */
 function adminEmailAllUsers(subject, body, token) {
-  const admin = AppUtils.requireAdmin(token);
+  const admin = requireAdmin_(token);
   subject = String(subject || '').trim();
   body = String(body || '').trim();
 
-  if (!subject) throw AppUtils.clientError('A subject is required.');
-  if (!body) throw AppUtils.clientError('A message body is required.');
+  if (!subject) throw clientError_('A subject is required.');
+  if (!body) throw clientError_('A message body is required.');
 
   const users = listUserRecords_();
   const recipients = [];

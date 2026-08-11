@@ -716,6 +716,7 @@ function createTaskFromMeetingAction(btn) {
     btn.disabled = true;
     btn.textContent = 'Created';
     showToast('Task created.', 'success');
+    invalidateTasksCache_(); // created off-tab: drop the cache so the next visit refetches
   }).catch(function (err) {
     hideOverlay();
     if (handleServerFailure(err)) return;
@@ -760,6 +761,7 @@ function addAllMeetingTasks() {
         const btn = tr.querySelector('button[data-title]');
         if (btn) { btn.disabled = true; btn.textContent = 'Created'; }
       });
+      invalidateTasksCache_(); // bulk-created off-tab: drop the cache so the next visit refetches
       const bulkBtn = document.querySelector('#meetingNotesResult .card-ai-head button[onclick="addAllMeetingTasks()"]');
       if (bulkBtn) { bulkBtn.disabled = true; bulkBtn.textContent = 'Added'; }
       showToast(items.length + ' task(s) created.', 'success');
@@ -1806,6 +1808,110 @@ function openTab(tabId) {
   if (tabId === 'settings') renderSettings();
   if (tabId === 'dashboard') { renderDashboard(); refreshCounts(); }
   if (tabId === 'tasks') { renderTasks(); refreshCounts(); }
+}
+
+/* ---------------------------------- Tasks ---------------------------------- */
+
+const TASKS_CACHE_TTL_MS = 30000;
+
+/* Loads the tasks list. When the in-memory list is fresh (< 30s) for the
+ * current filters it paints instantly from the cache and refreshes silently
+ * in the background, so tab switches never block on the network. Stale or
+ * changed filters show the overlay and fetch as before. Pass force=true
+ * after a create/update/delete/complete mutation so the freshly saved
+ * change appears immediately instead of waiting for the background refresh. */
+function renderTasks(force) {
+  const statusFilter = getEl('taskStatusFilter');
+  const priorityFilter = getEl('taskPriorityFilter');
+  const filters = {};
+  if (statusFilter && statusFilter.value) filters.status = statusFilter.value;
+  if (priorityFilter && priorityFilter.value) filters.priority = priorityFilter.value;
+  const filterKey = JSON.stringify(filters);
+
+  const cached = appState.tasks;
+  const fresh = !force && Array.isArray(cached) && appState.tasksFilterKey === filterKey &&
+    appState.tasksLoadedAt && (Date.now() - appState.tasksLoadedAt) < TASKS_CACHE_TTL_MS;
+
+  if (fresh) {
+    renderTaskList();
+    fetchTasks_(filters, true); // background refresh — never blocks the tab
+    return;
+  }
+
+  showOverlay('Loading tasks…');
+  fetchTasks_(filters, false);
+}
+
+function fetchTasks_(filters, silent) {
+  return ApiService.getTasks(filters || {}).then(function (tasks) {
+    if (!silent) hideOverlay();
+    appState.tasks = tasks || [];
+    appState.tasksLoadedAt = Date.now();
+    appState.tasksFilterKey = JSON.stringify(filters || {});
+    renderTaskList();
+  }).catch(function (err) {
+    if (!silent) hideOverlay();
+    if (!silent && handleServerFailure(err)) return;
+    if (!silent) showToast('Could not load tasks: ' + (err.message || err), 'error');
+  });
+}
+
+/* Drops the in-memory tasks cache. Quick-add flows (meeting notes -> task)
+ * run while the Tasks tab is hidden, so they can't show the loading overlay;
+ * invalidating here means the next renderTasks (tab switch / refresh) fetches
+ * fresh data instead of painting the pre-mutation list from a still-fresh
+ * cache. Downstream readers guard with `appState.tasks || []`. */
+function invalidateTasksCache_() {
+  appState.tasks = null;
+  appState.tasksLoadedAt = 0;
+  appState.tasksFilterKey = null;
+}
+
+/* Renders the task table. PWA-only actions (ICS export, offline complete)
+ * and editor actions (edit/delete) are rendered only when the handlers
+ * actually exist in the host client, so one shared implementation works on
+ * both the GAS template and the static PWA. */
+function renderTaskList() {
+  const tasks = appState.tasks || [];
+  const tbody = getEl('tasksBody');
+  const empty = getEl('tasksEmpty');
+  const user = appState.user;
+  const isAdminOrEditor = user && (user.role === 'ADMIN' || user.role === 'EDITOR');
+  const canEdit = typeof editTask === 'function' && typeof deleteTaskConfirm === 'function';
+  const hasIcs = !!(window.EnterpriseAddons && typeof window.EnterpriseAddons.downloadTaskIcs === 'function');
+  const hasOffline = !!(window.EnterpriseAddons && typeof window.EnterpriseAddons.completeTaskOffline === 'function');
+
+  if (tbody) {
+    tbody.innerHTML = tasks.map(function (t) {
+      const statusClass = t.status === 'DONE' ? 'badge-success' : t.status === 'IN_PROGRESS' ? 'badge-warning' : t.status === 'CANCELLED' ? 'badge-muted' : 'badge-danger';
+      const priorityClass = t.priority === 'URGENT' ? 'badge-danger' : t.priority === 'HIGH' ? 'badge-warning' : t.priority === 'MEDIUM' ? 'badge-info' : 'badge-muted';
+
+      let actionButtons = '';
+      if (t.status !== 'DONE' && t.status !== 'CANCELLED') {
+        actionButtons += '<button class="btn btn-ghost btn-small" type="button" onclick="completeTask(\'' + escAttr(t.id) + '\')">Complete</button>';
+        if (hasIcs) {
+          actionButtons += '<button class="btn btn-ghost btn-small" type="button" data-download-ics="' + escAttr(t.id) + '" style="margin-left:4px;">ICS</button>';
+        }
+        if (hasOffline) {
+          actionButtons += '<button class="btn btn-ghost btn-small" type="button" data-complete-task-offline="' + escAttr(t.id) + '" style="margin-left:4px;">Complete offline</button>';
+        }
+      }
+      if (isAdminOrEditor && canEdit) {
+        actionButtons += '<button class="btn btn-ghost btn-small" type="button" onclick="editTask(\'' + escAttr(t.id) + '\')" style="margin-left:4px;">Edit</button>';
+        actionButtons += '<button class="btn btn-ghost btn-small" type="button" onclick="deleteTaskConfirm(\'' + escAttr(t.id) + '\')" style="margin-left:4px;color:var(--danger,#dc3545);">Delete</button>';
+      }
+
+      return '<tr data-task-id="' + escAttr(t.id) + '">' +
+        '<td class="preserve-whitespace">' + escapeHtml(t.title || '') + '</td>' +
+        '<td>' + escapeHtml(t.assignee || '') + '</td>' +
+        '<td><span class="badge ' + statusClass + '" id="task-status-' + escAttr(t.id) + '">' + escapeHtml(t.status || '') + '</span></td>' +
+        '<td><span class="badge ' + priorityClass + '">' + escapeHtml(t.priority || '') + '</span></td>' +
+        '<td>' + (t.dueDate ? escapeHtml(formatDate(t.dueDate)) : '') + '</td>' +
+        '<td>' + actionButtons + '</td>' +
+        '</tr>';
+    }).join('') || '<tr><td colspan="6">No tasks found.</td></tr>';
+  }
+  if (empty) empty.classList.toggle('hidden', !!tasks.length);
 }
 
 /* ---------------------------------- Dashboard: table + event wiring ---------------------------------- */

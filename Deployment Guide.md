@@ -96,6 +96,12 @@ Apps Script project.
 .\deploy-all.ps1 "feat: describe your change"
 ```
 
+If the deploy includes performance work, capture the **before** timing
+baselines *first* (login, bulk import, dashboard load, Tasks tab — see
+*Timing before/after* under [Verifying a deployment](#verifying-a-deployment)
+below) and note them in the commit message or a scratch file; you re-measure
+after the deploy to compare.
+
 It performs, in order:
 
 1. **Git commit + push** — triggers `.github/workflows/pages.yml`, which deploys
@@ -156,6 +162,20 @@ Live URLs:
    on it; also confirm every `getEl(...)` ID exists in `index.html` and every
    inline `onclick` handler is defined. Keep `docs/app.js` in sync with
    `script.html`.)
+
+**Timing before/after (when the deploy includes performance work)** — record
+the baseline timings *before* running the deploy pipeline, then re-measure
+after the deploy and compare:
+
+- **Login and bulk import** — see *Measuring speed before/after a deploy* in the
+  [Admin Guide](Admin%20Guide.md).
+- **Dashboard boot and Tasks tab** — see *Measuring performance before/after a
+  deploy* in the [Developer Guide](Developer%20Guide.md).
+- Method: DevTools → **Network**, hard refresh (**Ctrl+Shift+R**) so the
+  cache-busted bundle loads, 2–3 runs taking the median, same browser, network,
+  and data volume both times. The first login after a deploy still verifies the
+  stored password hash with the old PBKDF2 iteration count and re-hashes it —
+  the **second** login is the number to compare.
 
 ## Keeping the two frontends in sync
 

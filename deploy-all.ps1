@@ -73,7 +73,25 @@ if (-not $syncOk) {
 }
 
 # ============================================================
-# 0b. CACHE-BUST STAMP  (bump ?v= in docs/app.html)
+# 0b. MINIFY  (shrink script.html inline JS + docs/app.js)
+#     Runs after sync so both clients ship minified. The minifier
+#     validates its output (new Function) and aborts before git if
+#     anything is unparseable. --check re-verifies later runs.
+# ============================================================
+Write-Host "[0/5] Minifying frontend clients..." -ForegroundColor Yellow
+
+try {
+    $minifyOut = node "$PSScriptRoot\minify-frontend.js" 2>&1
+    $minifyOut | ForEach-Object { Write-Host "  $_" -ForegroundColor Gray }
+    if ($LASTEXITCODE -ne 0) { throw "minify-frontend.js exited $LASTEXITCODE" }
+    Write-Host "  OK  Frontend clients minified" -ForegroundColor Green
+} catch {
+    Write-Host "  WARN  minify-frontend.js failed: $($_.Exception.Message)" -ForegroundColor Red
+    throw "Minification failed - aborting deploy. Fix the input and re-run."
+}
+
+# ============================================================
+# 0c. CACHE-BUST STAMP  (bump ?v= in docs/app.html)
 #     Runs before git so the new stamp is committed and deployed
 #     together with the code it version-marks. Browsers + the GitHub
 #     raw CDN then always fetch fresh assets (js/css are long-TTL).
