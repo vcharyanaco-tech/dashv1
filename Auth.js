@@ -203,9 +203,16 @@ function pbkdf2HmacSha256_(password, salt, iterations, dkLen) {
   const int32be = function (n) {
     return String.fromCharCode((n >>> 24) & 0xff, (n >>> 16) & 0xff, (n >>> 8) & 0xff, n & 0xff);
   };
+  // GAS V8 rejects a plain JS number[] for the bytes parameter of
+  // computeHmacSha256Signature ("parameters don't match the method signature"),
+  // so byte arrays are round-tripped through a Latin-1 (ISO_8859_1) string,
+  // which encodes every byte 0-255 exactly. The SAME charset is used for every
+  // call so the HMAC key bytes are identical across all PBKDF2 iterations
+  // (mixed charsets would silently corrupt the derived key).
   const hmac = function (msg) {
+    const m = typeof msg === 'string' ? msg : String.fromCharCode.apply(null, msg);
     return Array.prototype.slice.call(
-      Utilities.computeHmacSha256Signature(msg, String(password), Utilities.Charset.UTF_8)
+      Utilities.computeHmacSha256Signature(m, String(password), Utilities.Charset.ISO_8859_1)
     );
   };
   const hex = function (b) {

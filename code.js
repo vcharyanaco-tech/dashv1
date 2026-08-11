@@ -794,9 +794,14 @@ var API_ROUTES = {
 };
 
 function doPost(e) {
+  // `fnName` is hoisted out of the try so the catch can always log WHICH route
+  // failed. (The body is const-scoped to the try; referencing it from the catch
+  // would throw ReferenceError and mask the real error with a Google error page.)
+  let fnName = '';
   try {
     const body = JSON.parse(e.postData.contents);
     const fn = body.function;
+    fnName = String(fn || '');
     const args = body.args || [];
     // Resolve only from the explicit allowlist. Unknown names are rejected;
     // never eval() untrusted input.
@@ -817,7 +822,7 @@ function doPost(e) {
     if (err && err.clientSafe === true) {
       return JsonResponse_({ success: false, error: err.message || 'Request failed.' });
     }
-    console.error('[doPost] ' + String(body && body.function) + ' failed: ' + (err && err.stack ? err.stack : String(err)));
+    console.error('[doPost] ' + fnName + ' failed: ' + (err && err.stack ? err.stack : String(err)));
     return JsonResponse_({ success: false, error: 'An internal server error occurred.' });
   }
 }
