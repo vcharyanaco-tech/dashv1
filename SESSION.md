@@ -1,10 +1,10 @@
 # India Post Dashboard — Session State
 
-Last updated: 2026-08-10
+Last updated: 2026-08-11
 
-> **Resume point: `SESSION_EXPORT_2026-08-10.md`** — covers the 2026-08-10 session: (1) production outage fix (`ReferenceError: require is not defined` from `bump-cache-bust.js` accidentally pushed to GAS; fixed, live @208), (2) refactor of dashboard/analytics/audit rendering (34 fns + `dashScroll`) into the synced core `src/frontend-logic.js` (commit `de9a527`), (3) five UX bug fixes (commit `e8ac196` — optimistic submission edit, optimistic display-on-card, panel cache for AI/analyze-link across auto-refresh, optimistic new-entry render, no auto-linkify of action text).
+> **Resume point: `SESSION_EXPORT_2026-08-11.md`** — covers the 2026-08-11 session: (1) **production crash fix** — every user-creation path (admin add / bulk import / password change) returned a Google HTML error page under GAS V8: `pbkdf2HmacSha256_` passed a plain `number[]` to `Utilities.computeHmacSha256Signature` (V8 rejects it), masked by a `doPost` catch referencing try-scoped `body` (ReferenceError). Fixed via Latin-1 byte round-trip + hoisted `fnName`, 5 PBKDF2 regression tests, live @225 (commits `f4c7480`, `71f3282`). (2) Performance: cached getTasks (15s TTL), batched generation bumps + cache co-writes for Users/Tasks/Submissions, force-fetch after mutations. (3) Deploy fixes: `.claspignore` excludes `minify-frontend.js`+`lib/`; Start-task feature ported onto restored clients (`35266bf`).
 >
-> **IMPORTANT — `e8ac196` is committed/pushed but NOT deployed to GAS/live yet.** Go-live steps: `clasp push --force`, `clasp deploy`, repoint pinned deployment, cache-bust bump for the static bundle. Older historical context below (previous sessions).
+> **Next up:** live end-to-end timing verification is pending — Google's anti-abuse interstitial blocked this client's scripted requests and the browser-use service was session-limited. Recipe in `SESSION_EXPORT_2026-08-11.md` §4. Older historical context below (previous sessions).
 
 
 ## Current Task (split-routing Worker: / → GitHub Pages, /app.html → GAS — DONE, deployed)
