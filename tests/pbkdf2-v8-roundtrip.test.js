@@ -1,18 +1,18 @@
 /**
- * Regression tests for the GAS V8 PBKDF2 fix in Auth.js.
+ * Regression tests for the PBKDF2 password hashing in Auth.js.
  *
- * Background: GAS V8 rejects a plain JS number[] for the bytes parameter of
- * Utilities.computeHmacSha256Signature ("The parameters (number[],String,
- * Utilities.Charset) don't match the method signature"), so every user-creation
- * path (adminAddUser / adminImportUsers / bootstrap / password change) crashed
- * with a masked error. The fix round-trips the intermediate byte array through
- * a Latin-1 (ISO_8859_1) string (String.fromCharCode -> exact byte) and uses
- * ISO_8859_1 for EVERY call so the HMAC key bytes stay identical across all
- * PBKDF2 iterations.
+ * Background: every user-creation path (adminAddUser / adminImportUsers /
+ * bootstrap / password change) crashed under GAS V8. Two GAS pitfalls were
+ * hit: (1) Utilities.computeHmacSha256Signature rejects a plain JS number[]
+ * for its bytes parameter, and (2) Utilities.Charset.ISO_8859_1 was REMOVED
+ * in the V8 runtime ("Invalid argument: charset"). The fix reimplements
+ * SHA-256 / HMAC-SHA256 in pure JS over byte arrays (FIPS 180-4 / RFC 2104),
+ * giving standard RFC 2898 PBKDF2 with UTF-8 password encoding — byte-
+ * identical to crypto.pbkdf2Sync().
  *
- * These tests pin the derivation to real crypto.pbkdf2Sync reference vectors so
- * a future change back to UTF_8 (or dropping the fromCharCode round-trip) fails
- * loudly instead of silently corrupting stored hashes.
+ * These tests pin the derivation to real crypto reference vectors (incl.
+ * unicode passwords and multi-block outputs) and guard the source so a
+ * regression to Utilities-based hashing fails loudly.
  *
  * Run with:  node --test tests/pbkdf2-v8-roundtrip.test.js
  */
@@ -28,12 +28,15 @@ const vm = require('node:vm');
 
 const AUTH_JS = fs.readFileSync(path.join(__dirname, '..', 'Auth.js'), 'utf8');
 
-/** Extracts pbkdf2HmacSha256_ (whole function body, brace-matched). */
+/** Extracts the contiguous pure-JS block: utf8Bytes_ .. pbkdf2HmacSha256_. */
 function extractPbkdf2(src) {
+  const start = src.indexOf('function utf8Bytes_(str) {');
+  assert.notStrictEqual(start, -1, 'utf8Bytes_ not found in Auth.js');
+
   const mark = 'function pbkdf2HmacSha256_(password, salt, iterations, dkLen) {';
-  const start = src.indexOf(mark);
-  assert.notStrictEqual(start, -1, 'pbkdf2HmacSha256_ not found in Auth.js');
-  const open = src.indexOf('{', start);
+  const fnStart = src.indexOf(mark);
+  assert.notStrictEqual(fnStart, -1, 'pbkdf2HmacSha256_ not found in Auth.js');
+  const open = src.indexOf('{', fnStart);
   let depth = 0;
   let i = open;
   for (; i < src.length; i++) {
@@ -47,87 +50,71 @@ function extractPbkdf2(src) {
   return src.slice(start, i + 1);
 }
 
-/** Emulates GAS semantics: ISO_8859_1 encodes charCodes 0-255 byte-exact;
- *  the digest comes back as SIGNED bytes (Java Byte[]), like GAS. */
-function makeUtilitiesStub() {
-  const toBuf = (v, enc) => {
-    if (typeof v === 'string') return Buffer.from(v, enc);
-    return Buffer.from(Array.from(v, (b) => (((b % 256) + 256) % 256)));
-  };
-  return {
-    Charset: { ISO_8859_1: 'ISO-8859-1', UTF_8: 'UTF-8' },
-    computeHmacSha256Signature(value, key, charset) {
-      const enc = charset === 'ISO-8859-1' ? 'latin1' : 'utf8';
-      const digest = crypto
-        .createHmac('sha256', toBuf(key, enc))
-        .update(toBuf(value, enc))
-        .digest();
-      return Array.from(digest, (b) => (b > 127 ? b - 256 : b)); // signed
-    },
-  };
-}
-
 function makeSandbox() {
   const sandbox = {
     console,
-    Utilities: makeUtilitiesStub(),
     CONFIG: { USERS: { PBKDF2_ITERATIONS: 3000 } },
   };
   vm.runInNewContext(extractPbkdf2(AUTH_JS), sandbox, {
-    filename: 'Auth.js (pbkdf2HmacSha256_)',
+    filename: 'Auth.js (pbkdf2 pure-JS block)',
   });
   return sandbox;
 }
 
-/** Reference for the Latin-1 semantics GAS actually computes. */
-function latin1Pbkdf2Hex(password, salt, iterations, dkLen) {
+/** Standard UTF-8 reference: crypto.pbkdf2Sync. */
+function refPbkdf2Hex(password, salt, iterations, dkLen) {
   return crypto
-    .pbkdf2Sync(
-      Buffer.from(String(password), 'latin1'),
-      Buffer.from(String(salt), 'latin1'),
-      iterations,
-      dkLen,
-      'sha256'
-    )
+    .pbkdf2Sync(String(password), String(salt), iterations, dkLen, 'sha256')
     .toString('hex');
 }
 
 /* ---------------------------------- Tests ---------------------------------- */
 
-test('pbkdf2HmacSha256_ matches the reference vector (default iterations/dkLen)', () => {
+test('pbkdf2HmacSha256_ matches crypto.pbkdf2Sync (default iterations/dkLen)', () => {
   const s = makeSandbox();
   const out = s.pbkdf2HmacSha256_('Vish@9194', 'a1b2c3d4e5f60718293a4b5c6d7e8f90');
-  assert.strictEqual(out, latin1Pbkdf2Hex('Vish@9194', 'a1b2c3d4e5f60718293a4b5c6d7e8f90', 3000, 32));
+  assert.strictEqual(out, refPbkdf2Hex('Vish@9194', 'a1b2c3d4e5f60718293a4b5c6d7e8f90', 3000, 32));
 });
 
-test('pbkdf2HmacSha256_ matches reference across iterations (10000) and dkLen 64 (multi-block)', () => {
+test('matches reference across iterations (10000) and dkLen 64 (multi-block)', () => {
   const s = makeSandbox();
   const out = s.pbkdf2HmacSha256_('correct horse battery staple', 'deadbeef', 10000, 64);
-  assert.strictEqual(out, latin1Pbkdf2Hex('correct horse battery staple', 'deadbeef', 10000, 64));
+  assert.strictEqual(out, refPbkdf2Hex('correct horse battery staple', 'deadbeef', 10000, 64));
 });
 
-test('unicode passwords are self-consistent (Latin-1 key bytes, byte-exact reference)', () => {
+test('unicode passwords match the standard UTF-8 reference exactly', () => {
   const s = makeSandbox();
-  const pw = 'p\u00e4ssw\u00f6rd'; // Latin-1 representable (chars <= 0xFF)
+  const pw = 'p\u00e4ssw\u00f6rd-\u65e5\u672c\u8a9e'; // Latin-1 chars + CJK
   const out = s.pbkdf2HmacSha256_(pw, '7f7f7f7f7f7f', 5000, 32);
-  assert.strictEqual(out, latin1Pbkdf2Hex(pw, '7f7f7f7f7f7f', 5000, 32));
+  assert.strictEqual(out, refPbkdf2Hex(pw, '7f7f7f7f7f7f', 5000, 32));
 });
 
-test('the V8 fix is present: ISO_8859_1 round-trip, no UTF_8 charset in hmac (source guard)', () => {
-  const src = extractPbkdf2(AUTH_JS);
-  assert.ok(src.includes('ISO_8859_1'), 'hmac must use ISO_8859_1 (byte-exact round-trip)');
-  assert.ok(
-    src.includes('String.fromCharCode.apply(null, msg)'),
-    'byte arrays must be round-tripped through fromCharCode'
-  );
-  const utf8Usage = src.indexOf('Charset.UTF_8');
-  assert.strictEqual(utf8Usage, -1, 'hmac must NOT use UTF_8 (corrupts bytes >= 0x80)');
-});
-
-test('signed GAS byte arrays still derive the same hash (Java Byte[] semantics)', () => {
-  // u values may arrive signed (-128..127) from GAS; fromCharCode + Latin-1
-  // round-trips them byte-exact, and XOR is bitwise-identical either way.
+test('surrogate-pair (emoji) passwords match the UTF-8 reference', () => {
   const s = makeSandbox();
-  const out = s.pbkdf2HmacSha256_('signed-bytes-probe', 'abcdef0123456789', 2000, 32);
-  assert.strictEqual(out, latin1Pbkdf2Hex('signed-bytes-probe', 'abcdef0123456789', 2000, 32));
+  const pw = 'pw-\u{1f600}-end'; // 😀 needs surrogate-pair encoding
+  const out = s.pbkdf2HmacSha256_(pw, '0001020304050607', 2000, 32);
+  assert.strictEqual(out, refPbkdf2Hex(pw, '0001020304050607', 2000, 32));
+});
+
+test('hmacSha256Bytes_ matches RFC 4231 test case 1', () => {
+  const s = makeSandbox();
+  const key = Array(20).fill(0x0b);
+  const msg = Array.from(Buffer.from('Hi There'));
+  const out = Buffer.from(s.hmacSha256Bytes_(key, msg)).toString('hex');
+  assert.strictEqual(out, 'b0344c61d8db38535ca8afceaf0bf12b881dc200c9833da726e9376c2e32cff7');
+});
+
+test('sha256Bytes_ matches crypto for multi-block input (> 64 bytes)', () => {
+  const s = makeSandbox();
+  const msg = Array.from(Buffer.from('a'.repeat(200)));
+  const out = Buffer.from(s.sha256Bytes_(msg)).toString('hex');
+  assert.strictEqual(out, crypto.createHash('sha256').update('a'.repeat(200)).digest('hex'));
+});
+
+test('the hashing is pure JS: no Utilities/Charset dependency (source guard)', () => {
+  const src = extractPbkdf2(AUTH_JS);
+  assert.ok(src.includes('function hmacSha256Bytes_'), 'pure-JS HMAC helper must exist');
+  assert.strictEqual(src.indexOf('Utilities.'), -1, 'PBKDF2 block must not use Utilities');
+  assert.strictEqual(src.indexOf('Charset'), -1, 'PBKDF2 block must not use Charset');
+  assert.strictEqual(src.indexOf('computeHmacSha256Signature'), -1, 'no GAS HMAC primitive');
 });

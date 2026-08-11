@@ -187,33 +187,121 @@ function hashPassword_(password, salt) {
 /* ============================================================
  * Point 7: PBKDF2-HMAC-SHA256 password hashing (v2)
  *
- * Apps Script has no native PBKDF2, so we build the standard PBKDF2
- * construction over Utilities.computeHmacSha256Signature (HMAC-SHA256,
- * password as the key). The stored hash records its own iteration count:
+ * Apps Script has no native PBKDF2, and GAS V8's Utilities byte-array interop
+ * is unreliable: it rejects a plain JS number[] for
+ * Utilities.computeHmacSha256Signature ("parameters don't match the method
+ * signature") and Utilities.Charset.ISO_8859_1 was REMOVED in the V8 runtime
+ * ("Invalid argument: charset"). So the primitives below are a pure-JS
+ * SHA-256 / HMAC-SHA256 (FIPS 180-4 / RFC 2104) over byte arrays, giving the
+ * standard RFC 2898 PBKDF2 with UTF-8 password encoding — byte-identical to
+ * crypto.pbkdf2Sync(). The stored hash records its own iteration count:
  *   "pbkdf2$<iterations>$<hex>"
  * so the iteration count can be raised later without forcing a re-login.
  * ============================================================ */
 
 const PASSWORD_VERSION_V2 = 'pbkdf2';
 
+/** UTF-8 encodes a string into a byte array (surrogate-pair aware). */
+function utf8Bytes_(str) {
+  const s = String(str || '');
+  const out = [];
+  for (let i = 0; i < s.length; i++) {
+    let c = s.charCodeAt(i);
+    if (c < 0x80) {
+      out.push(c);
+    } else if (c < 0x800) {
+      out.push(0xc0 | (c >> 6), 0x80 | (c & 0x3f));
+    } else if (c < 0xd800 || c >= 0xe000) {
+      out.push(0xe0 | (c >> 12), 0x80 | ((c >> 6) & 0x3f), 0x80 | (c & 0x3f));
+    } else {
+      // c is a high surrogate; pair it with the following low surrogate.
+      i++;
+      const c2 = s.charCodeAt(i);
+      c = 0x10000 + (((c & 0x3ff) << 10) | (c2 & 0x3ff));
+      out.push(0xf0 | (c >> 18), 0x80 | ((c >> 12) & 0x3f), 0x80 | ((c >> 6) & 0x3f), 0x80 | (c & 0x3f));
+    }
+  }
+  return out;
+}
+
+/** SHA-256 (FIPS 180-4) over a byte array → 32-byte digest. */
+function sha256Bytes_(msgBytes) {
+  const K = [
+    0x428a2f98, 0x71374491, 0xb5c0fbcf, 0xe9b5dba5, 0x3956c25b, 0x59f111f1, 0x923f82a4, 0xab1c5ed5,
+    0xd807aa98, 0x12835b01, 0x243185be, 0x550c7dc3, 0x72be5d74, 0x80deb1fe, 0x9bdc06a7, 0xc19bf174,
+    0xe49b69c1, 0xefbe4786, 0x0fc19dc6, 0x240ca1cc, 0x2de92c6f, 0x4a7484aa, 0x5cb0a9dc, 0x76f988da,
+    0x983e5152, 0xa831c66d, 0xb00327c8, 0xbf597fc7, 0xc6e00bf3, 0xd5a79147, 0x06ca6351, 0x14292967,
+    0x27b70a85, 0x2e1b2138, 0x4d2c6dfc, 0x53380d13, 0x650a7354, 0x766a0abb, 0x81c2c92e, 0x92722c85,
+    0xa2bfe8a1, 0xa81a664b, 0xc24b8b70, 0xc76c51a3, 0xd192e819, 0xd6990624, 0xf40e3585, 0x106aa070,
+    0x19a4c116, 0x1e376c08, 0x2748774c, 0x34b0bcb5, 0x391c0cb3, 0x4ed8aa4a, 0x5b9cca4f, 0x682e6ff3,
+    0x748f82ee, 0x78a5636f, 0x84c87814, 0x8cc70208, 0x90befffa, 0xa4506ceb, 0xbef9a3f7, 0xc67178f2
+  ];
+  const H0 = [
+    0x6a09e667, 0xbb67ae85, 0x3c6ef372, 0xa54ff53a,
+    0x510e527f, 0x9b05688c, 0x1f83d9ab, 0x5be0cd19
+  ];
+  const rotr = function (x, n) { return (x >>> n) | (x << (32 - n)); };
+
+  const bitLen = msgBytes.length * 8;
+  const pad = msgBytes.slice();
+  pad.push(0x80);
+  while (pad.length % 64 !== 56) pad.push(0);
+  // 64-bit big-endian bit length (messages here are < 4 GiB, so the high
+  // word is always zero).
+  pad.push(0, 0, 0, 0, (bitLen >>> 24) & 0xff, (bitLen >>> 16) & 0xff, (bitLen >>> 8) & 0xff, bitLen & 0xff);
+
+  const h = H0.slice();
+  for (let i = 0; i < pad.length; i += 64) {
+    const w = new Array(64);
+    for (let j = 0; j < 16; j++) {
+      w[j] = (pad[i + j * 4] << 24) | (pad[i + j * 4 + 1] << 16) | (pad[i + j * 4 + 2] << 8) | pad[i + j * 4 + 3];
+    }
+    for (let j = 16; j < 64; j++) {
+      w[j] = (w[j - 16] + (rotr(w[j - 15], 7) ^ rotr(w[j - 15], 18) ^ (w[j - 15] >>> 3)) + w[j - 7] + (rotr(w[j - 2], 17) ^ rotr(w[j - 2], 19) ^ (w[j - 2] >>> 10))) | 0;
+    }
+    let a = h[0], b = h[1], c = h[2], d = h[3], e = h[4], f = h[5], g = h[6], hh = h[7];
+    for (let j = 0; j < 64; j++) {
+      const s1 = rotr(e, 6) ^ rotr(e, 11) ^ rotr(e, 25);
+      const ch = (e & f) ^ (~e & g);
+      const t1 = (hh + s1 + ch + K[j] + w[j]) | 0;
+      const s0 = rotr(a, 2) ^ rotr(a, 13) ^ rotr(a, 22);
+      const maj = (a & b) ^ (a & c) ^ (b & c);
+      const t2 = (s0 + maj) | 0;
+      hh = g; g = f; f = e; e = (d + t1) | 0; d = c; c = b; b = a; a = (t1 + t2) | 0;
+    }
+    h[0] = (h[0] + a) | 0; h[1] = (h[1] + b) | 0; h[2] = (h[2] + c) | 0; h[3] = (h[3] + d) | 0;
+    h[4] = (h[4] + e) | 0; h[5] = (h[5] + f) | 0; h[6] = (h[6] + g) | 0; h[7] = (h[7] + hh) | 0;
+  }
+  const out = [];
+  for (let i = 0; i < 8; i++) {
+    out.push((h[i] >>> 24) & 0xff, (h[i] >>> 16) & 0xff, (h[i] >>> 8) & 0xff, h[i] & 0xff);
+  }
+  return out;
+}
+
+/** HMAC-SHA256 (RFC 2104) over byte arrays → 32-byte digest. */
+function hmacSha256Bytes_(keyBytes, msgBytes) {
+  let k = keyBytes.slice();
+  if (k.length > 64) k = sha256Bytes_(k);
+  while (k.length < 64) k.push(0);
+  const ipad = [];
+  const opad = [];
+  for (let i = 0; i < 64; i++) {
+    ipad.push(k[i] ^ 0x36);
+    opad.push(k[i] ^ 0x5c);
+  }
+  return sha256Bytes_(opad.concat(sha256Bytes_(ipad.concat(msgBytes))));
+}
+
 /** PBKDF2-HMAC-SHA256 (RFC 2898) — dkLen bytes of derived key as hex. */
 function pbkdf2HmacSha256_(password, salt, iterations, dkLen) {
   iterations = iterations || CONFIG.USERS.PBKDF2_ITERATIONS;
   dkLen = dkLen || 32;
+  const pw = utf8Bytes_(String(password));
+  const saltBytes = utf8Bytes_(String(salt || ''));
+  const hmac = function (msg) { return hmacSha256Bytes_(pw, msg); };
   const int32be = function (n) {
-    return String.fromCharCode((n >>> 24) & 0xff, (n >>> 16) & 0xff, (n >>> 8) & 0xff, n & 0xff);
-  };
-  // GAS V8 rejects a plain JS number[] for the bytes parameter of
-  // computeHmacSha256Signature ("parameters don't match the method signature"),
-  // so byte arrays are round-tripped through a Latin-1 (ISO_8859_1) string,
-  // which encodes every byte 0-255 exactly. The SAME charset is used for every
-  // call so the HMAC key bytes are identical across all PBKDF2 iterations
-  // (mixed charsets would silently corrupt the derived key).
-  const hmac = function (msg) {
-    const m = typeof msg === 'string' ? msg : String.fromCharCode.apply(null, msg);
-    return Array.prototype.slice.call(
-      Utilities.computeHmacSha256Signature(m, String(password), Utilities.Charset.ISO_8859_1)
-    );
+    return [(n >>> 24) & 0xff, (n >>> 16) & 0xff, (n >>> 8) & 0xff, n & 0xff];
   };
   const hex = function (b) {
     return ((b + 256) % 256).toString(16).padStart(2, '0');
@@ -223,7 +311,7 @@ function pbkdf2HmacSha256_(password, salt, iterations, dkLen) {
   let blockIndex = 1;
   while (out.length < dkLen) {
     // U1 = PRF(password, salt || INT_32_BE(blockIndex))
-    let u = hmac((salt || '') + int32be(blockIndex));
+    let u = hmac(saltBytes.concat(int32be(blockIndex)));
     let t = u.slice();
     for (let i = 1; i < iterations; i++) {
       u = hmac(u);
