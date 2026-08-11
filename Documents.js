@@ -58,7 +58,7 @@ function getRecordDocuments_(recordRow) {
 
 function addDocument_(recordRow, recordId, fileName, driveFileId, mimeType, size, uploadedBy) {
   const sh = documentsSheet_();
-  if (!sh) throw AppUtils.clientError('Documents sheet unavailable.');
+  if (!sh) throw clientError_('Documents sheet unavailable.');
   const id = Utilities.getUuid();
   const now = new Date();
   sh.appendRow([id, recordRow, recordId, fileName, driveFileId, mimeType, size, uploadedBy, now]);
@@ -92,12 +92,12 @@ function uploadDocumentToDrive_(fileBytes, fileName, mimeType) {
 }
 
 function getRecordDocuments(recordRow, token) {
-  AppUtils.requireLogin(token);
+  requireLogin_(token);
   return getRecordDocuments_(Number(recordRow) || 0);
 }
 
 function uploadDocument(recordRow, recordId, fileName, base64, mimeType, token) {
-  const user = AppUtils.requireLogin(token);
+  const user = requireLogin_(token);
   const bytes = Utilities.base64Decode(base64);
   const drive = uploadDocumentToDrive_(bytes, fileName, mimeType);
   const doc = addDocument_(Number(recordRow) || 0, String(recordId || ''), String(fileName || ''), drive.driveFileId, String(mimeType || ''), drive.size, user.email);
@@ -106,9 +106,9 @@ function uploadDocument(recordRow, recordId, fileName, base64, mimeType, token) 
 }
 
 function deleteDocument(docId, token) {
-  const user = AppUtils.requireLogin(token);
+  const user = requireLogin_(token);
   const ok = deleteDocument_(String(docId));
-  if (!ok) throw AppUtils.clientError('Document not found.');
+  if (!ok) throw clientError_('Document not found.');
   try { notifyStaff_(NOTIFICATION_TYPES.RECORD, 'Document removed', 'A document (' + String(docId) + ') was removed by ' + user.email + '.', '', user.email); } catch (err) {}
   return { success: true };
 }

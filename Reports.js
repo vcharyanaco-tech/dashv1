@@ -100,7 +100,7 @@ function getPrintableReport() {
  * @returns {{filename: string, base64: string}}
  */
 function exportToSpreadsheet(token) {
-  AppUtils.requireLogin(token);
+  requireLogin_(token);
   const report = getPrintableReport();
   const xlsxMime = 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet';
   const ss = SpreadsheetApp.create('India Post Dashboard Report ' + Utilities.formatDate(new Date(), Session.getScriptTimeZone(), 'yyyy-MM-dd HH:mm'));
@@ -146,7 +146,7 @@ function exportToSpreadsheet(token) {
       try { blob = buildXlsxFromItems_(report.items); } catch (err) { blob = null; }
     }
 
-    if (!blob) throw AppUtils.clientError('Could not convert the report to Excel format.');
+    if (!blob) throw clientError_('Could not convert the report to Excel format.');
 
     const filename = 'IndiaPostDashboard_Report_' + Utilities.formatDate(new Date(), Session.getScriptTimeZone(), 'yyyyMMdd_HHmm') + '.xlsx';
     blob.setName(filename);
@@ -268,7 +268,7 @@ function buildXlsxFromItems_(items) {
  * @returns {{filename: string, base64: string}}
  */
 function createPdfReport(token) {
-  AppUtils.requireLogin(token);
+  requireLogin_(token);
   const template = HtmlService.createTemplateFromFile('ReportPdf');
   template.data = getPrintableReport();
   const html = template.evaluate().getContent();
@@ -291,7 +291,7 @@ function getReportTemplates() {
 }
 
 function getReportData(token, templateKey) {
-  AppUtils.requireLogin(token);
+  requireLogin_(token);
   const data = getData();
   const items = data.items || [];
   const key = String(templateKey || 'summary').toLowerCase();
@@ -316,9 +316,9 @@ function getReportData(token, templateKey) {
  * @returns {{success: boolean, sentTo: string, template: string}}
  */
 function emailReport(token, recipient, templateKey) {
-  AppUtils.requireLogin(token);
+  requireLogin_(token);
   if (!recipient || !/^[^@\s]+@[^@\s]+\.[^@\s]+$/.test(recipient)) {
-    throw AppUtils.clientError('A valid recipient email is required.');
+    throw clientError_('A valid recipient email is required.');
   }
   const key = String(templateKey || 'summary').toLowerCase();
   const report = getReportData(token, key);

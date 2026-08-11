@@ -54,12 +54,9 @@ function loadFunction(src, name, sandboxExtra) {
 test('server: adminKillUserSessions bumps the epoch, requires admin, audits', () => {
   const calls = { epoch: [], audit: [], notify: [], locked: 0 };
   const fn = loadFunction(AUTH, 'adminKillUserSessions', {
+    requireAdmin_(token) { assert.strictEqual(token, 'tok'); return { email: 'admin@x.com' }; },
     checkRateLimit_() {},
-    AppUtils: {
-      safeCacheKey(v) { return String(v); },
-      clientError(m) { const e = new Error(m); e.clientSafe = true; return e; },
-      requireAdmin(token) { assert.strictEqual(token, 'tok'); return { email: 'admin@x.com' }; },
-    },
+    AppUtils: { safeCacheKey(v) { return String(v); } },
     CONFIG: { RATE_LIMIT: { ADMIN_USER_MAX: 20, ADMIN_USER_WINDOW: 60 } },
     runWithLock_(cb) { calls.locked++; return cb(); },
     findUserRecord_(email) { return email === 'victim@x.com' ? { email: email } : null; },
@@ -81,12 +78,9 @@ test('server: adminKillUserSessions bumps the epoch, requires admin, audits', ()
 
 test('server: self-target sets reAuth so the client prompts for sign-in', () => {
   const fn = loadFunction(AUTH, 'adminKillUserSessions', {
+    requireAdmin_() { return { email: 'me@x.com' }; },
     checkRateLimit_() {},
-    AppUtils: {
-      safeCacheKey(v) { return String(v); },
-      clientError(m) { const e = new Error(m); e.clientSafe = true; return e; },
-      requireAdmin() { return { email: 'me@x.com' }; },
-    },
+    AppUtils: { safeCacheKey(v) { return String(v); } },
     CONFIG: { RATE_LIMIT: { ADMIN_USER_MAX: 20, ADMIN_USER_WINDOW: 60 } },
     runWithLock_(cb) { return cb(); },
     findUserRecord_(email) { return { email: email }; },
@@ -100,15 +94,13 @@ test('server: self-target sets reAuth so the client prompts for sign-in', () => 
 
 test('server: adminKillUserSessions rejects unknown users', () => {
   const fn = loadFunction(AUTH, 'adminKillUserSessions', {
+    requireAdmin_() { return { email: 'admin@x.com' }; },
     checkRateLimit_() {},
-    AppUtils: {
-      safeCacheKey(v) { return String(v); },
-      clientError(m) { const e = new Error(m); e.clientSafe = true; return e; },
-      requireAdmin() { return { email: 'admin@x.com' }; },
-    },
+    AppUtils: { safeCacheKey(v) { return String(v); } },
     CONFIG: { RATE_LIMIT: { ADMIN_USER_MAX: 20, ADMIN_USER_WINDOW: 60 } },
     runWithLock_(cb) { return cb(); },
     findUserRecord_() { return null; },
+    clientError_(m) { const e = new Error(m); e.clientSafe = true; return e; },
   });
   assert.throws(() => fn('ghost@x.com', 'tok'), /User not found/);
 });
@@ -116,12 +108,9 @@ test('server: adminKillUserSessions rejects unknown users', () => {
 test('server: adminKillUserSessions does NOT touch the password hash', () => {
   const calls = { userFields: [] };
   const fn = loadFunction(AUTH, 'adminKillUserSessions', {
+    requireAdmin_() { return { email: 'admin@x.com' }; },
     checkRateLimit_() {},
-    AppUtils: {
-      safeCacheKey(v) { return String(v); },
-      clientError(m) { const e = new Error(m); e.clientSafe = true; return e; },
-      requireAdmin() { return { email: 'admin@x.com' }; },
-    },
+    AppUtils: { safeCacheKey(v) { return String(v); } },
     CONFIG: { RATE_LIMIT: { ADMIN_USER_MAX: 20, ADMIN_USER_WINDOW: 60 } },
     runWithLock_(cb) { return cb(); },
     findUserRecord_(email) { return { email: email }; },

@@ -42,7 +42,7 @@ function buildRichTextValue_(text, url, linkText) {
  * @returns {Object} Fresh getData() payload.
  */
 function addRecord_(item, token) {
-  const editor = AppUtils.requireEditor(token);
+  const editor = requireEditor_(token);
 
   return runWithLock_(function () {
     const sheet = getSheet_();
@@ -133,7 +133,7 @@ function addRecord_(item, token) {
  * @returns {Object} Fresh getData() payload.
  */
 function updateRecord_(item, token) {
-  const editor = AppUtils.requireEditor(token);
+  const editor = requireEditor_(token);
 
   return runWithLock_(function () {
     const sheet = getSheet_();
@@ -164,7 +164,7 @@ function updateRecord_(item, token) {
       let rt = null;
       try { rt = range.getRichTextValue(); } catch (e) { rt = null; }
       const plain = rt ? String(rt.getText()) : String(range.getValue() == null ? "" : range.getValue());
-      return { plain: plain, link: AppUtils.extractLinkUrl(rt), linkText: AppUtils.extractLinkText(rt) };
+      return { plain: plain, link: extractLinkUrl_(rt), linkText: extractLinkText_(rt) };
     }
 
     function writeLinkedField(col, state, newVal, linkUrl, linkText) {
@@ -220,7 +220,7 @@ function updateRecord_(item, token) {
  * @returns {Object} Fresh getData() payload.
  */
 function deleteRecord_(row, token) {
-  const editor = AppUtils.requireEditor(token);
+  const editor = requireEditor_(token);
 
   return runWithLock_(function () {
     const sheet = getSheet_();
@@ -246,7 +246,7 @@ function deleteRecord_(row, token) {
  * @returns {{items: Object[], summary: Object}} Updated items + summary.
  */
 function markReviewDone_(row, token) {
-  const admin = AppUtils.requireAdmin(token);
+  const admin = requireAdmin_(token);
 
   return runWithLock_(function () {
     const sheet = getSheet_();
@@ -276,7 +276,7 @@ function markReviewDone_(row, token) {
  * @returns {{items: Object[], summary: Object}} Updated items + summary.
  */
 function markReviewNotDone_(row, token) {
-  const admin = AppUtils.requireAdmin(token);
+  const admin = requireAdmin_(token);
 
   return runWithLock_(function () {
     const sheet = getSheet_();

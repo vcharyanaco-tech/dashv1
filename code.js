@@ -136,7 +136,7 @@ function getData() {
   if (cached) return cached;
 
   const sheet = getSheet_();
-  let rows = AppUtils.getSheetDataRows(sheet);
+  let rows = getSheetDataRows_(sheet);
 
   // Fallback: if no rows in dashboard sheet, try deriving items from Audit Log
   if (!rows || !rows.length) {
@@ -253,9 +253,181 @@ function markReviewNotDone(row, token) {
   return RecordService.markReviewNotDone(row, token);
 }
 
-/* HTML/link rendering helpers (escHtml, looksLikeUrl, normalizeUrl,
- * linkifyText, richToHtml, extractLinkUrl, extractLinkText, ssBaseUrl,
- * absUrl) now live in AppUtils (see Utils.js). */
+function escHtml_(s) {
+  if (s === null || s === undefined) return '';
+  return String(s)
+    .replace(/&/g,'&amp;')
+    .replace(/</g,'&lt;')
+    .replace(/>/g,'&gt;')
+    .replace(/"/g,'&quot;')
+    .replace(/'/g,'&#39;');
+}
+
+function looksLikeUrl_(value) {
+  if (value === null || value === undefined) return false;
+  const text = String(value).trim();
+  if (!text) return false;
+  // Only treat explicit schemes / www / bare domains (no whitespace) as URLs.
+  // Prose that merely contains a dot (e.g. "Send to office.verify" or
+  // "file.pdf") must never be auto-linked on cards or reports.
+  return /^(https?:\/\/|mailto:|ftp:\/\/|www\.)/i.test(text) ||
+    (/^[a-z0-9-]+(\.[a-z0-9-]+)+(:\d+)?(\/\S*)?$/i.test(text) && text.indexOf(' ') === -1);
+}
+
+function normalizeUrl_(value) {
+  const text = String(value || '').trim();
+  if (!text) return '';
+  if (/^www\./i.test(text)) return 'https://' + text;
+  return text;
+}
+
+function linkifyText_(text) {
+  if (text === null || text === undefined) return '';
+  const source = String(text);
+  if (!source) return '';
+  const pieces = source.split(/(\s+)/);
+  return pieces.map(function (piece) {
+    if (!looksLikeUrl_(piece)) {
+      return escHtml_(piece);
+    }
+    const url = normalizeUrl_(piece);
+    const safeUrl = absUrl_(url);
+    if (!safeUrl) {
+      return escHtml_(piece);
+    }
+    return '<a href="' + escHtml_(safeUrl) + '" target="_blank" rel="noopener noreferrer" data-embed="1">' + escHtml_(piece) + '</a>';
+  }).join('');
+}
+
+function richToHtml_(rt, fallback) {
+  if (!rt) return linkifyText_(fallback);
+  var runs = null;
+  try { runs = rt.getRuns(); } catch (e) { runs = null; }
+  if (!runs || !runs.length) {
+    var text = '';
+    try { text = rt.getText(); } catch (e) { text = ''; }
+    return linkifyText_(text || fallback);
+  }
+  var out = [];
+  for (var i = 0; i < runs.length; i++) {
+    var t = runs[i].getText();
+    if (t === '' || t === null) continue;
+    var css = [];
+    var st = null;
+    try { st = runs[i].getTextStyle(); } catch (e) { st = null; }
+    if (st) {
+      var col = null;
+      try {
+        var co = st.getForegroundColorObject();
+        if (co) { col = co.asRgbColor().asHexString(); }
+      } catch (e2) {
+        try { col = st.getForegroundColor(); } catch (e3) { col = null; }
+      }
+      if (col && String(col).length >= 4) {
+        var c9 = String(col);
+        if (c9.length === 9) { c9 = '#' + c9.substring(3); }
+        css.push('color:' + c9);
+      }
+      try { if (st.isBold()) css.push('font-weight:700'); } catch (e4) {}
+      try { if (st.isItalic()) css.push('font-style:italic'); } catch (e5) {}
+      try { if (st.isUnderline()) css.push('text-decoration:underline'); } catch (e6) {}
+    }
+    var body = escHtml_(t);
+    var url = null;
+    try { url = runs[i].getLinkUrl(); } catch (e8) { url = null; }
+    if (url) {
+      var au = absUrl_(url);
+      if (au) { body = '<a href="' + escHtml_(au) + '" target="_blank" rel="noopener noreferrer" data-embed="1">' + body + '</a>'; }
+    } else {
+      body = linkifyText_(t);
+    }
+    if (css.length) { out.push('<span style="' + css.join(';') + '">' + body + '</span>'); }
+    else { out.push(body); }
+  }
+  return out.join('');
+}
+
+/**
+ * Returns the first link URL found in a rich-text value (or the value's own
+ * link URL), or an empty string when there is no link.
+ * @param {Object} rt A RichTextValue object (or null/undefined).
+ * @returns {string}
+ */
+function extractLinkUrl_(rt) {
+  if (!rt) return "";
+  var runs = null;
+  try { runs = rt.getRuns(); } catch (e) { runs = null; }
+  if (runs && runs.length) {
+    for (var i = 0; i < runs.length; i++) {
+      var u = null;
+      try { u = runs[i].getLinkUrl(); } catch (e2) { u = null; }
+      if (u) return String(u);
+    }
+    return "";
+  }
+  try {
+    if (typeof rt.getLinkUrl === "function") {
+      var direct = rt.getLinkUrl();
+      return direct ? String(direct) : "";
+    }
+  } catch (e3) {}
+  return "";
+}
+
+/**
+ * Returns the display text of the portion of a rich-text value that carries a
+ * hyperlink (the concatenated text of linked runs), or "" when nothing is
+ * linked. Used to round-trip the link description back to the editor.
+ * @param {Object} rt A RichTextValue object (or null/undefined).
+ * @returns {string}
+ */
+function extractLinkText_(rt) {
+  if (!rt) return "";
+  var runs = null;
+  try { runs = rt.getRuns(); } catch (e) { runs = null; }
+  if (runs && runs.length) {
+    var out = "";
+    for (var i = 0; i < runs.length; i++) {
+      var u = null;
+      try { u = runs[i].getLinkUrl(); } catch (e2) { u = null; }
+      if (u) {
+        var t = "";
+        try { t = runs[i].getText(); } catch (e3) { t = ""; }
+        out += t;
+      }
+    }
+    return out;
+  }
+  return "";
+}
+
+
+
+
+var __SS_URL_ = null;
+function ssBaseUrl_() {
+  if (__SS_URL_ === null) {
+    try { __SS_URL_ = SpreadsheetApp.getActiveSpreadsheet().getUrl(); } catch (e) { __SS_URL_ = ''; }
+  }
+  return __SS_URL_;
+}
+
+function absUrl_(u) {
+  if (!u) return '';
+  var s = String(u).trim();
+  if (!s) return '';
+  if (s.charAt(0) === '#') {
+    var base = ssBaseUrl_();
+    if (!base) return '';
+    return base.split('#')[0] + s;
+  }
+  if (/^(https?:|mailto:|tel:)/i.test(s)) return s;
+  if (s.charAt(0) === '/') return '';
+  if (s.indexOf('www.') === 0) return 'https://' + s;
+  return 'https://' + s;
+}
+
+
 /**
  * Returns the records visible to the caller. Office/department scoping was
  * removed by decision: every logged-in user (any role) sees all records.
@@ -346,7 +518,7 @@ function getReviewReminders_(items, user) {
     if (!responsibility) return;
     if (office && !responsibilityMatchesUser_(responsibility, user)) return;
     if (item.reviewStatus === 'done') return;
-    const days = AppUtils.daysUntilDate(item.reviewDate);
+    const days = daysUntilDate_(item.reviewDate);
     if (days === null || days > 1) return;
     out.push({
       row: item.row,
@@ -372,7 +544,7 @@ function getReviewReminders_(items, user) {
  * @returns {Object} The full dashboard payload.
  */
 function getAppData(token) {
-  const user = AppUtils.requireLogin(token);
+  const user = requireLogin_(token);
   try { ensureUserRecord_(user.email); } catch (err) {}
   const context = getUserContext(user.email);
   const data = getData();
@@ -423,7 +595,7 @@ function dailyDateUpdate() {
  * @returns {{success: boolean, sent: number, skipped: number, message?: string}}
  */
 function sendReviewReminders(token) {
-  if (token) AppUtils.requireAdmin(token);
+  if (token) requireAdmin_(token);
 
   const data = getData();
   const items = data.items || [];
@@ -439,7 +611,7 @@ function sendReviewReminders(token) {
     const responsibility = String(item.responsibility || '').trim();
     if (!responsibility) return;
     if (item.reviewStatus === 'done') return;
-    const days = AppUtils.daysUntilDate(item.reviewDate);
+    const days = daysUntilDate_(item.reviewDate);
     if (days !== 1) return;
 
     users.forEach(function (user) {
@@ -483,7 +655,7 @@ function sendReviewReminders(token) {
  * @returns {{success: boolean, created: number, skipped: number}}
  */
 function generateReviewNotifications(token) {
-  const user = AppUtils.requireLogin(token);
+  const user = requireLogin_(token);
   const context = getUserContext(user.email);
   const data = getData();
   const items = data.items || [];
@@ -499,7 +671,7 @@ function generateReviewNotifications(token) {
       if (!responsibility) return;
       if (item.reviewStatus === 'done') return;
       if (!responsibilityMatchesUser_(responsibility, context)) return;
-      const days = AppUtils.daysUntilDate(item.reviewDate);
+      const days = daysUntilDate_(item.reviewDate);
       if (days === null || days > 1) return;
 
       const dedupeKey = 'rvnotif_' + todayKey + '_' + item.row + '_' + user.email;
@@ -549,7 +721,7 @@ var API_ROUTES = {
   // getData() is the raw, cacheable read of all dashboard records. It is
   // intentionally NOT callable anonymously: any viewer session token is
   // accepted. (The dashboard bootstrap uses getAppData(token) anyway.)
-  getData: function (token) { AppUtils.requireLogin(token); return getData(); },
+  getData: function (token) { requireLogin_(token); return getData(); },
   getAppData: getAppData,
   validateSession: validateSession,
   login: login,
@@ -639,7 +811,7 @@ function doPost(e) {
   } catch (err) {
     // Security: never leak internal error details (sheet names, variable
     // state, stack traces) to anonymous web-app callers. Intentional,
-    // client-safe validation/auth errors (marked with AppUtils.clientError) keep
+    // client-safe validation/auth errors (marked with clientError_) keep
     // their message so the UI can show meaningful feedback; everything else
     // is logged in full server-side and replaced with a generic message.
     if (err && err.clientSafe === true) {

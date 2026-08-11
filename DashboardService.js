@@ -40,7 +40,7 @@ function isReviewDoneBackground_(background) {
  * A row is 'due' when its review-date cell is flagged by background colour OR
  * when its review date is tomorrow, today or already past (and not done).
  * @param {GoogleAppsScript.Spreadsheet.Sheet} sheet The dashboard sheet.
- * @param {Object[]} rows Row specs from AppUtils.getSheetDataRows.
+ * @param {Object[]} rows Row specs from getSheetDataRows_.
  * @returns {Object} { rowNumber: status }
  */
 function getReviewStatuses_(sheet, rows) {
@@ -74,7 +74,7 @@ function getReviewStatuses_(sheet, rows) {
         ? "done"
         : (isFlaggedBackground_(background) ? "due" : "");
       if (status !== "done" && rowSpec.reviewDate) {
-        const days = AppUtils.daysUntilDate(rowSpec.reviewDate);
+        const days = daysUntilDate_(rowSpec.reviewDate);
         if (days !== null && days <= 1) status = "due";
       }
       out[String(rowSpec.rowNumber)] = status;
@@ -94,7 +94,7 @@ function getReviewStatuses_(sheet, rows) {
           ? "done"
           : (isFlaggedBackground_(background) ? "due" : "");
         if (status !== "done" && rowSpec.reviewDate) {
-          const days = AppUtils.daysUntilDate(rowSpec.reviewDate);
+          const days = daysUntilDate_(rowSpec.reviewDate);
           if (days !== null && days <= 1) status = "due";
         }
         out[String(rowSpec.rowNumber)] = status;
@@ -108,7 +108,7 @@ function getReviewStatuses_(sheet, rows) {
 /**
  * Transforms raw sheet rows into display-ready items (formatted dates,
  * linkified/rich-text action HTML, review status flags).
- * @param {Object[]} rows Row specs from AppUtils.getSheetDataRows.
+ * @param {Object[]} rows Row specs from getSheetDataRows_.
  * @param {GoogleAppsScript.Spreadsheet.Sheet} sheet The dashboard sheet.
  * @returns {Object[]} Display-ready items.
  */
@@ -116,7 +116,7 @@ function buildDashboardItems_(rows, sheet) {
   const statuses = getReviewStatuses_(sheet, rows);
 
   return rows.map(function (rowSpec) {
-    let actionHtml = AppUtils.escHtml(rowSpec.action);
+    let actionHtml = escHtml_(rowSpec.action);
 
     const reviewStatus = statuses[String(rowSpec.rowNumber)] || "";
     const flagged = reviewStatus === "due";
@@ -135,17 +135,17 @@ function buildDashboardItems_(rows, sheet) {
       if (normalizedLabel.indexOf("date") === -1) {
         if (field && field.html) {
           fieldHtml = field.html;
-        } else if (normalizedLabel.indexOf("action") === -1 && AppUtils.looksLikeUrl(formattedValue)) {
+        } else if (normalizedLabel.indexOf("action") === -1 && looksLikeUrl_(formattedValue)) {
           // Only real rich-text hyperlinks turn the action field into a link.
           // Plain prose in the action cell must stay plain text (Point: no
           // heuristic auto-linkify for the action column).
-          fieldHtml = AppUtils.linkifyText(formattedValue);
+          fieldHtml = linkifyText_(formattedValue);
         }
       }
       // Point 7: every rich-text/link HTML fragment passes through the
       // allow-list sanitizer before leaving the server (tags, link schemes,
       // inline styles, event handlers).
-      if (fieldHtml) fieldHtml = AppUtils.sanitizeHtml(fieldHtml);
+      if (fieldHtml) fieldHtml = sanitizeHtml_(fieldHtml);
 
       if (normalizedLabel.indexOf("action") !== -1 && fieldHtml) {
         actionHtml = fieldHtml;
@@ -165,7 +165,7 @@ function buildDashboardItems_(rows, sheet) {
       description: rowSpec.description,
       entryDate: AppUtils.formatDate(rowSpec.entryDate),
       action: rowSpec.action,
-      actionHtml: AppUtils.sanitizeHtml(actionHtml),
+      actionHtml: sanitizeHtml_(actionHtml),
       responsibility: rowSpec.responsibility,
       reviewDate: AppUtils.formatDate(rowSpec.reviewDate),
       flagged: flagged,

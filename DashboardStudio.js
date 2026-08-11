@@ -49,7 +49,7 @@ function setUserPreferences_(email, prefs) {
 }
 
 function getDashboardPreferences(token) {
-  const user = AppUtils.requireLogin(token);
+  const user = requireLogin_(token);
   const prefs = getUserPreferences_(user.email);
   return {
     viewMode: prefs[DASHBOARD_PREF_KEYS.VIEW_MODE] || VIEW_MODES.CARDS,
@@ -59,12 +59,12 @@ function getDashboardPreferences(token) {
 }
 
 function saveDashboardPreferences(prefs, token) {
-  const user = AppUtils.requireLogin(token);
+  const user = requireLogin_(token);
   const merged = getUserPreferences_(user.email);
   merged[DASHBOARD_PREF_KEYS.VIEW_MODE] = prefs.viewMode || merged[DASHBOARD_PREF_KEYS.VIEW_MODE] || VIEW_MODES.CARDS;
   merged[DASHBOARD_PREF_KEYS.COLUMNS] = Object.assign({}, DEFAULT_COLUMNS, prefs.columns || merged[DASHBOARD_PREF_KEYS.COLUMNS] || {});
   merged[DASHBOARD_PREF_KEYS.LAYOUT] = prefs.layout || merged[DASHBOARD_PREF_KEYS.LAYOUT] || {};
   const ok = setUserPreferences_(user.email, merged);
-  if (!ok) throw AppUtils.clientError('Could not save preferences.');
+  if (!ok) throw clientError_('Could not save preferences.');
   return { success: true };
 }

@@ -80,13 +80,13 @@ function getAuditEntries(limit) {
  * @returns {Object[]} Refreshed audit tail (80 entries).
  */
 function adminDeleteAuditRows(rowNumbers, token) {
-  AppUtils.requireAdmin(token);
+  requireAdmin_(token);
   const sheet = getAuditSheet_();
   const rows = (rowNumbers || [])
     .map(function (n) { return Number(n); })
     .filter(function (n) { return isFinite(n) && n >= 2; })
     .sort(function (a, b) { return b - a; });
-  if (!rows.length) throw AppUtils.clientError('No audit entries selected.');
+  if (!rows.length) throw clientError_('No audit entries selected.');
   rows.forEach(function (r) { sheet.deleteRow(r); });
   try { logAudit_(ACTIONS.AUDIT_DELETE, '', 'Deleted ' + rows.length + ' audit entries', getCurrentUser()); } catch (err) {}
   return getAuditEntries(80);
@@ -98,7 +98,7 @@ function adminDeleteAuditRows(rowNumbers, token) {
  * @returns {Object[]} Empty audit tail.
  */
 function adminClearAudit(token) {
-  AppUtils.requireAdmin(token);
+  requireAdmin_(token);
   const sheet = getAuditSheet_();
   const lastRow = sheet.getLastRow();
   if (lastRow >= 2) sheet.deleteRows(2, lastRow - 1);

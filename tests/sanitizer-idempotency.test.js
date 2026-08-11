@@ -1,6 +1,6 @@
 /**
  * Unit tests for the Point 7 security helpers in Utils.js:
- *   - AppUtils.sanitizeHtml (allow-listed rich-text sanitizer)
+ *   - sanitizeHtml_   (allow-listed rich-text sanitizer)
  *   - withIdempotency_ (idempotency-key result replay)
  *
  * To test the actual shipped code rather than a re-typed copy, the real
@@ -40,42 +40,31 @@ function extractFunction(src, name) {
   return src.slice(start, i + 1);
 }
 
-/* ------------------------------ AppUtils.sanitizeHtml ------------------------------ */
+/* ------------------------------ sanitizeHtml_ ------------------------------ */
 
 /**
- * Loads the real AppUtils object from Utils.js (brace-matched from the
- * `const AppUtils = {` literal) into a fresh sandbox and returns it. The
- * literal is pure member definitions — nothing executes at load — so no GAS
- * globals are needed unless a member is actually called. sanitizeHtml
- * references only fellow AppUtils members (safeLinkScheme, SAFE_RICH_TAGS,
- * SAFE_STYLE_PROPS), all present on the loaded object.
+ * Loads sanitizeHtml_ plus its const dependencies (SAFE_RICH_TAGS,
+ * SAFE_STYLE_PROPS, safeLinkScheme_) into a fresh sandbox and returns the
+ * function. The block is sliced from the sanitizer section header to the
+ * following "JSON Helpers" section comment.
  */
-function loadAppUtils() {
-  const start = UTILS.indexOf('const AppUtils = {');
-  assert.notStrictEqual(start, -1, 'AppUtils literal not found in Utils.js');
-  const open = UTILS.indexOf('{', start);
-  assert.notStrictEqual(open, -1, 'open brace not found for AppUtils');
+function loadSanitizer() {
+  const start = UTILS.indexOf('const SAFE_RICH_TAGS');
+  assert.notStrictEqual(start, -1, 'SAFE_RICH_TAGS not found');
+  const jh = UTILS.indexOf('* JSON Helpers', start);
+  assert.notStrictEqual(jh, -1, 'JSON Helpers section not found');
+  const end = UTILS.lastIndexOf('/*', jh);
+  assert.ok(end > start, 'sanitizer block boundary invalid');
+  const block = UTILS.slice(start, end);
 
-  let depth = 0;
-  let i = open;
-  for (; i < UTILS.length; i++) {
-    if (UTILS[i] === '{') depth++;
-    else if (UTILS[i] === '}') {
-      depth--;
-      if (depth === 0) break;
-    }
-  }
-  assert.strictEqual(depth, 0, 'unbalanced braces in AppUtils literal');
-
-  const block = UTILS.slice(start, i + 1);
   const sandbox = {};
   vm.createContext(sandbox);
-  vm.runInContext(block + '\nthis.AppUtils = AppUtils;', sandbox, { filename: 'Utils.js (AppUtils literal)' });
-  assert.strictEqual(typeof sandbox.AppUtils.sanitizeHtml, 'function', 'AppUtils.sanitizeHtml missing');
-  return sandbox.AppUtils;
+  vm.runInContext(block, sandbox, { filename: 'Utils.js (sanitizer block)' });
+  assert.strictEqual(typeof sandbox.sanitizeHtml_, 'function', 'sanitizeHtml_ missing');
+  return sandbox.sanitizeHtml_;
 }
 
-const sanitize = loadAppUtils().sanitizeHtml;
+const sanitize = loadSanitizer();
 
 /* ------------------------------ withIdempotency_ ------------------------------ */
 

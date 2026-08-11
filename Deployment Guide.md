@@ -195,34 +195,6 @@ node C:\Users\vikph\AppData\Local\Temp\opencode\cmp-fns.js script.html docs/app.
 
 Run these from the Apps Script editor.
 
-> ⚡ **Keep-warm trigger:** `installTriggers()` also creates a `warmup`
-> trigger every 5 minutes (a cheap no-op execution) to stop GAS container
-> cold-starts from slowing login/`getAppData`. After deploying a version that
-> includes it, run `reinstallTriggers()` once from the Apps Script editor so
-> the trigger is created on the live project (`clasp push` deploys code but
-> not triggers).
-
-## Cloudflare token permissions
-
-The `CLOUDFLARE_API_TOKEN` used by `deploy-worker-api.js` (and `deploy-all.ps1`)
-needs **two** permissions:
-
-1. **Workers Scripts → Edit** (upload/replace the worker)
-2. **Zone → Cache Purge → Purge** (clear the edge cache after deploys)
-
-If Cache Purge is missing, deploys still succeed but the script exits with
-code `2` and prints a fix banner: the edge cache is not cleared, so a stale
-response (e.g. a 500 from the previous worker version) can keep being served
-until its TTL expires. Add the permission at
-https://dash.cloudflare.com/profile/api-tokens — editing the token's
-permissions does **not** change the token value, so no environment-variable
-update is needed.
-
-Since v`2026-08-10`, `worker.js` also sends `Cache-Control: no-store` on every
-proxied `/macros/` API response, so API/error responses are never edge-cached
-in the first place — this prevents stale-worker responses from recurring even
-if a future deploy cannot purge.
-
 ## Rollback
 
 `clasp deploy` keeps version history. To roll back, find a prior version and

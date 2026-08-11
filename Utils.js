@@ -34,24 +34,16 @@
  * fail at script load.
  */
 const AppUtils = {
-  /** Creates a client-safe Error (clientSafe === true, passed through by doPost). */
+  /** Creates a client-safe Error (see clientError_ below). */
   clientError: function (message) {
     const err = new Error(String(message));
     err.clientSafe = true;
     return err;
   },
 
-  /** SHA-256 hex digest of a string (Utilities.computeDigest). */
-  sha256Hex: function (input) {
-    const raw = Utilities.computeDigest(Utilities.DigestAlgorithm.SHA_256, String(input), Utilities.Charset.UTF_8);
-    return raw.map(function (b) {
-      return ((b + 256) % 256).toString(16).padStart(2, '0');
-    }).join('');
-  },
-
   /** Hash-safe cache key (avoids hitting CacheService key-length limits). */
   safeCacheKey: function (value) {
-    return AppUtils.sha256Hex(String(value || '')).slice(0, 16);
+    return sha256Hex_(String(value || '')).slice(0, 16);
   },
 
   /** Validates an email address. */
@@ -59,254 +51,11 @@ const AppUtils = {
     return /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(String(email || '').trim());
   },
 
-  /** Whole days from today (script timezone) to the given display date.
-   *  Returns 1 for tomorrow, 0 for today, -1 for yesterday, null when unparseable. */
-  daysUntilDate: function (value) {
-    const d = AppUtils.parseDisplayDate(value);
-    if (!d) return null;
-    const now = new Date();
-    const today = new Date(now.getFullYear(), now.getMonth(), now.getDate());
-    const target = new Date(d.getFullYear(), d.getMonth(), d.getDate());
-    return Math.round((target - today) / 86400000);
-  },
+  /** Days until a date, or null when unparseable. */
+  daysUntilDate: function (value) { return daysUntilDate_(value); },
 
-  /** Tags allowed in rich-text HTML output. SPAN is kept only for the
-   *  inline styles the dashboard itself emits (colour/bold/italic/underline). */
-  SAFE_RICH_TAGS: Object.freeze({ A: 1, STRONG: 1, EM: 1, P: 1, BR: 1, UL: 1, OL: 1, LI: 1, SPAN: 1 }),
-
-  /** Inline CSS properties allowed inside style="..." attributes. */
-  SAFE_STYLE_PROPS: /^(color|background-color|font-weight|font-style|text-decoration|text-align):/i,
-
-  /** Blocks non-web link schemes before any attribute handling. */
-  safeLinkScheme: function (url) {
-    const t = String(url || '').trim();
-    return /^(https?:|mailto:|tel:)/i.test(t) && !/[\'"\x00-\x1f]/.test(t);
-  },
-
-  /** Whitelist HTML sanitizer for rich-text fields. Allow-lists tags
-   *  (a/strong/em/p/br/ul/ol/li/span), only http(s)/mailto/tel links, and a
-   *  tiny set of inline style properties. Strips <script>, event-handler
-   *  attributes and javascript:/data:/vbscript: URLs, and adds
-   *  rel="noopener noreferrer". Not a general HTML parser — safe for the
-   *  dashboard's own server-generated markup. Text content of stripped tags
-   *  is preserved so no visible data is lost. */
-  sanitizeHtml: function (html) {
-    if (html === null || html === undefined) return '';
-    let s = String(html);
-
-    // 1) Wholesale drop dangerous elements (tags only; text content is kept —
-    //    it is re-escaped/allow-listed by the later passes and stays inert).
-    s = s.replace(/<\s*\/?\s*(script|iframe|object|embed|style|link|meta|form|input|button|svg|math|base|template|noscript)[^>]*>/gi, '');
-
-    // 2) Strip event-handler attributes (onclick, onerror, ...), including the
-    //    no-space variant (<a href="x"onclick="...">) and handlers that are the
-    //    first attribute. A handler name must follow a quote/space/start so
-    //    ordinary words like "condition=" are never matched.
-    s = s.replace(/(^|["'\s])on[a-z]+\s*=\s*(?:"[^"]*"|'[^']*'|[^\s>]+)/gi, '$1');
-
-    // 3) Sanitize href/src attributes to safe web schemes.
-    s = s.replace(/(href|src)\s*=\s*("[^"]*"|'[^']*'|[^\s>]+)/gi, function (m, attr, val) {
-      const inner = String(val).replace(/^(['"])(.*)\1$/s, '$2');
-      if (AppUtils.safeLinkScheme(inner)) {
-        return attr + '=' + val;
-      }
-      return attr + '="#"';
-    });
-
-    // 4) Allow-list remaining tags; rewrite style attributes to safe props only.
-    s = s.replace(/<\s*(\/?)([a-zA-Z][a-zA-Z0-9]*)((?:[^">']|"[^"]*"|'[^']*')*?)\s*\/?>/g, function (m, close, tag, attrs) {
-      const upper = String(tag).toUpperCase();
-      if (!AppUtils.SAFE_RICH_TAGS[upper]) return ''; // strip unknown tags, keep text
-      if (close) return '</' + tag + '>';
-      let cleaned = String(attrs)
-        // Defense-in-depth: drop any event-handler attribute by name even when
-        // it has no leading space (the global pass above only sees whitespace).
-        .replace(/(^|["'\s])on[a-z]+\s*=\s*(?:"[^"]*"|'[^']*'|[^\s>]+)/gi, '$1')
-        .replace(/\s+style\s*=\s*("[^"]*"|'[^']*')/gi, function (mm, sv) {
-          const inner = String(sv).replace(/^(['"])(.*)\1$/s, '$2');
-          const kept = inner.split(';')
-            .map(function (st) { return String(st).trim(); })
-            .filter(function (st) { return st && AppUtils.SAFE_STYLE_PROPS.test(st); });
-          return kept.length ? ' style="' + kept.join(';') + '"' : '';
-        });
-      // Add rel for links (harmless when already present).
-      if (upper === 'A' && !/\brel\s*=/.test(cleaned)) cleaned += ' rel="noopener noreferrer"';
-      return '<' + tag + cleaned + '>';
-    });
-
-    // 5) Remove stray unsafe fragments (e.g. "<" from malformed input).
-    s = s.replace(/<\s*>/g, '').replace(/javascript\s*:/gi, '').replace(/data\s*:/gi, '');
-    return s;
-  },
-
-  /** Escapes a string for safe embedding in HTML text/attributes. */
-  escHtml: function (s) {
-    if (s === null || s === undefined) return '';
-    return String(s)
-      .replace(/&/g, '&amp;')
-      .replace(/</g, '&lt;')
-      .replace(/>/g, '&gt;')
-      .replace(/"/g, '&quot;')
-      .replace(/'/g, '&#39;');
-  },
-
-  /** True when a value reads as a linkable URL (explicit scheme, www, or a
-   *  bare domain with no whitespace). Plain prose is never auto-linked. */
-  looksLikeUrl: function (value) {
-    if (value === null || value === undefined) return false;
-    const text = String(value).trim();
-    if (!text) return false;
-    // Only treat explicit schemes / www / bare domains (no whitespace) as URLs.
-    // Prose that merely contains a dot (e.g. "Send to office.verify" or
-    // "file.pdf") must never be auto-linked on cards or reports.
-    return /^(https?:\/\/|mailto:|ftp:\/\/|www\.)/i.test(text) ||
-      (/^[a-z0-9-]+(\.[a-z0-9-]+)+(:\d+)?(\/\S*)?$/i.test(text) && text.indexOf(' ') === -1);
-  },
-
-  /** Prefixes https:// to bare "www." URLs; passes everything else through. */
-  normalizeUrl: function (value) {
-    const text = String(value || '').trim();
-    if (!text) return '';
-    if (/^www\./i.test(text)) return 'https://' + text;
-    return text;
-  },
-
-  /** Base URL of the active spreadsheet (lazily cached per script run). */
-  _ssUrlCache: null,
-  ssBaseUrl: function () {
-    if (AppUtils._ssUrlCache === null) {
-      try { AppUtils._ssUrlCache = SpreadsheetApp.getActiveSpreadsheet().getUrl(); } catch (e) { AppUtils._ssUrlCache = ''; }
-    }
-    return AppUtils._ssUrlCache;
-  },
-
-  /** Resolves a possibly-relative/hostless URL against the spreadsheet URL.
-   *  Returns '' for unresolvable values (kept from ever producing garbage links). */
-  absUrl: function (u) {
-    if (!u) return '';
-    var s = String(u).trim();
-    if (!s) return '';
-    if (s.charAt(0) === '#') {
-      var base = AppUtils.ssBaseUrl();
-      if (!base) return '';
-      return base.split('#')[0] + s;
-    }
-    if (/^(https?:|mailto:|tel:)/i.test(s)) return s;
-    if (s.charAt(0) === '/') return '';
-    if (s.indexOf('www.') === 0) return 'https://' + s;
-    return 'https://' + s;
-  },
-
-  /** Replaces linkable URL tokens in plain text with safe anchor tags. */
-  linkifyText: function (text) {
-    if (text === null || text === undefined) return '';
-    const source = String(text);
-    if (!source) return '';
-    const pieces = source.split(/(\s+)/);
-    return pieces.map(function (piece) {
-      if (!AppUtils.looksLikeUrl(piece)) {
-        return AppUtils.escHtml(piece);
-      }
-      const url = AppUtils.normalizeUrl(piece);
-      const safeUrl = AppUtils.absUrl(url);
-      if (!safeUrl) {
-        return AppUtils.escHtml(piece);
-      }
-      return '<a href="' + AppUtils.escHtml(safeUrl) + '" target="_blank" rel="noopener noreferrer" data-embed="1">' + AppUtils.escHtml(piece) + '</a>';
-    }).join('');
-  },
-
-  /** Converts a RichTextValue into display HTML (links, colors, bold/italic). */
-  richToHtml: function (rt, fallback) {
-    if (!rt) return AppUtils.linkifyText(fallback);
-    var runs = null;
-    try { runs = rt.getRuns(); } catch (e) { runs = null; }
-    if (!runs || !runs.length) {
-      var text = '';
-      try { text = rt.getText(); } catch (e) { text = ''; }
-      return AppUtils.linkifyText(text || fallback);
-    }
-    var out = [];
-    for (var i = 0; i < runs.length; i++) {
-      var t = runs[i].getText();
-      if (t === '' || t === null) continue;
-      var css = [];
-      var st = null;
-      try { st = runs[i].getTextStyle(); } catch (e) { st = null; }
-      if (st) {
-        var col = null;
-        try {
-          var co = st.getForegroundColorObject();
-          if (co) { col = co.asRgbColor().asHexString(); }
-        } catch (e2) {
-          try { col = st.getForegroundColor(); } catch (e3) { col = null; }
-        }
-        if (col && String(col).length >= 4) {
-          var c9 = String(col);
-          if (c9.length === 9) { c9 = '#' + c9.substring(3); }
-          css.push('color:' + c9);
-        }
-        try { if (st.isBold()) css.push('font-weight:700'); } catch (e4) {}
-        try { if (st.isItalic()) css.push('font-style:italic'); } catch (e5) {}
-        try { if (st.isUnderline()) css.push('text-decoration:underline'); } catch (e6) {}
-      }
-      var body = AppUtils.escHtml(t);
-      var url = null;
-      try { url = runs[i].getLinkUrl(); } catch (e8) { url = null; }
-      if (url) {
-        var au = AppUtils.absUrl(url);
-        if (au) { body = '<a href="' + AppUtils.escHtml(au) + '" target="_blank" rel="noopener noreferrer" data-embed="1">' + body + '</a>'; }
-      } else {
-        body = AppUtils.linkifyText(t);
-      }
-      if (css.length) { out.push('<span style="' + css.join(';') + '">' + body + '</span>'); }
-      else { out.push(body); }
-    }
-    return out.join('');
-  },
-
-  /** First link URL found in a rich-text value ('' when none). */
-  extractLinkUrl: function (rt) {
-    if (!rt) return "";
-    var runs = null;
-    try { runs = rt.getRuns(); } catch (e) { runs = null; }
-    if (runs && runs.length) {
-      for (var i = 0; i < runs.length; i++) {
-        var u = null;
-        try { u = runs[i].getLinkUrl(); } catch (e2) { u = null; }
-        if (u) return String(u);
-      }
-      return "";
-    }
-    try {
-      if (typeof rt.getLinkUrl === "function") {
-        var direct = rt.getLinkUrl();
-        return direct ? String(direct) : "";
-      }
-    } catch (e3) {}
-    return "";
-  },
-
-  /** Display text of the linked portion of a rich-text value ('' when none). */
-  extractLinkText: function (rt) {
-    if (!rt) return "";
-    var runs = null;
-    try { runs = rt.getRuns(); } catch (e) { runs = null; }
-    if (runs && runs.length) {
-      var out = "";
-      for (var i = 0; i < runs.length; i++) {
-        var u = null;
-        try { u = runs[i].getLinkUrl(); } catch (e2) { u = null; }
-        if (u) {
-          var t = "";
-          try { t = runs[i].getText(); } catch (e3) { t = ""; }
-          out += t;
-        }
-      }
-      return out;
-    }
-    return "";
-  },
+  /** Whitelist HTML sanitizer for rich-text fields. */
+  sanitizeHtml: function (html) { return sanitizeHtml_(html); },
 
   /** Formats a value using the sheet's display date format ("dd.MM.yyyy"). */
   formatDate: function (value) {
@@ -353,165 +102,24 @@ const AppUtils = {
     const suffix = Utilities.getUuid().replace(/-/g, '').slice(0, 8).toUpperCase();
     return (p ? p + '-' : '') + day + '-' + suffix;
   },
-  buildFieldMap: function (headers) {
-    const map = {};
-  
-    headers.forEach(function (header, index) {
-      const normalized = normalizeHeaderValue_(header);
-  
-      if (!normalized) {
-        return;
-      }
-  
-      if (normalized === "id" || normalized.indexOf("id") !== -1) {
-        map.id = index;
-      } else if (normalized === "sector" || normalized.indexOf("sector") !== -1) {
-        map.sector = index;
-      } else if (normalized === "description" || normalized.indexOf("description") !== -1) {
-        map.description = index;
-      } else if (normalized === "entrydate" || normalized.indexOf("entrydate") !== -1 || normalized.indexOf("entry") !== -1) {
-        map.entryDate = index;
-      } else if (normalized === "action" || normalized.indexOf("action") !== -1) {
-        map.action = index;
-      } else if (normalized === "responsibility" || normalized.indexOf("responsibility") !== -1 || normalized.indexOf("responsible") !== -1) {
-        map.responsibility = index;
-      } else if (normalized === "reviewdate" || normalized.indexOf("reviewdate") !== -1 || normalized.indexOf("review") !== -1 || normalized.indexOf("due") !== -1) {
-        map.reviewDate = index;
-      }
-    });
-  
-    return map;
-  },
-
-  getSheetDataRows: function (sheet) {
-    if (!sheet) {
-      return [];
-    }
-  
-    // Fast path: one Advanced Sheets call for values + rich-text runs + colors
-    // (falls back to classic API when the advanced service is unavailable).
-    const advanced = readGridDataAdvanced_(sheet);
-    if (advanced) {
-      const rows = buildRowsFromAdvanced_(advanced, sheet);
-      if (rows && rows.length) return rows;
-    }
-  
-    const dataRange = sheet.getDataRange();
-    const values = dataRange.getValues();
-    let richValues = null;
-    try { richValues = dataRange.getRichTextValues(); } catch (err) { richValues = null; }
-  
-    if (!values.length) {
-      return [];
-    }
-  
-    const headerRow = getPreferredHeaderRow_(sheet);
-    const startRow = headerRow > 0 ? headerRow + 1 : 1;
-    const headerValues = getHeaderValues_(sheet);
-    const fieldMap = headerValues.length ? AppUtils.buildFieldMap(headerValues) : {};
-  
-    return values.slice(startRow - 1).reduce(function (rows, row, index) {
-      const normalizedRow = (row || []).slice(0, CONFIG.SHEET.NUM_COLS);
-      const hasContent = normalizedRow.some(function (value) {
-        return String(value || "").trim() !== "";
-      });
-  
-      if (!hasContent) {
-        return rows;
-      }
-  
-      const rowNumber = startRow + index;
-      const fieldIndexByKey = Object.keys(fieldMap).reduce(function (acc, key) {
-        acc[fieldMap[key]] = key;
-        return acc;
-      }, {});
-      const linkUrls = {};
-      const linkTexts = {};
-      const displayFields = (headerValues || []).reduce(function (fields, header, headerIndex) {
-        const label = String(header || "").trim();
-        if (!label) {
-          return fields;
-        }
-  
-        const value = normalizedRow[headerIndex] !== undefined ? normalizedRow[headerIndex] : "";
-  
-        let html = "";
-        let linkUrl = "";
-        let linkText = "";
-        const richValue = (richValues[rowNumber - 1] || [])[headerIndex];
-        if (richValue) {
-          try {
-            html = AppUtils.richToHtml(richValue, String(value === null || value === undefined ? "" : value));
-          } catch (err) {
-            html = "";
-          }
-          try {
-            linkUrl = AppUtils.extractLinkUrl(richValue);
-          } catch (err2) {
-            linkUrl = "";
-          }
-          try {
-            linkText = AppUtils.extractLinkText(richValue);
-          } catch (err2b) {
-            linkText = "";
-          }
-        }
-        if (linkUrl && fieldIndexByKey[headerIndex] !== undefined) {
-          linkUrls[fieldIndexByKey[headerIndex]] = linkUrl;
-          if (linkText) linkTexts[fieldIndexByKey[headerIndex]] = linkText;
-        }
-  
-        fields.push({
-          label: label,
-          value: value,
-          html: html,
-          linkUrl: linkUrl
-        });
-  
-        return fields;
-      }, []);
-  
-      rows.push({
-        rowNumber: rowNumber,
-        id: getFieldValue_(fieldMap, normalizedRow, "id", 0),
-        sector: getFieldValue_(fieldMap, normalizedRow, "sector", 1),
-        description: getFieldValue_(fieldMap, normalizedRow, "description", 2),
-        entryDate: getFieldValue_(fieldMap, normalizedRow, "entryDate", 3),
-        action: getFieldValue_(fieldMap, normalizedRow, "action", 4),
-        responsibility: getFieldValue_(fieldMap, normalizedRow, "responsibility", 5),
-        reviewDate: getFieldValue_(fieldMap, normalizedRow, "reviewDate", 6),
-        displayFields: displayFields,
-        linkUrls: linkUrls,
-        linkTexts: linkTexts
-      });
-  
-      return rows;
-    }, []);
-  },
-
-  /** Login guard: resolves the session token to {email, role} or throws.
-   *  Note: delegates to Auth.js's top-level authenticate_ (and requireEditor/
-   *  requireAdmin use isEditor/isAdmin) — resolved at call time, so the
-   *  Auth.js -> Utils.js load order is safe. If authenticate_ ever moves into
-   *  AppUtils, update these references to avoid a circular dependency. */
-  requireLogin: function (token) {
-    return authenticate_(token);
-  },
-
-  /** Editor-or-admin guard. */
-  requireEditor: function (token) {
-    const user = AppUtils.requireLogin(token);
-    if (!isEditor(user.email)) throw AppUtils.clientError('Editor permission required.');
-    return user;
-  },
-
-  /** Admin-only guard. */
-  requireAdmin: function (token) {
-    const user = AppUtils.requireLogin(token);
-    if (!isAdmin(user.email)) throw AppUtils.clientError('Admin permission required.');
-    return user;
-  },
 };
+
+
+/* ============================================================
+ * Client-safe error marker
+ * ============================================================ */
+
+/**
+ * Creates an Error that is safe to send back to the client. doPost passes
+ * errors marked `clientSafe` through as-is (validation / auth / rate-limit
+ * messages) and sanitizes everything else, so internal details (sheet names,
+ * variable state, stack traces) never reach anonymous web-app callers.
+ * @param {string} message User-facing message.
+ * @returns {Error} An Error with `clientSafe === true`.
+ */
+function clientError_(message) {
+  return AppUtils.clientError(message);
+}
 
 
 /* ============================================================
@@ -602,7 +210,35 @@ function getHeaderValues_(sheet) {
   return headerRow > 0 ? (values[headerRow - 1] || []) : [];
 }
 
+function buildFieldMap_(headers) {
+  const map = {};
 
+  headers.forEach(function (header, index) {
+    const normalized = normalizeHeaderValue_(header);
+
+    if (!normalized) {
+      return;
+    }
+
+    if (normalized === "id" || normalized.indexOf("id") !== -1) {
+      map.id = index;
+    } else if (normalized === "sector" || normalized.indexOf("sector") !== -1) {
+      map.sector = index;
+    } else if (normalized === "description" || normalized.indexOf("description") !== -1) {
+      map.description = index;
+    } else if (normalized === "entrydate" || normalized.indexOf("entrydate") !== -1 || normalized.indexOf("entry") !== -1) {
+      map.entryDate = index;
+    } else if (normalized === "action" || normalized.indexOf("action") !== -1) {
+      map.action = index;
+    } else if (normalized === "responsibility" || normalized.indexOf("responsibility") !== -1 || normalized.indexOf("responsible") !== -1) {
+      map.responsibility = index;
+    } else if (normalized === "reviewdate" || normalized.indexOf("reviewdate") !== -1 || normalized.indexOf("review") !== -1 || normalized.indexOf("due") !== -1) {
+      map.reviewDate = index;
+    }
+  });
+
+  return map;
+}
 
 function getDataStartRow_(sheet) {
   const headerRow = getPreferredHeaderRow_(sheet);
@@ -744,12 +380,12 @@ function linkTextFromCell_(cell) {
 }
 
 /** Rebuilds the display HTML for a cell from its raw value + runs,
- *  mirroring AppUtils.richToHtml (links, colors, bold/italic/underline). */
+ *  mirroring richToHtml_ (links, colors, bold/italic/underline). */
 function cellHtmlFromRuns_(cell) {
   const value = cell ? cell.value : "";
   const plain = String(value == null ? "" : value);
   const runs = (cell && cell.runs) || [];
-  if (!runs.length) return AppUtils.linkifyText(plain);
+  if (!runs.length) return linkifyText_(plain);
   let out = "";
   for (let i = 0; i < runs.length; i++) {
     const t = String(runs[i].text || "");
@@ -763,25 +399,25 @@ function cellHtmlFromRuns_(cell) {
     if (tf.bold) css.push("font-weight:700");
     if (tf.italic) css.push("font-style:italic");
     if (tf.underline) css.push("text-decoration:underline");
-    let body = AppUtils.escHtml(t);
+    let body = escHtml_(t);
     const url = (fmt.link && fmt.link.uri) || "";
     if (url) {
-      const au = AppUtils.absUrl(url);
-      if (au) body = '<a href="' + AppUtils.escHtml(au) + '" target="_blank" rel="noopener noreferrer" data-embed="1">' + body + '</a>';
+      const au = absUrl_(url);
+      if (au) body = '<a href="' + escHtml_(au) + '" target="_blank" rel="noopener noreferrer" data-embed="1">' + body + '</a>';
     }
     out += css.length ? '<span style="' + css.join(";") + '">' + body + '</span>' : body;
   }
-  return out || AppUtils.linkifyText(plain);
+  return out || linkifyText_(plain);
 }
 
 /** Builds row specs from the advanced grid snapshot (same shape as the
- *  classic AppUtils.getSheetDataRows output: rowNumber, fields, linkUrls/linkTexts). */
+ *  classic getSheetDataRows_ output: rowNumber, fields, linkUrls/linkTexts). */
 function buildRowsFromAdvanced_(grid, sheet) {
   const headerRow = preferredHeaderRowInGrid_(grid);
   const startRow = headerRow > 0 ? headerRow + 1 : CONFIG.SHEET.START_ROW;
   const headerCells = grid[headerRow - 1] || [];
   const headerValues = headerCells.map(function (c) { return String(c.value || ""); });
-  const fieldMap = AppUtils.buildFieldMap(headerValues);
+  const fieldMap = buildFieldMap_(headerValues);
   const fieldIndexByKey = Object.keys(fieldMap).reduce(function (acc, key) {
     acc[fieldMap[key]] = key;
     return acc;
@@ -835,7 +471,111 @@ function buildRowsFromAdvanced_(grid, sheet) {
   return rows;
 }
 
+function getSheetDataRows_(sheet) {
+  if (!sheet) {
+    return [];
+  }
 
+  // Fast path: one Advanced Sheets call for values + rich-text runs + colors
+  // (falls back to classic API when the advanced service is unavailable).
+  const advanced = readGridDataAdvanced_(sheet);
+  if (advanced) {
+    const rows = buildRowsFromAdvanced_(advanced, sheet);
+    if (rows && rows.length) return rows;
+  }
+
+  const dataRange = sheet.getDataRange();
+  const values = dataRange.getValues();
+  let richValues = null;
+  try { richValues = dataRange.getRichTextValues(); } catch (err) { richValues = null; }
+
+  if (!values.length) {
+    return [];
+  }
+
+  const headerRow = getPreferredHeaderRow_(sheet);
+  const startRow = headerRow > 0 ? headerRow + 1 : 1;
+  const headerValues = getHeaderValues_(sheet);
+  const fieldMap = headerValues.length ? buildFieldMap_(headerValues) : {};
+
+  return values.slice(startRow - 1).reduce(function (rows, row, index) {
+    const normalizedRow = (row || []).slice(0, CONFIG.SHEET.NUM_COLS);
+    const hasContent = normalizedRow.some(function (value) {
+      return String(value || "").trim() !== "";
+    });
+
+    if (!hasContent) {
+      return rows;
+    }
+
+    const rowNumber = startRow + index;
+    const fieldIndexByKey = Object.keys(fieldMap).reduce(function (acc, key) {
+      acc[fieldMap[key]] = key;
+      return acc;
+    }, {});
+    const linkUrls = {};
+    const linkTexts = {};
+    const displayFields = (headerValues || []).reduce(function (fields, header, headerIndex) {
+      const label = String(header || "").trim();
+      if (!label) {
+        return fields;
+      }
+
+      const value = normalizedRow[headerIndex] !== undefined ? normalizedRow[headerIndex] : "";
+
+      let html = "";
+      let linkUrl = "";
+      let linkText = "";
+      const richValue = (richValues[rowNumber - 1] || [])[headerIndex];
+      if (richValue) {
+        try {
+          html = richToHtml_(richValue, String(value === null || value === undefined ? "" : value));
+        } catch (err) {
+          html = "";
+        }
+        try {
+          linkUrl = extractLinkUrl_(richValue);
+        } catch (err2) {
+          linkUrl = "";
+        }
+        try {
+          linkText = extractLinkText_(richValue);
+        } catch (err2b) {
+          linkText = "";
+        }
+      }
+      if (linkUrl && fieldIndexByKey[headerIndex] !== undefined) {
+        linkUrls[fieldIndexByKey[headerIndex]] = linkUrl;
+        if (linkText) linkTexts[fieldIndexByKey[headerIndex]] = linkText;
+      }
+
+      fields.push({
+        label: label,
+        value: value,
+        html: html,
+        linkUrl: linkUrl
+      });
+
+      return fields;
+    }, []);
+
+    rows.push({
+      rowNumber: rowNumber,
+      id: getFieldValue_(fieldMap, normalizedRow, "id", 0),
+      sector: getFieldValue_(fieldMap, normalizedRow, "sector", 1),
+      description: getFieldValue_(fieldMap, normalizedRow, "description", 2),
+      entryDate: getFieldValue_(fieldMap, normalizedRow, "entryDate", 3),
+      action: getFieldValue_(fieldMap, normalizedRow, "action", 4),
+      responsibility: getFieldValue_(fieldMap, normalizedRow, "responsibility", 5),
+      reviewDate: getFieldValue_(fieldMap, normalizedRow, "reviewDate", 6),
+      displayFields: displayFields,
+      linkUrls: linkUrls,
+      linkTexts: linkTexts
+    });
+
+    return rows;
+  }, []);
+}
 
 function getAuditDerivedRows_() {
   try {
@@ -1264,7 +1004,7 @@ function invalidateDataCache_() {
 
 /**
  * Builds a full display row spec for a single physical row, mirroring the
- * classic AppUtils.getSheetDataRows logic (rich text HTML + linkUrls/linkTexts) so a
+ * classic getSheetDataRows_ logic (rich text HTML + linkUrls/linkTexts) so a
  * surgical cache patch does not strip hyperlinks or rich-text formatting.
  * @param {GoogleAppsScript.Spreadsheet.Sheet} sheet The dashboard sheet.
  * @param {number} row Physical row number.
@@ -1276,7 +1016,7 @@ function buildRowSpecForRow_(sheet, row) {
     const headerRow = getPreferredHeaderRow_(sheet);
     const startRow = headerRow > 0 ? headerRow + 1 : 1;
     const headerValues = getHeaderValues_(sheet);
-    const fieldMap = headerValues.length ? AppUtils.buildFieldMap(headerValues) : {};
+    const fieldMap = headerValues.length ? buildFieldMap_(headerValues) : {};
     const fieldIndexByKey = Object.keys(fieldMap).reduce(function (acc, key) {
       acc[fieldMap[key]] = key;
       return acc;
@@ -1301,9 +1041,9 @@ function buildRowSpecForRow_(sheet, row) {
       let linkText = "";
       const richValue = richRow ? richRow[headerIndex] : null;
       if (richValue) {
-        try { html = AppUtils.richToHtml(richValue, String(value === null || value === undefined ? "" : value)); } catch (err) { html = ""; }
-        try { linkUrl = AppUtils.extractLinkUrl(richValue); } catch (err2) { linkUrl = ""; }
-        try { linkText = AppUtils.extractLinkText(richValue); } catch (err2b) { linkText = ""; }
+        try { html = richToHtml_(richValue, String(value === null || value === undefined ? "" : value)); } catch (err) { html = ""; }
+        try { linkUrl = extractLinkUrl_(richValue); } catch (err2) { linkUrl = ""; }
+        try { linkText = extractLinkText_(richValue); } catch (err2b) { linkText = ""; }
       }
       if (linkUrl && fieldIndexByKey[headerIndex] !== undefined) {
         linkUrls[fieldIndexByKey[headerIndex]] = linkUrl;
@@ -1375,9 +1115,25 @@ function patchCachedDataRow_(row) {
 /* ============================================================
  * Date Helpers
  *
- * formatDate / today / parseDisplayDate / now / addDays / daysUntilDate
- * all live in AppUtils (see top of file).
+ * formatDate / today / parseDisplayDate / now / addDays now live in
+ * AppUtils (see top of file). daysUntilDate_ below is the full
+ * implementation and is DELEGATED TO by AppUtils.daysUntilDate; it stays
+ * top-level so existing bare-name callers keep working during the
+ * incremental migration.
  * ============================================================ */
+
+/* Whole days from today (script timezone) to the given display date.
+   Returns 1 for tomorrow, 0 for today, -1 for yesterday, null when unparseable. */
+function daysUntilDate_(value) {
+  const d = AppUtils.parseDisplayDate(value);
+  if (!d) return null;
+  const now = new Date();
+  const today = new Date(now.getFullYear(), now.getMonth(), now.getDate());
+  const target = new Date(d.getFullYear(), d.getMonth(), d.getDate());
+  return Math.round((target - today) / 86400000);
+}
+
+
 /* ============================================================
  * Color Helpers
  * ============================================================ */
@@ -1433,10 +1189,77 @@ function withIdempotency_(key, ttlSeconds, fn, shouldCache) {
 
 /* ============================================================
  * HTML Sanitizer (rich-text / hyperlink rendering)
- *
- * SAFE_RICH_TAGS / SAFE_STYLE_PROPS / safeLinkScheme / sanitizeHtml all
- * live in AppUtils (see top of file).
  * ============================================================ */
+
+/** Tags allowed in rich-text HTML output. SPAN is kept only for the
+ * inline styles the dashboard itself emits (colour/bold/italic/underline). */
+const SAFE_RICH_TAGS = Object.freeze({ A: 1, STRONG: 1, EM: 1, P: 1, BR: 1, UL: 1, OL: 1, LI: 1, SPAN: 1 });
+
+/** Inline CSS properties allowed inside style="..." attributes. */
+const SAFE_STYLE_PROPS = /^(color|background-color|font-weight|font-style|text-decoration|text-align):/i;
+
+/** Blocks non-web link schemes before any attribute handling. */
+function safeLinkScheme_(url) {
+  const t = String(url || '').trim();
+  return /^(https?:|mailto:|tel:)/i.test(t) && !/[\\'"\x00-\x1f]/.test(t);
+}
+
+/** Sanitizes rich-text HTML produced from spreadsheet rich text runs.
+ *  Allow-lists tags (a/strong/em/p/br/ul/ol/li/span), only http(s)/mailto/tel
+ *  links, and a tiny set of inline style properties. Strips <script>,
+ *  event-handler attributes and javascript:/data:/vbscript: URLs, and adds
+ *  rel="noopener noreferrer". Not a general HTML parser — safe for the
+ *  dashboard's own server-generated markup. Text content of stripped tags is
+ *  preserved so no visible data is lost. */
+function sanitizeHtml_(html) {
+  if (html === null || html === undefined) return '';
+  let s = String(html);
+
+  // 1) Wholesale drop dangerous elements (tags only; text content is kept —
+  //    it is re-escaped/allow-listed by the later passes and stays inert).
+  s = s.replace(/<\s*\/?\s*(script|iframe|object|embed|style|link|meta|form|input|button|svg|math|base|template|noscript)[^>]*>/gi, '');
+
+  // 2) Strip event-handler attributes (onclick, onerror, ...), including the
+  //    no-space variant (<a href="x"onclick="...">) and handlers that are the
+  //    first attribute. A handler name must follow a quote/space/start so
+  //    ordinary words like "condition=" are never matched.
+  s = s.replace(/(^|["'\s])on[a-z]+\s*=\s*(?:"[^"]*"|'[^']*'|[^\s>]+)/gi, '$1');
+
+  // 3) Sanitize href/src attributes to safe web schemes.
+  s = s.replace(/(href|src)\s*=\s*("[^"]*"|'[^']*'|[^\s>]+)/gi, function (m, attr, val) {
+    const inner = String(val).replace(/^(['"])(.*)\1$/s, '$2');
+    if (safeLinkScheme_(inner)) {
+      return attr + '=' + val;
+    }
+    return attr + '="#"';
+  });
+
+  // 4) Allow-list remaining tags; rewrite style attributes to safe props only.
+  s = s.replace(/<\s*(\/?)([a-zA-Z][a-zA-Z0-9]*)((?:[^">']|"[^"]*"|'[^']*')*?)\s*\/?>/g, function (m, close, tag, attrs) {
+    const upper = String(tag).toUpperCase();
+    if (!SAFE_RICH_TAGS[upper]) return ''; // strip unknown tags, keep text
+    if (close) return '</' + tag + '>';
+    let cleaned = String(attrs)
+      // Defense-in-depth: drop any event-handler attribute by name even when
+      // it has no leading space (the global pass above only sees whitespace).
+      .replace(/(^|["'\s])on[a-z]+\s*=\s*(?:"[^"]*"|'[^']*'|[^\s>]+)/gi, '$1')
+      .replace(/\s+style\s*=\s*("[^"]*"|'[^']*')/gi, function (mm, sv) {
+        const inner = String(sv).replace(/^(['"])(.*)\1$/s, '$2');
+        const kept = inner.split(';')
+          .map(function (st) { return String(st).trim(); })
+          .filter(function (st) { return st && SAFE_STYLE_PROPS.test(st); });
+        return kept.length ? ' style="' + kept.join(';') + '"' : '';
+      });
+    // Add rel for links (harmless when already present).
+    if (upper === 'A' && !/\brel\s*=/.test(cleaned)) cleaned += ' rel="noopener noreferrer"';
+    return '<' + tag + cleaned + '>';
+  });
+
+  // 5) Remove stray unsafe fragments (e.g. "<" from malformed input).
+  s = s.replace(/<\s*>/g, '').replace(/javascript\s*:/gi, '').replace(/data\s*:/gi, '');
+  return s;
+}
+
 /* ============================================================
  * JSON Helpers
  * ============================================================ */

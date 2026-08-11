@@ -406,7 +406,7 @@ function findTaskById_(id) {
  */
 function isValidTaskStatusTransition_(fromStatus, toStatus) {
   const allowed = {
-    OPEN: ['IN_PROGRESS', 'CANCELLED', 'OPEN'],
+    OPEN: ['IN_PROGRESS', 'DONE', 'CANCELLED', 'OPEN'],
     IN_PROGRESS: ['DONE', 'OPEN', 'CANCELLED'],
     DONE: ['OPEN'],
     CANCELLED: ['OPEN']
