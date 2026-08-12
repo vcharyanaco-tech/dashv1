@@ -101,24 +101,53 @@ export default {
       // Copy safe headers only — avoid sending Host/Origin which confuse GAS
       const ct = request.headers.get('Content-Type');
       if (ct) proxyHeaders.set('Content-Type', ct);
-      proxyHeaders.set('User-Agent', 'Mozilla/5.0');
+      proxyHeaders.set('User-Agent', 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/126.0.0.0 Safari/537.36');
       // Read body as text to avoid ReadableStream-passthrough issues in Workers
       const isGetHead = request.method === 'GET' || request.method === 'HEAD';
       const bodyText = isGetHead ? undefined : await request.text();
+      // Google intermittently returns an anti-bot interstitial (HTML page or a
+      // bare 404) for proxy requests to the GAS /exec endpoint, ~25-40% of the
+      // time. Transient per-request, so retry here (with backoff) instead of
+      // forwarding it to clients, which would surface as a "login error".
       let resp;
-      try {
-        resp = await fetch(targetUrl, {
-          method: request.method,
-          headers: proxyHeaders,
-          body: bodyText,
-          redirect: 'follow',
-          // GAS can be slow to spin up a cold container (10-45s). Bound the
-          // subrequest so a wedged upstream can't leave the client hanging;
-          // the frontend apiCall_ retries transient 502s on its own.
-          signal: AbortSignal.timeout(90000),
-        });
-      } catch (err) {
-        return jsonResponse({ error: 'upstream timeout' }, 502, {}, request);
+      let upstreamErr = null;
+      for (let attemptIdx = 0; attemptIdx < 3; attemptIdx++) {
+        if (attemptIdx > 0) {
+          await new Promise((r) => setTimeout(r, 300 * attemptIdx));
+        }
+        try {
+          resp = await fetch(targetUrl, {
+            method: request.method,
+            headers: proxyHeaders,
+            body: bodyText,
+            redirect: 'follow',
+            // GAS can be slow to spin up a cold container (10-45s). Bound the
+            // subrequest so a wedged upstream can't leave the client hanging;
+            // the frontend apiCall_ retries transient 502s on its own.
+            signal: AbortSignal.timeout(90000),
+          });
+          upstreamErr = null;
+        } catch (err) {
+          upstreamErr = err;
+          continue;
+        }
+        const ct = (resp.headers.get('content-type') || '').toLowerCase();
+        const isHtml = ct.indexOf('text/html') !== -1;
+        const retryableStatus = resp.status === 404 || resp.status === 429 || resp.status >= 500;
+        if (isHtml || retryableStatus) {
+          // Drain the body so the connection is reusable, then retry.
+          await resp.arrayBuffer().catch(() => {});
+          if (attemptIdx < 2) continue;
+        }
+        break;
+      }
+      if (!resp) {
+        return jsonResponse(
+          { error: upstreamErr && upstreamErr.name === 'AbortError' ? 'upstream timeout' : 'upstream error' },
+          upstreamErr && upstreamErr.name === 'AbortError' ? 502 : 503,
+          {},
+          request
+        );
       }
       const newHeaders = new Headers(resp.headers);
       // Strip any upstream CORS header first: raw.githubusercontent.com sends
