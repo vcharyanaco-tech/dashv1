@@ -375,6 +375,20 @@ function generateAiText_(prompt, systemPrompt) {
   var props = PropertiesService.getScriptProperties();
   var provider = (props.getProperty('AI_PROVIDER') || ai.provider || 'openrouter').toLowerCase();
   var apiKey = props.getProperty(aiKeyPropName_(provider)) || ai.apiKey || '';
+  if (!apiKey && provider !== 'kilo' && provider !== 'kilocode') {
+    // Self-heal: if the configured provider has no API key, fall through to the
+    // first provider that DOES have a key (e.g. the project's GEMINI_API_KEY)
+    // instead of failing with "AI credentials are not configured."
+    var candidates = ['gemini', 'groq', 'huggingface', 'openrouter'];
+    for (var c = 0; c < candidates.length; c++) {
+      var candKey = props.getProperty(aiKeyPropName_(candidates[c]));
+      if (candKey) {
+        provider = candidates[c];
+        apiKey = candKey;
+        break;
+      }
+    }
+  }
   var model = props.getProperty('AI_MODEL') || ai.model || aiDefaultModel_(provider);
 
   var result = runAiProvider_(props, ai, provider, apiKey, model, prompt, systemPrompt);
@@ -1184,7 +1198,13 @@ function aiKeyConfigured_() {
   var propName = aiKeyPropName_(provider);
   if (props.getProperty(propName) || ai.apiKey) return true;
   var kiloFallback = (props.getProperty('AI_KILO_FALLBACK') || 'true').toLowerCase() !== 'false';
-  return kiloFallback && provider !== 'kilo' && provider !== 'kilocode';
+  if (kiloFallback && provider !== 'kilo' && provider !== 'kilocode') return true;
+  // Any provider's key counts as configured (the per-request path self-heals to it).
+  var any = ['gemini', 'groq', 'huggingface', 'openrouter'];
+  for (var i = 0; i < any.length; i++) {
+    if (props.getProperty(aiKeyPropName_(any[i]))) return true;
+  }
+  return false;
 }
 
 /* ------------------------------------------------------------------ */
