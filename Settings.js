@@ -26,7 +26,7 @@ const CONFIG = Object.freeze({
   },
   CACHE: {
     ENABLED: true,
-    TTL: 60,
+    TTL: 300,
     // Point 6: count endpoints keep their own short-lived caches.
     COUNTS_TTL_FAST: 45,   // seconds — task/notification counts
     COUNTS_TTL_SLOW: 300   // seconds — slower analytics-style values

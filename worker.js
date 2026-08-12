@@ -105,12 +105,21 @@ export default {
       // Read body as text to avoid ReadableStream-passthrough issues in Workers
       const isGetHead = request.method === 'GET' || request.method === 'HEAD';
       const bodyText = isGetHead ? undefined : await request.text();
-      const resp = await fetch(targetUrl, {
-        method: request.method,
-        headers: proxyHeaders,
-        body: bodyText,
-        redirect: 'follow',
-      });
+      let resp;
+      try {
+        resp = await fetch(targetUrl, {
+          method: request.method,
+          headers: proxyHeaders,
+          body: bodyText,
+          redirect: 'follow',
+          // GAS can be slow to spin up a cold container (10-45s). Bound the
+          // subrequest so a wedged upstream can't leave the client hanging;
+          // the frontend apiCall_ retries transient 502s on its own.
+          signal: AbortSignal.timeout(90000),
+        });
+      } catch (err) {
+        return jsonResponse({ error: 'upstream timeout' }, 502, {}, request);
+      }
       const newHeaders = new Headers(resp.headers);
       // Strip any upstream CORS header first: raw.githubusercontent.com sends
       // `Access-Control-Allow-Origin: *`, which must never survive for

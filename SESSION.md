@@ -4,8 +4,25 @@ Last updated: 2026-08-11
 
 > **Resume point: `SESSION_EXPORT_2026-08-11.md`** — covers the 2026-08-11 session: (1) **production crash fix, FULLY VERIFIED live @228** — every user-creation path (admin add / bulk import / password change) crashed under GAS V8. Two GAS pitfalls: `number[]` rejected by `computeHmacSha256Signature`, and `Charset.ISO_8859_1` REMOVED in V8. Final fix: **pure-JS SHA-256/HMAC/PBKDF2** (no Utilities interop; byte-identical to `crypto.pbkdf2Sync`, 89/89 tests). Live-proven: v1→v2 hash migration + v2 verify on login, import added 4 users, all cleaned up (commit `09ba230`). (2) Performance: cached getTasks (15s TTL), batched generation bumps + cache co-writes for Users/Tasks/Submissions, force-fetch after mutations. (3) Deploy fixes: `.claspignore` excludes `minify-frontend.js`+`lib/`; Start-task port (`35266bf`).
 >
-> **Next up:** clean timing capture of login (~3.4-4.8s warm) / task-tab — Google's anti-abuse interstitial intermittently intercepts scripted requests from this client (real browsers pass). Recipe in `SESSION_EXPORT_2026-08-11.md` §4. Older historical context below (previous sessions).
+> **DONE — clean timing capture (real browser, no interstitial, current deployed code incl. SW network-first + apiCall_ retry):** login POST **~10.7s cold / ~6.9s warm**, getTasks **~18.1s cold / ~3.2s warm**, no console errors, app healthy. Login warm (~6.9s) is still above the older baseline (3.5-4.1s) — flag as the remaining hotspot for the performance phase. Full numbers + recipe in the section below.
+>
+> **Next up:** investigate why warm login is ~2.5-3.4s slower than the older 3.5-4.1s baseline (candidates: apiCall_ retry path, SW network-first fetch cost, GAS container warm-up); consider a profile trace (Stackdriver / Timing.h) on the login `doPost`. Older historical context below (previous sessions).
 
+
+## Current Task (clean timing capture — DONE, recorded)
+Real-browser (Chrome via DevTools) capture on `https://dashboardharyana.site/app.html`, credentials from `SESSION_EXPORT_2026-08-11.md` §4, requests paced ~2-3s apart → **no anti-abuse interstitial, zero console errors, app healthy** (one transient 404 from a stale SW version; assets versioned `?v=2026.08.11.1752`).
+
+| Request | Cold (1st run) | Warm (2nd run) | Older baseline (pre-SW-fix) |
+|---|---|---|---|
+| login POST | ~10,739 ms | ~6,908 ms | 3.46–4.10 s |
+| getTasks | ~18,146 ms | ~3,225 ms | 1.8–3.1 s |
+| getAppData (boot) | n/a | folded into login/session load | ~2.2 s |
+| getDashboardCounts | n/a | folded into login/session load | ~3.6 s |
+
+Notes:
+- Cold run ≈ fully-cold GAS container + Worker (getTasks 18s matches the earlier 9.3s cold-start observation, amplified).
+- **Warm login ~6.9s is still ~2.5-3.4s above the older baseline** — the remaining hotspot. Candidates: `apiCall_` non-JSON auto-retry path, SW network-first app-shell fetch, or GAS container warm-up spread. Capture did NOT isolate getAppData/getDashboardCounts (both ride inside the login/session load) — a follow-up with `performance.clearResourceTimings()` between each phase would split them.
+- Recipe held: pacing ≥2-3s + browser UA kept the Google interstitial away.
 
 ## Current Task (split-routing Worker: / → GitHub Pages, /app.html → GAS — DONE, deployed)
 Worker (`dashv1-proxy`) rewritten to split traffic on `dashboardharyana.site`:
