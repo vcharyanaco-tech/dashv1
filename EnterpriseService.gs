@@ -4,17 +4,16 @@
  * EnterpriseService.gs
  * Enterprise addons server endpoints: review calendar (.ics),
  * WhatsApp review reminders (Meta WhatsApp Cloud API), and
- * AI dashboard insights (provider-switchable: Groq, Hugging Face,
- * OpenRouter, Google Gemini, or Kilo Gateway free tier as a keyless fallback).
+ * AI dashboard insights (provider-switchable: Groq, OpenCode Zen, Gemini,
+ * and Kilo Gateway as a keyless fallback).
  * All features are gated by ENTERPRISE_SETTINGS (EnterpriseSettings.js)
  * and optional Script Properties overrides.
  * ============================================================
  */
 
 var ENTERPRISE_AI_DEFAULT_ENDPOINT = 'https://generativelanguage.googleapis.com/v1beta/models/gemini-2.0-flash:generateContent';
-var ENTERPRISE_AI_OPENROUTER_ENDPOINT = 'https://openrouter.ai/api/v1/chat/completions';
 var ENTERPRISE_AI_GROQ_ENDPOINT = 'https://api.groq.com/openai/v1/chat/completions';
-var ENTERPRISE_AI_HF_ENDPOINT = 'https://router.huggingface.co/v1/chat/completions';
+var ENTERPRISE_AI_OPENCODE_ENDPOINT = 'https://opencode.ai/zen/v1/chat/completions';
 var ENTERPRISE_AI_KILO_ENDPOINT = 'https://api.kilo.ai/api/gateway/chat/completions';
 var ENTERPRISE_AI_GROQ_TRANSCRIBE_ENDPOINT = 'https://api.groq.com/openai/v1/audio/transcriptions';
 var ENTERPRISE_AI_TRANSCRIBE_MODEL = 'whisper-large-v3';
@@ -245,20 +244,36 @@ function getAIInsights(token) { return getAiInsights(token); }
 function aiKeyPropName_(provider) {
   if (provider === 'gemini') return 'GEMINI_API_KEY';
   if (provider === 'groq') return 'GROQ_API_KEY';
-  if (provider === 'huggingface') return 'HUGGINGFACE_API_KEY';
+  if (provider === 'opencode') return 'OPENCODE_API_KEY';
   if (provider === 'kilo' || provider === 'kilocode') return 'KILO_API_KEY';
-  return 'OPENROUTER_API_KEY';
+  return 'OPENCODE_API_KEY';
+}
+
+function aiModelPropName_(provider) {
+  if (provider === 'gemini') return 'GEMINI_MODEL';
+  if (provider === 'groq') return 'GROQ_MODEL';
+  if (provider === 'opencode') return 'OPENCODE_MODEL';
+  if (provider === 'kilo' || provider === 'kilocode') return 'KILO_MODEL';
+  return 'OPENCODE_MODEL';
+}
+
+function aiEndpointPropName_(provider) {
+  if (provider === 'gemini') return 'GEMINI_ENDPOINT';
+  if (provider === 'groq') return 'GROQ_ENDPOINT';
+  if (provider === 'opencode') return 'OPENCODE_ENDPOINT';
+  if (provider === 'kilo' || provider === 'kilocode') return 'KILO_ENDPOINT';
+  return 'OPENCODE_ENDPOINT';
 }
 
 function aiDefaultModel_(provider) {
   if (provider === 'gemini') return 'gemini-2.0-flash';
   if (provider === 'groq') return 'llama-3.3-70b-versatile';
-  if (provider === 'huggingface') return 'meta-llama/Llama-3.3-70B-Instruct';
+  if (provider === 'opencode') return 'opencode/deepseek-v4-flash';
   if (provider === 'kilo' || provider === 'kilocode') return 'kilo-auto/free';
-  return 'openai/gpt-4o-mini';
+  return 'opencode/deepseek-v4-flash';
 }
 
-/* OpenAI-compatible chat completions (shared by OpenRouter, Groq, and Hugging Face). */
+/* OpenAI-compatible chat completions (shared by Groq, OpenCode Zen, and Kilo). */
 function callOpenAiChat_(endpoint, apiKey, model, prompt, systemPrompt) {
   var resp = UrlFetchApp.fetch(endpoint, {
     method: 'post',
@@ -288,21 +303,15 @@ function callOpenAiChat_(endpoint, apiKey, model, prompt, systemPrompt) {
   return { success: true, insights: text };
 }
 
-/* OpenRouter chat completions. */
-function callOpenRouter_(props, ai, apiKey, model, prompt, systemPrompt) {
-  var endpoint = props.getProperty('OPENROUTER_ENDPOINT') || ai.endpoint || ENTERPRISE_AI_OPENROUTER_ENDPOINT;
-  return callOpenAiChat_(endpoint, apiKey, model, prompt, systemPrompt);
-}
-
 /* Groq chat completions (free tier). */
 function callGroq_(props, apiKey, model, prompt, systemPrompt) {
   var endpoint = props.getProperty('GROQ_ENDPOINT') || ENTERPRISE_AI_GROQ_ENDPOINT;
   return callOpenAiChat_(endpoint, apiKey, model, prompt, systemPrompt);
 }
 
-/* Hugging Face Inference Providers (OpenAI-compatible router, free tier). */
-function callHuggingFace_(props, apiKey, model, prompt, systemPrompt) {
-  var endpoint = props.getProperty('HUGGINGFACE_ENDPOINT') || ENTERPRISE_AI_HF_ENDPOINT;
+/* OpenCode Zen chat completions (OpenAI-compatible gateway). */
+function callOpencode_(props, apiKey, model, prompt, systemPrompt) {
+  var endpoint = props.getProperty('OPENCODE_ENDPOINT') || ENTERPRISE_AI_OPENCODE_ENDPOINT;
   return callOpenAiChat_(endpoint, apiKey, model, prompt, systemPrompt);
 }
 
@@ -367,45 +376,41 @@ function callGemini_(props, ai, apiKey, model, prompt, systemPrompt) {
 
 /* Shared provider dispatch: resolves the configured provider/key/model and runs a
    prompt through it. Returns {success, insights} or {success: false, message}.
-   When the primary provider fails and Kilo fallback is not disabled, retries once
-   through the Kilo Gateway free tier (keyless), so insights still arrive if the
-   configured provider (e.g. Groq) errors or is rate-limited. */
+   Providers are tried in priority order — groq (primary), then opencode, then
+   kilo (keyless), then gemini — so insights still arrive if the primary errors
+   or is rate-limited. Order is overridable via AI_PROVIDER_ORDER (comma list). */
 function generateAiText_(prompt, systemPrompt) {
   var ai = (ENTERPRISE_SETTINGS || {}).AI_INSIGHTS || {};
   var props = PropertiesService.getScriptProperties();
-  var provider = (props.getProperty('AI_PROVIDER') || ai.provider || 'openrouter').toLowerCase();
-  var apiKey = props.getProperty(aiKeyPropName_(provider)) || ai.apiKey || '';
-  if (!apiKey && provider !== 'kilo' && provider !== 'kilocode') {
-    // Self-heal: if the configured provider has no API key, fall through to the
-    // first provider that DOES have a key (e.g. the project's GEMINI_API_KEY)
-    // instead of failing with "AI credentials are not configured."
-    var candidates = ['gemini', 'groq', 'huggingface', 'openrouter'];
-    for (var c = 0; c < candidates.length; c++) {
-      var candKey = props.getProperty(aiKeyPropName_(candidates[c]));
-      if (candKey) {
-        provider = candidates[c];
-        apiKey = candKey;
-        break;
-      }
-    }
+  var override = (props.getProperty('AI_PROVIDER') || '').toLowerCase();
+  var preset = (props.getProperty('AI_PROVIDER_ORDER') || 'groq,opencode,kilo,gemini').toLowerCase();
+  var order = preset.split(',').map(function (s) { return s.trim(); }).filter(function (s) { return s; });
+  if (override && override !== 'none') {
+    order = [override].concat(order.filter(function (s) { return s !== override; }));
   }
-  var model = props.getProperty('AI_MODEL') || ai.model || aiDefaultModel_(provider);
-
-  var result = runAiProvider_(props, ai, provider, apiKey, model, prompt, systemPrompt);
-  if (result.success) return result;
-
   var kiloFallback = (props.getProperty('AI_KILO_FALLBACK') || 'true').toLowerCase() !== 'false';
-  var isKilo = provider === 'kilo' || provider === 'kilocode';
-  if (kiloFallback && !isKilo) {
-    var kiloModel = props.getProperty('AI_KILO_MODEL') || 'kilo-auto/free';
-    var kiloResult = runAiProvider_(props, ai, 'kilo', '', kiloModel, prompt, systemPrompt);
-    if (kiloResult.success) {
-      kiloResult.fallbackProvider = 'kilo';
-      return kiloResult;
+  var errors = [];
+  for (var i = 0; i < order.length; i++) {
+    var provider = order[i];
+    var isKilo = provider === 'kilo' || provider === 'kilocode';
+    if (isKilo && !kiloFallback) continue;
+    var apiKey = props.getProperty(aiKeyPropName_(provider)) || '';
+    if (!isKilo && !apiKey) {
+      errors.push(provider + ': AI credentials are not configured');
+      continue;
     }
-    result.kiloFallbackError = kiloResult.message || '';
+    var model = props.getProperty(aiModelPropName_(provider)) || aiDefaultModel_(provider) || props.getProperty('AI_MODEL') || ai.model;
+    var result = runAiProvider_(props, ai, provider, apiKey, model, prompt, systemPrompt);
+    if (result.success) {
+      result.provider = provider;
+      return result;
+    }
+    errors.push(provider + ': ' + result.message);
   }
-  return result;
+  if (errors.length) {
+    return { success: false, message: 'All AI providers failed.', errors: errors, details: errors.join(' | ') };
+  }
+  return { success: false, message: 'AI credentials are not configured.' };
 }
 
 function runAiProvider_(props, ai, provider, apiKey, model, prompt, systemPrompt) {
@@ -418,15 +423,14 @@ function runAiProvider_(props, ai, provider, apiKey, model, prompt, systemPrompt
       if (!apiKey) return { success: false, message: 'AI credentials are not configured.' };
       return callGroq_(props, apiKey, model, prompt, systemPrompt);
     }
-    if (provider === 'huggingface') {
+    if (provider === 'opencode') {
       if (!apiKey) return { success: false, message: 'AI credentials are not configured.' };
-      return callHuggingFace_(props, apiKey, model, prompt, systemPrompt);
+      return callOpencode_(props, apiKey, model, prompt, systemPrompt);
     }
     if (provider === 'kilo' || provider === 'kilocode') {
       return callKilo_(props, apiKey, model, prompt, systemPrompt);
     }
-    if (!apiKey) return { success: false, message: 'AI credentials are not configured.' };
-    return callOpenRouter_(props, ai, apiKey, model, prompt, systemPrompt);
+    return { success: false, message: 'Unknown AI provider: ' + provider };
   } catch (err) {
     return { success: false, message: String(err) };
   }
@@ -723,14 +727,14 @@ function isReadableAiText_(text) {
   return true;
 }
 
-/* Admin-gated: stores the OpenRouter API key in Script Properties so the
+/* Admin-gated: stores the OpenCode Zen API key in Script Properties so the
    real credential is never committed to the repo. Never echoes the value back. */
-function setOpenRouterApiKey(token, apiKey) {
+function setOpencodeApiKey(token, apiKey) {
   requireAdmin_(token);
   if (!apiKey || typeof apiKey !== 'string' || !apiKey.trim()) {
     return { ok: false, message: 'Missing API key.' };
   }
-  PropertiesService.getScriptProperties().setProperty('OPENROUTER_API_KEY', apiKey.trim());
+  PropertiesService.getScriptProperties().setProperty('OPENCODE_API_KEY', apiKey.trim());
   return { ok: true };
 }
 
@@ -755,15 +759,46 @@ function setGroqApiKey(token, apiKey) {
   return { ok: true };
 }
 
-/* Admin-gated: stores the Hugging Face token in Script Properties so the
-   real credential is never committed to the repo. Never echoes the value back. */
-function setHuggingFaceApiKey(token, apiKey) {
+/* Admin-gated: sets the primary AI provider (groq | opencode | kilo | gemini). */
+function setAiProvider(token, provider) {
   requireAdmin_(token);
-  if (!apiKey || typeof apiKey !== 'string' || !apiKey.trim()) {
-    return { ok: false, message: 'Missing API token.' };
+  var p = String(provider || '').trim().toLowerCase();
+  var allowed = ['groq', 'opencode', 'kilo', 'kilocode', 'gemini'];
+  if (allowed.indexOf(p) === -1) {
+    return { ok: false, message: 'Unknown AI provider: ' + provider + ' (use groq, opencode, kilo, or gemini).' };
   }
-  PropertiesService.getScriptProperties().setProperty('HUGGINGFACE_API_KEY', apiKey.trim());
+  PropertiesService.getScriptProperties().setProperty('AI_PROVIDER', p);
   return { ok: true };
+}
+
+/* Admin-gated: sets the provider priority chain, e.g. 'groq,opencode,kilo,gemini'. */
+function setAiProviderOrder(token, order) {
+  requireAdmin_(token);
+  var o = String(order || '').trim();
+  PropertiesService.getScriptProperties().setProperty('AI_PROVIDER_ORDER', o);
+  return { ok: true, order: o };
+}
+
+/* Admin-gated: one-time AI provider bootstrap. Call once from the Apps Script
+   editor (or `clasp run configureAI`). Pass the real keys as arguments so they
+   are written to Script Properties only — never committed to the repo — and the
+   priority chain is set to groq -> opencode -> kilo -> gemini. */
+function configureAI(groqApiKey, opencodeApiKey, geminiApiKey) {
+  var props = PropertiesService.getScriptProperties();
+  var set = {};
+  if (groqApiKey) set.GROQ_API_KEY = String(groqApiKey).trim();
+  if (opencodeApiKey) set.OPENCODE_API_KEY = String(opencodeApiKey).trim();
+  if (geminiApiKey) set.GEMINI_API_KEY = String(geminiApiKey).trim();
+  props.setProperties(set, false);
+  props.setProperty('AI_PROVIDER', 'groq');
+  props.setProperty('AI_PROVIDER_ORDER', 'groq,opencode,kilo,gemini');
+  props.setProperty('AI_KILO_FALLBACK', 'true');
+  return {
+    ok: true,
+    provider: 'groq',
+    order: 'groq,opencode,kilo,gemini',
+    keysSet: Object.keys(set)
+  };
 }
 
 /* Admin-gated: stores the Kilo Gateway API key in Script Properties (optional —
@@ -1194,13 +1229,13 @@ function getFathomMeetingContent(token, recordingId) {
 function aiKeyConfigured_() {
   var ai = (ENTERPRISE_SETTINGS || {}).AI_INSIGHTS || {};
   var props = PropertiesService.getScriptProperties();
-  var provider = (props.getProperty('AI_PROVIDER') || ai.provider || 'openrouter').toLowerCase();
+  var provider = (props.getProperty('AI_PROVIDER') || ai.provider || 'groq').toLowerCase();
   var propName = aiKeyPropName_(provider);
   if (props.getProperty(propName) || ai.apiKey) return true;
   var kiloFallback = (props.getProperty('AI_KILO_FALLBACK') || 'true').toLowerCase() !== 'false';
   if (kiloFallback && provider !== 'kilo' && provider !== 'kilocode') return true;
   // Any provider's key counts as configured (the per-request path self-heals to it).
-  var any = ['gemini', 'groq', 'huggingface', 'openrouter'];
+  var any = ['gemini', 'groq', 'opencode'];
   for (var i = 0; i < any.length; i++) {
     if (props.getProperty(aiKeyPropName_(any[i]))) return true;
   }
