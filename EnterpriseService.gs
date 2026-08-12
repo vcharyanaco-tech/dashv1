@@ -228,7 +228,9 @@ function postWhatsApp_(wa, toPhone, text) {
 /* ------------------------------------------------------------------ */
 
 function getAiInsights(token) {
-  if (token) requireAdmin_(token);
+  // Always require a valid session, even for tokenless calls, so anonymous
+  // callers cannot burn AI-provider quota (paid/free-tier rate limits).
+  requireLogin_(token);
   if (!aiEnabled_()) {
     return { success: false, message: 'AI insights are not enabled.' };
   }
