@@ -1,4 +1,4 @@
-const SW_VERSION = '2026.08.09h';
+const SW_VERSION = '2026.08.12';
 const CACHE_NAME = 'ipd-dashboard-' + SW_VERSION;
 const PRECACHE_URLS = [
   '/app.html',
@@ -31,22 +31,73 @@ self.addEventListener('activate', function (event) {
 });
 
 self.addEventListener('fetch', function (event) {
-  if (event.request.method !== 'GET') return;
-  const url = new URL(event.request.url);
+  const request = event.request;
+  if (request.method !== 'GET') return;
+
+  const url = new URL(request.url);
+
+  // Never intercept API traffic — /macros/* always goes to the network.
   if (url.pathname.indexOf('/macros/') === 0) return;
 
-  event.respondWith(
-    caches.match(event.request).then(function (cached) {
-      if (cached) return cached;
-      return fetch(event.request).then(function (resp) {
-        if (resp && resp.status === 200 && url.origin === self.location.origin) {
+  // Only handle same-origin requests (the page shell + its assets).
+  if (url.origin !== self.location.origin) return;
+
+  // The app shell + versioned assets must always prefer the network so a
+  // fresh deploy is live on the very next load. The previous handler was
+  // cache-first with NO revalidation — any browser that installed the SW
+  // kept running the old cached app.html/app.js forever, so every deploy
+  // after the install date was invisible (which surfaced as "login screen
+  // shows but clicking Log in does nothing" when the cached bundle's
+  // handleLogin/apiCall_ predated the 08-11 fixes).
+  const isShellAsset =
+    url.pathname === '/app.html' ||
+    url.pathname === '/app.js' ||
+    url.pathname === '/offline-queue.js' ||
+    url.pathname === '/assets/styles.css' ||
+    url.pathname === '/manifest.json' ||
+    url.pathname === '/sw.js';
+
+  if (isShellAsset) {
+    // Network-first: fresh copy when online, cached copy only when offline.
+    event.respondWith(
+      fetch(request).then(function (resp) {
+        if (resp && resp.status === 200) {
           const copy = resp.clone();
           caches.open(CACHE_NAME).then(function (cache) {
-            cache.put(event.request, copy);
+            cache.put(request, copy);
           });
         }
         return resp;
       }).catch(function () {
+        return caches.match(request).then(function (cached) {
+          if (cached) return cached;
+          return caches.match('/app.html');
+        });
+      })
+    );
+    return;
+  }
+
+  // Everything else (images, icons, fonts): cache-first with a background
+  // network refresh so the offline shell stays snappy.
+  event.respondWith(
+    caches.match(request).then(function (cached) {
+      const network = fetch(request).then(function (resp) {
+        if (resp && resp.status === 200 && url.origin === self.location.origin) {
+          const copy = resp.clone();
+          caches.open(CACHE_NAME).then(function (cache) {
+            cache.put(request, copy);
+          });
+        }
+        return resp;
+      });
+      if (cached) {
+        // Serve the cached copy immediately; refresh the cache in the
+        // background and surface the fresh response on the NEXT load.
+        network.catch(function () { /* offline: cached copy is fine */ });
+        return cached;
+      }
+      return network.catch(function () {
         return caches.match('/app.html');
       });
     })
