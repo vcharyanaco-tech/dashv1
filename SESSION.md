@@ -23,7 +23,9 @@ Resumed from opencode session `ses_00ab056e...` (export `session-ses_00ab.md`). 
 > **Private session exports** live in the **private** repo
 > `vcharyanaco-tech/dashv1-sessions` (raw opencode transcripts + per-session
 > `SESSION_EXPORT_*.md` summaries). They are deliberately NOT in this public
-> repo.
+> repo. One-command export: `.\export-session.ps1` (or `python export-session.py`
+> `--help`) — pushes the current opencode session there; `--sanitize` redacts
+> API keys.
 
 > **Resume point (historical): `SESSION_EXPORT_2026-08-11.md`** — covers the 2026-08-11 session: (1) **production crash fix, FULLY VERIFIED live @228** — every user-creation path (admin add / bulk import / password change) crashed under GAS V8. Two GAS pitfalls: `number[]` rejected by `computeHmacSha256Signature`, and `Charset.ISO_8859_1` REMOVED in V8. Final fix: **pure-JS SHA-256/HMAC/PBKDF2** (no Utilities interop; byte-identical to `crypto.pbkdf2Sync`, 89/89 tests). Live-proven: v1→v2 hash migration + v2 verify on login, import added 4 users, all cleaned up (commit `09ba230`). (2) Performance: cached getTasks (15s TTL), batched generation bumps + cache co-writes for Users/Tasks/Submissions, force-fetch after mutations. (3) Deploy fixes: `.claspignore` excludes `minify-frontend.js`+`lib/`; Start-task port (`35266bf`).
 >

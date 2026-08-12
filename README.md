@@ -127,6 +127,7 @@ Infrastructure:
 | `deploy-all.ps1`         | Full pipeline: git push + clasp + GAS redeploy + Worker |
 | `.github/workflows/pages.yml` | GitHub Actions → GitHub Pages (docs/) + Worker deploy |
 | `wrangler.toml`          | Worker config, routes, KV binding, GAS URL var        |
+| `export-session.py` / `export-session.ps1` | One-command export of an opencode session to the **private** `vcharyanaco-tech/dashv1-sessions` repo (`.\export-session.ps1`, or `python export-session.py`) |
 
 Configuration: `appsscript.json` (manifest/scopes/timezone), `.clasp.json` (script
 ID).
