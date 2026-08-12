@@ -4,12 +4,12 @@ export-session.py — one-command export of an opencode session to the PRIVATE
 repo vcharyanaco-tech/dashv1-sessions (never the public dashv1 repo).
 
 Usage:
-  python export-session.py                 export the most recently updated session + push
-  python export-session.py --session <id>  export a specific session (full or prefix id)
-  python export-session.py --list          list recent sessions and exit
-  python export-session.py --no-push       render the export locally, do not touch git
-  python export-session.py --sanitize      redact common API-key/token patterns
-  python export-session.py --out <dir>     override the working directory (default: ~/.local/share/dashv1-sessions)
+  python export-session.py                  export the most recently updated session + push
+  python export-session.py --session <id>   export a specific session (full or prefix id)
+  python export-session.py --list           list recent sessions and exit
+  python export-session.py --no-push        render the export locally, do not touch git
+  python export-session.py --no-sanitize    keep API keys / tokens in the export (DEFAULT: sanitized)
+  python export-session.py --out <dir>      override the working directory (default: ~/.local/share/dashv1-sessions)
 
 What it does:
   1. Reads the opencode SQLite store (~/.local/share/opencode/opencode.db)
@@ -18,8 +18,10 @@ What it does:
 
 Safety:
   - Pushes ONLY to the private dashv1-sessions repo, never the public dashv1 repo.
-  - By default the raw transcript is exported (it may contain keys — the repo is
-    private for exactly this reason). Pass --sanitize to redact secrets.
+  - **Secrets are redacted by default** (--sanitize on). Transcripts routinely
+    contain live API keys (e.g. a configureAI call passes real keys as tool-call
+    args), so only pass --no-sanitize when you deliberately want the raw
+    transcript.
   - Requires the same git credentials used for normal pushes (Git Credential Manager).
 """
 
@@ -28,7 +30,6 @@ import datetime
 import json
 import os
 import re
-import shutil
 import sqlite3
 import subprocess
 import sys
@@ -177,6 +178,7 @@ def find_session(cur, sid_arg):
         ).fetchone()
         if not row:
             sys.exit('No sessions found in the opencode store.')
+    print('Selected session: %s  (%s)' % (row[0], (row[1] or '')[:55]))
     return row
 
 
@@ -206,7 +208,7 @@ def ensure_workdir(out):
     return out
 
 
-def push_export(out, filename, sid, title, dry_run):
+def push_export(out, sid, title):
     run_git(['-C', out, 'config', 'user.name', GIT_USER])
     run_git(['-C', out, 'config', 'user.email', GIT_EMAIL])
     status = run_git(['-C', out, 'status', '--porcelain'])
@@ -216,9 +218,6 @@ def push_export(out, filename, sid, title, dry_run):
     msg = 'session export %s: %s' % (sid, (title or '')[:60])
     run_git(['-C', out, 'add', '-A'])
     run_git(['-C', out, 'commit', '-m', msg])
-    if dry_run:
-        print('Dry run: would push "%s" (commit created locally only).' % msg)
-        return True
     run_git(['-C', out, 'push', 'origin', 'main'])
     print('Pushed to %s' % PRIVATE_REPO_URL)
     return True
@@ -229,14 +228,17 @@ def main():
     ap.add_argument('--session', help='session id (full or prefix); default: most recently updated')
     ap.add_argument('--list', action='store_true', help='list recent sessions and exit')
     ap.add_argument('--no-push', action='store_true', help='render the export but do not touch git')
-    ap.add_argument('--sanitize', action='store_true', help='redact common API-key / token patterns')
+    ap.add_argument('--no-sanitize', dest='sanitize', action='store_false', help='KEEP API keys/tokens in the export (default is to redact them)')
     ap.add_argument('--out', default=DEFAULT_OUT, help='working directory (default: %s)' % DEFAULT_OUT)
     args = ap.parse_args()
 
     con = db_connect()
     cur = con.cursor()
     if args.list:
-        list_sessions(cur)
+        try:
+            list_sessions(cur)
+        finally:
+            con.close()
         return
 
     sid, title, created, updated, model, agent = find_session(cur, args.session)
@@ -262,6 +264,9 @@ def main():
 
     markdown = render_session(cur, sid, title, created, updated, model, agent, messages, args.sanitize)
 
+    if not args.sanitize:
+        print('WARNING: exporting UNSANITIZED transcript — it may contain live API keys/tokens.')
+
     filename = 'session-%s.md' % sid
     if args.no_push:
         target = os.path.join(args.out, filename)
@@ -270,6 +275,7 @@ def main():
             f.write(markdown)
         print('Exported (no push): %s  (%d messages, %d bytes)' % (target, len(messages), len(markdown)))
         print('Preview:\n' + markdown[:400])
+        con.close()
         return
 
     out = ensure_workdir(args.out)
@@ -277,7 +283,7 @@ def main():
     with open(target, 'w', encoding='utf-8') as f:
         f.write(markdown)
     print('Exported %s (%d messages, %d bytes)' % (target, len(messages), len(markdown)))
-    push_export(out, filename, sid, title, dry_run=False)
+    push_export(out, sid, title)
     con.close()
 
 
