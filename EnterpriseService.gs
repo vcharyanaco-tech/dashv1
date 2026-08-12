@@ -257,14 +257,6 @@ function aiModelPropName_(provider) {
   return 'OPENCODE_MODEL';
 }
 
-function aiEndpointPropName_(provider) {
-  if (provider === 'gemini') return 'GEMINI_ENDPOINT';
-  if (provider === 'groq') return 'GROQ_ENDPOINT';
-  if (provider === 'opencode') return 'OPENCODE_ENDPOINT';
-  if (provider === 'kilo' || provider === 'kilocode') return 'KILO_ENDPOINT';
-  return 'OPENCODE_ENDPOINT';
-}
-
 function aiDefaultModel_(provider) {
   if (provider === 'gemini') return 'gemini-2.0-flash';
   if (provider === 'groq') return 'llama-3.3-70b-versatile';
@@ -399,7 +391,11 @@ function generateAiText_(prompt, systemPrompt) {
       errors.push(provider + ': AI credentials are not configured');
       continue;
     }
-    var model = props.getProperty(aiModelPropName_(provider)) || aiDefaultModel_(provider) || props.getProperty('AI_MODEL') || ai.model;
+    // Per-provider model prop first, then a global AI_MODEL override, then the
+    // per-provider default. ai.model is deliberately NOT consulted: it is
+    // Groq-specific ('llama-3.3-70b-versatile') and would corrupt the model
+    // sent to OpenCode/Kilo when the chain falls through.
+    var model = props.getProperty(aiModelPropName_(provider)) || props.getProperty('AI_MODEL') || aiDefaultModel_(provider);
     var result = runAiProvider_(props, ai, provider, apiKey, model, prompt, systemPrompt);
     if (result.success) {
       result.provider = provider;
@@ -779,10 +775,11 @@ function setAiProviderOrder(token, order) {
   return { ok: true, order: o };
 }
 
-/* Admin-gated: one-time AI provider bootstrap. Call once from the Apps Script
-   editor (or `clasp run configureAI`). Pass the real keys as arguments so they
-   are written to Script Properties only — never committed to the repo — and the
-   priority chain is set to groq -> opencode -> kilo -> gemini. */
+/* One-time AI provider bootstrap for the admin. NOT exposed as a web-app route
+   (keep it out of API_ROUTES — it accepts raw keys). Call once from the Apps
+   Script editor (or `clasp run configureAI`). Pass the real keys as arguments
+   so they are written to Script Properties only — never committed to the repo —
+   and the priority chain is set to groq -> opencode -> kilo -> gemini. */
 function configureAI(groqApiKey, opencodeApiKey, geminiApiKey) {
   var props = PropertiesService.getScriptProperties();
   var set = {};
