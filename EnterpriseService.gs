@@ -260,9 +260,11 @@ function aiModelPropName_(provider) {
 function aiDefaultModel_(provider) {
   if (provider === 'gemini') return 'gemini-2.0-flash';
   if (provider === 'groq') return 'llama-3.3-70b-versatile';
-  if (provider === 'opencode') return 'opencode/deepseek-v4-flash';
+  // OpenCode Zen model IDs are bare (no provider prefix). The key stored in
+  // Script Properties has no payment method, so only the free tier is usable.
+  if (provider === 'opencode') return 'deepseek-v4-flash-free';
   if (provider === 'kilo' || provider === 'kilocode') return 'kilo-auto/free';
-  return 'opencode/deepseek-v4-flash';
+  return 'deepseek-v4-flash-free';
 }
 
 /* OpenAI-compatible chat completions (shared by Groq, OpenCode Zen, and Kilo). */

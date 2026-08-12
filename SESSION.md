@@ -17,7 +17,7 @@ Resumed from opencode session `ses_00ab056e...` (export `session-ses_00ab.md`). 
 
 ### Notes / gotchas
 - `ai.model` in `EnterpriseSettings.js` is Groq-specific (`llama-3.3-70b-versatile`) — `generateAiText_` model resolution intentionally does NOT fall back to it for OpenCode/Kilo; use `OPENCODE_MODEL`/`KILO_MODEL` Script Properties or global `AI_MODEL` to override.
-- Groq default model: `llama-3.3-70b-versatile`. OpenCode Zen default: `opencode/deepseek-v4-flash` at `https://opencode.ai/zen/v1/chat/completions`.
+- Groq default model: `llama-3.3-70b-versatile`. OpenCode Zen default: `deepseek-v4-flash-free` (bare model ID — the stored key has no billing; `opencode/` prefix is rejected) at `https://opencode.ai/zen/v1/chat/completions`.
 - `getAiInsights(token)` skips `requireAdmin_` when no token is passed — pre-existing, now consequential (quota burn risk).
 
 > **Resume point (historical): `SESSION_EXPORT_2026-08-11.md`** — covers the 2026-08-11 session: (1) **production crash fix, FULLY VERIFIED live @228** — every user-creation path (admin add / bulk import / password change) crashed under GAS V8. Two GAS pitfalls: `number[]` rejected by `computeHmacSha256Signature`, and `Charset.ISO_8859_1` REMOVED in V8. Final fix: **pure-JS SHA-256/HMAC/PBKDF2** (no Utilities interop; byte-identical to `crypto.pbkdf2Sync`, 89/89 tests). Live-proven: v1→v2 hash migration + v2 verify on login, import added 4 users, all cleaned up (commit `09ba230`). (2) Performance: cached getTasks (15s TTL), batched generation bumps + cache co-writes for Users/Tasks/Submissions, force-fetch after mutations. (3) Deploy fixes: `.claspignore` excludes `minify-frontend.js`+`lib/`; Start-task port (`35266bf`).
