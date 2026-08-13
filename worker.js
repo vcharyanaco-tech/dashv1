@@ -339,20 +339,23 @@ async function handlePreviewCheck(request, url) {
     return jsonResponse({ error: 'missing or invalid url' }, 400, null, request);
   }
   try {
+    // GET (never HEAD): many servers answer HEAD with 204 or no headers at all
+    // (YouTube is a prime example), which would falsely report "embeddable".
+    // fetch() resolves as soon as response HEADERS arrive, and we never read
+    // the body, so the subrequest is cheap regardless of content size.
     let resp;
     try {
       resp = await fetch(parsed.href, {
-        method: 'HEAD',
-        redirect: 'follow',
-        signal: AbortSignal.timeout(12000),
-      });
-    } catch (e) {
-      // Some servers reject HEAD; retry with GET and discard the body.
-      resp = await fetch(parsed.href, {
         method: 'GET',
         redirect: 'follow',
+        headers: {
+          'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/126.0.0.0 Safari/537.36',
+          'Accept': 'text/html,application/xhtml+xml,*/*;q=0.8',
+        },
         signal: AbortSignal.timeout(15000),
       });
+    } catch (e) {
+      return jsonResponse({ error: 'check failed', embeddable: null }, 502, null, request);
     }
     const xfo = (resp.headers.get('x-frame-options') || '').toUpperCase();
     const csp = resp.headers.get('content-security-policy') || '';
