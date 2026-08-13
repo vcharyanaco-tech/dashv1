@@ -77,6 +77,9 @@ export default {
       if (isRateLimited(request)) {
         return jsonResponse({ error: 'rate limited' }, 429, { 'Retry-After': '60' }, request);
       }
+      if (url.pathname === '/api/preview-check') {
+        return handlePreviewCheck(request, url);
+      }
       return handleEnterpriseRoute(request, env, url, ctx);
     }
 
@@ -311,6 +314,62 @@ function bearerToken(request) {
   const auth = request.headers.get('Authorization') || '';
   const m = auth.match(/^Bearer\s+(.+)$/i);
   return m ? m[1].trim() : '';
+}
+
+/**
+ * /api/preview-check?u=<url> — header probe for the in-page link preview.
+ *
+ * The frontend's floating preview iframe renders blank for sites that refuse
+ * embedding (X-Frame-Options or CSP frame-ancestors), and a cross-origin
+ * client can never read those headers itself. This same-origin endpoint does
+ * a HEAD (GET fallback) fetch of the target URL and reports only framing-
+ * relevant metadata — never the response body — so the frontend can show a
+ * "this site can't be embedded" hint instead of a blank window.
+ *
+ * Safety: only http(s) targets are accepted and only header values are
+ * returned (no body exfiltration); the route is already behind the per-IP
+ * rate limiter. Unauthenticated by design so the frontend (which holds no
+ * worker token) can call it.
+ */
+async function handlePreviewCheck(request, url) {
+  const target = url.searchParams.get('u') || '';
+  let parsed;
+  try { parsed = new URL(target); } catch (e) { parsed = null; }
+  if (!parsed || (parsed.protocol !== 'https:' && parsed.protocol !== 'http:')) {
+    return jsonResponse({ error: 'missing or invalid url' }, 400, null, request);
+  }
+  try {
+    let resp;
+    try {
+      resp = await fetch(parsed.href, {
+        method: 'HEAD',
+        redirect: 'follow',
+        signal: AbortSignal.timeout(12000),
+      });
+    } catch (e) {
+      // Some servers reject HEAD; retry with GET and discard the body.
+      resp = await fetch(parsed.href, {
+        method: 'GET',
+        redirect: 'follow',
+        signal: AbortSignal.timeout(15000),
+      });
+    }
+    const xfo = (resp.headers.get('x-frame-options') || '').toUpperCase();
+    const csp = resp.headers.get('content-security-policy') || '';
+    const frameAncestorsMatch = (csp.match(/frame-ancestors[^;]*/i) || [''])[0].trim();
+    // An X-Frame-Options value other than the (extremely rare) ALLOWALL forbids
+    // framing, and so does any CSP frame-ancestors directive.
+    const embeddable = !((xfo && xfo !== 'ALLOWALL') || /frame-ancestors/i.test(csp));
+    return jsonResponse({
+      url: resp.url || parsed.href,
+      status: resp.status,
+      xFrameOptions: xfo || null,
+      frameAncestors: frameAncestorsMatch || null,
+      embeddable: embeddable,
+    }, 200, null, request);
+  } catch (err) {
+    return jsonResponse({ error: 'check failed', embeddable: null }, 502, null, request);
+  }
 }
 
 async function handleEnterpriseRoute(request, env, url, ctx) {

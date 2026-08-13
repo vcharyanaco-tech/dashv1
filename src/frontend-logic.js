@@ -1438,12 +1438,65 @@ function openLinkPreview(url, title) {
   applyPreviewZoom();
   frame.src = toEmbeddableUrl(url) || '';
   openDialog('previewModal');
+  checkPreviewEmbeddable(url);
 }
 
 function closeLinkPreview() {
   const frame = getEl('previewFrame');
   if (frame) frame.src = 'about:blank';
   closeDialog('previewModal');
+}
+
+/* When a site refuses to be embedded (X-Frame-Options / CSP frame-ancestors)
+   the preview iframe stays blank, which reads as "nothing happens". The worker
+   probes the target's headers same-origin; if embedding is blocked we surface
+   a clear hint + "Open in new tab" link instead of a blank window. The check
+   runs async so it never delays opening the preview. */
+function checkPreviewEmbeddable(url) {
+  const frame = getEl('previewFrame');
+  const modal = getEl('previewModal');
+  if (!frame || !modal) return;
+  setPreviewBlockedHint(false);
+  if (!/^https?:/i.test(url)) return;
+  const embedUrl = toEmbeddableUrl(url) || url;
+  fetch('/api/preview-check?u=' + encodeURIComponent(embedUrl), { headers: { 'Accept': 'application/json' } })
+    .then(function (r) { return r.ok ? r.json() : null; })
+    .then(function (res) {
+      if (res && res.embeddable === false) setPreviewBlockedHint(true, url);
+    })
+    .catch(function () { setPreviewBlockedHint(false); });
+}
+
+function setPreviewBlockedHint(blocked, url) {
+  const modal = getEl('previewModal');
+  if (!modal) return;
+  let hint = getEl('previewBlockedHint');
+  if (!hint) {
+    hint = document.createElement('div');
+    hint.id = 'previewBlockedHint';
+    hint.style.cssText = 'display:none;margin:0 0 10px;padding:8px 12px;border:1px solid var(--border,#e2c877);border-radius:6px;background:var(--warn-bg,#fff8e1);color:var(--warn,#b45309);font-size:13px;line-height:1.5;';
+    const card = modal.querySelector('.modal-card');
+    const note = card ? card.querySelector('.preview-note') : null;
+    const header = card ? card.querySelector('.modal-header') : null;
+    if (note) note.parentNode.insertBefore(hint, note.nextSibling);
+    else if (header) header.parentNode.insertBefore(hint, header.nextSibling);
+    else if (card) card.insertBefore(hint, card.firstChild);
+    else modal.appendChild(hint);
+  }
+  while (hint.firstChild) hint.removeChild(hint.firstChild);
+  if (blocked) {
+    hint.appendChild(document.createTextNode('This site doesn\'t allow embedding, so the preview is blank. '));
+    const openNew = getEl('previewOpenNew');
+    const a = document.createElement('a');
+    a.href = url || (openNew ? openNew.href : '#');
+    a.target = '_blank';
+    a.rel = 'noopener noreferrer';
+    a.textContent = 'Open in new tab';
+    hint.appendChild(a);
+    hint.style.display = 'block';
+  } else {
+    hint.style.display = 'none';
+  }
 }
 
 /* ---------------------------------- Preview zoom ---------------------------------- */
