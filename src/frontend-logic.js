@@ -2283,6 +2283,10 @@ function wireGlobalEvents() {
     if (dashTbody) {
       dashTbody.addEventListener('click', function (e) {
         if (e.target.closest('button')) return;
+        // Links must keep their native/in-preview behaviour — clicking one must
+        // not also open the record-detail modal (which used to cover or fight
+        // the floating link preview when the dashboard is in table view).
+        if (e.target.closest('a[href]')) return;
         const tr = e.target.closest('tr[data-row]');
         if (tr) openRecordDetail(tr.getAttribute('data-row'));
       });
