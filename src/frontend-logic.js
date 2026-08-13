@@ -1486,16 +1486,20 @@ function openDriveDocPreview(fileId, fileName) {
   openLinkPreview('https://drive.google.com/file/d/' + encodeURIComponent(fileId) + '/preview', fileName || 'Document preview');
 }
 
-/* Delegated handler: intercept links that would otherwise open in a new tab
-   (auto-linkified URLs in records, table cells, Drive attachments) so they
-   render in the in-page preview modal instead. The "Open in new tab" button
-   inside the preview modal itself is exempt, and non-http(s) schemes like
-   mailto:/tel: keep their default behaviour. */
+/* Delegated handler: intercept any http(s) hyperlink in the dashboard (auto-
+   linkified URLs in records, table cells, Drive attachments, and any plain
+   links) so it renders in the in-page floating preview modal instead of
+   navigating away or opening a raw new tab. The "Open in new tab" button
+   inside the preview modal itself is exempt, download links keep their
+   behaviour, elements marked data-no-preview keep their native behaviour, and
+   non-http(s) schemes like mailto:/tel: are untouched. */
 function wireEmbeddedLinkPreview() {
   document.addEventListener('click', function (event) {
-    const link = event.target.closest ? event.target.closest('a[data-embed], a[target="_blank"]') : null;
+    const link = event.target.closest ? event.target.closest('a[href]') : null;
     if (!link) return;
     if (link.closest && link.closest('#previewModal')) return;
+    if (link.closest && link.closest('[data-no-preview]')) return;
+    if (link.hasAttribute('download')) return;
     const href = link.getAttribute('href') || '';
     if (!/^https?:/i.test(href)) return;
     event.preventDefault();
@@ -1539,8 +1543,66 @@ function getAuthToken() {
 }
 
 function setAuthToken(token) {
-  if (token) window.localStorage.setItem(STORAGE_TOKEN, token);
-  else window.localStorage.removeItem(STORAGE_TOKEN);
+  if (token) {
+    window.localStorage.setItem(STORAGE_TOKEN, token);
+    // A fresh login must never render the previous account's cached dashboard
+    // (shared-device safety). The new user's data is re-cached once it loads.
+    clearCachedAppData_();
+  } else {
+    window.localStorage.removeItem(STORAGE_TOKEN);
+  }
+}
+
+/* ---------------------------------- Boot data cache ---------------------------------- */
+/* Persists the last good getAppData payload so repeat visits (or page reloads
+   while a session token is still present) can paint the dashboard instantly
+   while the live data refreshes in the background. The cache is scoped to the
+   logged-in account and cleared on any fresh login. */
+
+const APP_CACHE_KEY = 'indiaPostAppCache';
+const APP_USER_KEY = 'indiaPostAppCacheUser';
+
+function currentAppDataUser_(user) {
+  if (arguments.length && user && (user.username || user.email)) {
+    const key = user.username || user.email;
+    try { window.localStorage.setItem(APP_USER_KEY, key); } catch (err) {}
+    return key;
+  }
+  try { return window.localStorage.getItem(APP_USER_KEY) || ''; } catch (err) { return ''; }
+}
+
+function saveCachedAppData_(data) {
+  try {
+    const user = data && data.user;
+    if (!user || !user.loggedIn) return;
+    currentAppDataUser_(user);
+    const payload = {
+      user: user.username || user.email || '',
+      t: Date.now(),
+      d: data
+    };
+    const raw = JSON.stringify(payload);
+    if (raw.length > 1.5 * 1024 * 1024) return;
+    window.localStorage.setItem(APP_CACHE_KEY, raw);
+  } catch (err) {}
+}
+
+function loadCachedAppData_() {
+  try {
+    const raw = window.localStorage.getItem(APP_CACHE_KEY);
+    if (!raw) return null;
+    const payload = JSON.parse(raw);
+    if (!payload || !payload.d || !payload.user) return null;
+    if (Date.now() - (payload.t || 0) > 24 * 60 * 60 * 1000) return null;
+    return payload;
+  } catch (err) { return null; }
+}
+
+function clearCachedAppData_() {
+  try {
+    window.localStorage.removeItem(APP_CACHE_KEY);
+    window.localStorage.removeItem(APP_USER_KEY);
+  } catch (err) {}
 }
 
 function isAuthError(message) {
@@ -3000,6 +3062,26 @@ function initApp() {
 
 function loadApp() {
   showOverlay('Loading app…');
+
+  const cached = loadCachedAppData_();
+  if (cached) {
+    const cachedUser = cached.d && cached.d.user;
+    if (cachedUser && cachedUser.loggedIn && cached.user === currentAppDataUser_()) {
+      appState.user = cachedUser;
+      appState.isAdmin = cachedUser.role === 'ADMIN';
+      appState.isEditor = cachedUser.role === 'ADMIN' || cachedUser.role === 'EDITOR';
+      appState.mustChange = !!cached.d.mustChange;
+      appState.permissions = (cachedUser && cachedUser.permissions) || {};
+      applyAppData(cached.d);
+      populateFilters();
+      populateResponsibilitySelect();
+      hideOverlay();
+      hideSplash();
+      renderDashboard();
+      showToast('Showing previously loaded data — refreshing now…', 'info');
+    }
+  }
+
   ApiService.getAppData().then(function (data) {
     hideOverlay();
     hideSplash();
@@ -3014,6 +3096,8 @@ function loadApp() {
     appState.mustChange = !!data.mustChange;
     appState.permissions = (data.user && data.user.permissions) || {};
     applyAppData(data);
+    currentAppDataUser_(data.user);
+    saveCachedAppData_(data);
 
     populateFilters();
     populateResponsibilitySelect();
