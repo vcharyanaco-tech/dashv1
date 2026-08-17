@@ -1,6 +1,18 @@
 # India Post Dashboard — Session State
 
-Last updated: 2026-08-12
+Last updated: 2026-08-17
+
+> **GAS DECOMMISSIONED 2026-08-17 (owner-declared soak complete).** The Apps
+> Script project `1QYwVDQGWPL…` is retired: the live Node backend (dash-site)
+> owns all daily jobs (9am review-reminder emails + 10am audit archival via
+> the Worker cron → `/api/internal/daily-jobs`), the web-app deployments were
+> undeployed (exec URLs 404), and the live project's `Triggers` handlers were
+> overwritten with no-ops so any still-installed triggers are harmless.
+> This repo keeps the **real** code as the rollback/re-creation source.
+> **One manual step remains (owner):** delete the project at
+> `script.google.com` — the REST API has no project-delete method and the
+> clasp token lacks `script.scriptapp` for `scripts.run`. Do **not** run
+> `deploy-all.ps1` / `clasp push` against the live project anymore.
 
 > **Resume point: opencode session export `C:\Users\admin\session-ses_00ab.md`** — covers the 2026-08-12 session: **AI provider priority chain — DONE, LIVE @236, fully verified**. AI insights now try **Groq (primary) → OpenCode Zen → Kilo (keyless) → Gemini** in priority order (`AI_PROVIDER_ORDER` Script Property), replacing the old single-provider + HF/OpenRouter setup. Real keys stored in GAS Script Properties ONLY (never committed): `GROQ_API_KEY` + `OPENCODE_API_KEY` via the one-time `configureAI` bootstrap (invoked through a temporary `API_ROUTES` entry, then removed and redeployed @235→@236 — the live endpoint now rejects `configureAI` with "Unknown function"). Verified live: `getAiInsights` returns real insights with `"provider":"groq"` on @236. Commits `0a36078` + `3507ba7` (reviewer fixes: dropped dead `aiEndpointPropName_`, restored `AI_MODEL` global override without leaking the Groq-specific `ai.model` into OpenCode/Kilo calls).
 >
