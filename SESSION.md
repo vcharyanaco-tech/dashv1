@@ -2,6 +2,11 @@
 
 Last updated: 2026-08-17
 
+> **Resume point for the 2026-08-17 session:** `dash-site/SESSION_EXPORT_2026-08-17.md`
+> (in the dash-site repo) — covers the Ask-AI features, arg-order audit,
+> GAS decommission, report-PDF fix, and the email-delivery diagnosis
+> (Worker relay verified working; Render env vars pending).
+
 > **GAS DECOMMISSIONED 2026-08-17 (owner-declared soak complete).** The Apps
 > Script project `1QYwVDQGWPL…` is retired: the live Node backend (dash-site)
 > owns all daily jobs (9am review-reminder emails + 10am audit archival via
